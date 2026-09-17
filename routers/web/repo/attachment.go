@@ -19,6 +19,7 @@ import (
 	"gitea.dev/services/attachment"
 	"gitea.dev/services/context"
 	"gitea.dev/services/context/upload"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -207,6 +208,22 @@ func ServeAttachment(ctx *context.Context, uuid string) {
 			if ctx.Written() {
 				return
 			}
+		}
+	}
+
+	if ctx.Doer != nil && repoID > 0 {
+		repository, err := repo_model.GetRepositoryByID(ctx, repoID)
+		if err != nil {
+			ctx.ServerError("GetRepositoryByID", err)
+			return
+		}
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), repository, "access.attachment", map[string]any{"attachment_id": attach.ID, "attachment_uuid": attach.UUID, "name": attach.Name, "issue_id": attach.IssueID, "release_id": attach.ReleaseID})
+		if err != nil {
+			ctx.ServerError("附件访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
 		}
 	}
 

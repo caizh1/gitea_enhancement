@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	system_model "gitea.dev/models/system"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/graceful"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/process"
 	"gitea.dev/modules/setting"
@@ -80,6 +82,15 @@ func getCronTaskLockKey(name string) string {
 
 // RunWithUser will run the task incrementing the cron counter at the time with User
 func (t *Task) RunWithUser(doer *user_model.User, config Config) {
+	t.runWithActor(doer, governance_model.Actor{}, config)
+}
+
+// RunWithAuditActor 保留管理员请求身份，并在后台完成时写入关联结果。
+func (t *Task) RunWithAuditActor(doer *user_model.User, actor governance_model.Actor, config Config) {
+	t.runWithActor(doer, actor, config)
+}
+
+func (t *Task) runWithActor(doer *user_model.User, actor governance_model.Actor, config Config) {
 	locked, releaser, err := globallock.TryLock(graceful.GetManager().ShutdownContext(), getCronTaskLockKey(t.Name))
 	if err != nil {
 		log.Error("Failed to acquire lock for cron task %q: %v", t.Name, err)
@@ -87,6 +98,10 @@ func (t *Task) RunWithUser(doer *user_model.User, config Config) {
 	}
 	if !locked {
 		log.Trace("a cron task %q is already running", t.Name)
+		if actor.Kind != "" {
+			details, _ := json.Marshal(map[string]any{"task": t.Name, "reason_code": "already_running"})
+			_ = governance_model.AppendAudit(governance_model.WithAuditActor(context.Background(), actor), &governance_model.AuditEvent{Type: "admin.task_completed", Actor: actor, ScopeType: "instance", ObjectType: "admin_task", ObjectPath: t.Name, Result: "failure", Details: details})
+		}
 		return
 	}
 	defer releaser()
@@ -99,11 +114,20 @@ func (t *Task) RunWithUser(doer *user_model.User, config Config) {
 	t.lock.Unlock()
 
 	graceful.GetManager().RunWithShutdownContext(func(baseCtx context.Context) {
+		if actor.Kind != "" {
+			baseCtx = governance_model.WithAuditActor(baseCtx, actor)
+		}
+		result := "success"
 		defer func() {
 			if err := recover(); err != nil {
+				result = "failure"
 				// Recover a panic within the execution of the task.
 				combinedErr := fmt.Errorf("%s\n%s", err, log.Stack(2))
 				log.Error("PANIC whilst running task: %s Value: %v", t.Name, combinedErr)
+			}
+			if actor.Kind != "" {
+				details, _ := json.Marshal(map[string]any{"task": t.Name})
+				_ = governance_model.AppendAudit(baseCtx, &governance_model.AuditEvent{Type: "admin.task_completed", Actor: actor, ScopeType: "instance", ObjectType: "admin_task", ObjectPath: t.Name, Result: result, Details: details})
 			}
 		}()
 		// Store the time of this run, before the function is executed, so it
@@ -122,6 +146,7 @@ func (t *Task) RunWithUser(doer *user_model.User, config Config) {
 		defer finished()
 
 		if err := t.fun(ctx, doer, config); err != nil {
+			result = "failure"
 			var message string
 			var status string
 			if db.IsErrCancelled(err) {

@@ -11,6 +11,28 @@
 	<div class="content">
 		<div class="ui segment fitted avatar-content-left-arrow">
 			<div class="merge-section flex-divided-list items-px-default">
+			{{if $data.ApprovalStateURL}}
+				<div class="item">
+					<div class="tw-flex tw-flex-wrap tw-items-start tw-justify-between tw-gap-2">
+						<div class="tw-min-w-0">
+							<strong>审批规则</strong>
+							{{if $data.ApprovalStateError}}
+								<p class="tw-m-0 tw-text-red">{{$data.ApprovalStateError}}</p>
+							{{else if not $data.ApprovalState.VersionReady}}
+								<p class="tw-m-0">{{or $data.ApprovalState.Reason "审批差异版本尚未就绪"}}</p>
+							{{else}}
+								<p class="tw-m-0">{{if $data.ApprovalState.State.Satisfied}}全部审批规则已满足{{else}}审批规则尚未满足{{end}}</p>
+								<ul class="tw-mb-0 tw-pl-5">
+									{{range $rule := $data.ApprovalState.State.Rules}}
+										<li><strong>{{$rule.Name}}</strong>（{{if $rule.SubjectsHidden}}隐藏审批主体{{else if eq $rule.ScopeType "instance"}}实例策略{{else if eq $rule.ScopeType "group"}}群组策略{{else if eq $rule.ScopeType "repository"}}项目规则{{else}}PR 规则{{end}}）：{{if $rule.Optional}}可选{{else if and $rule.NeedsAttention (not $rule.SubjectsHidden)}}合格审批人不足（需要 {{$rule.Required}} 人，当前 {{$rule.EligibleCount}} 人）{{else if $rule.Satisfied}}已满足{{else}}还需 {{$rule.Missing}} 人批准{{end}}</li>
+									{{else}}<li>当前没有生效的必需审批规则</li>{{end}}
+								</ul>
+							{{end}}
+						</div>
+						<a class="ui basic button" href="{{$data.ApprovalStateURL}}">查看审批详情</a>
+					</div>
+				</div>
+			{{end}}
 			{{if $data.ShowStatusCheck}}
 				{{template "repo/issue/view_content/pull_merge_status_checks" (dict "StatusCheckData" $data.StatusCheckData)}}
 			{{end}}

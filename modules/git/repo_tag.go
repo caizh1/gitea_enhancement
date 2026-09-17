@@ -18,16 +18,27 @@ const TagPrefix = "refs/tags/"
 
 // CreateTag create one tag in the repository
 func (repo *Repository) CreateTag(name, revision string) error {
-	_, _, err := gitcmd.NewCommand("tag").AddDashesAndList(name, revision).WithDir(repo.Path).RunStdString(repo.Ctx)
+	return repo.CreateTagWithEnv(name, revision, nil)
+}
+
+// CreateTagWithEnv 创建轻量标签并向引用事务 Hook 传入受信任环境。
+func (repo *Repository) CreateTagWithEnv(name, revision string, env []string) error {
+	_, _, err := gitcmd.NewCommand("tag").AddDashesAndList(name, revision).WithDir(repo.Path).WithEnv(env).RunStdString(repo.Ctx)
 	return err
 }
 
 // CreateAnnotatedTag create one annotated tag in the repository
 func (repo *Repository) CreateAnnotatedTag(name, message, revision string) error {
+	return repo.CreateAnnotatedTagWithEnv(name, message, revision, nil)
+}
+
+// CreateAnnotatedTagWithEnv 创建附注标签并向引用事务 Hook 传入受信任环境。
+func (repo *Repository) CreateAnnotatedTagWithEnv(name, message, revision string, env []string) error {
 	_, _, err := gitcmd.NewCommand("tag", "-a", "-m").
 		AddDynamicArguments(message).
 		AddDashesAndList(name, revision).
 		WithDir(repo.Path).
+		WithEnv(env).
 		RunStdString(repo.Ctx)
 	return err
 }

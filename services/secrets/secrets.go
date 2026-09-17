@@ -6,7 +6,9 @@ package secrets
 import (
 	"context"
 
+	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	secret_model "gitea.dev/models/secret"
 )
 
@@ -72,8 +74,19 @@ func DeleteSecretByName(ctx context.Context, ownerID, repoID int64, name string)
 }
 
 func deleteSecret(ctx context.Context, s *secret_model.Secret) error {
-	if _, err := db.DeleteByID[secret_model.Secret](ctx, s.ID); err != nil {
-		return err
-	}
-	return nil
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, has, err := db.GetByID[secret_model.Secret](ctx, s.ID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return secret_model.ErrSecretNotFound{Name: s.Name}
+		}
+		if count, err := db.DeleteByID[secret_model.Secret](ctx, fresh.ID); err != nil {
+			return err
+		} else if count != 1 {
+			return secret_model.ErrSecretNotFound{Name: fresh.Name}
+		}
+		return actions_model.AppendConfigurationAudit(ctx, fresh.OwnerID, fresh.RepoID, "actions.secret_deleted", "actions_secret", fresh.ID, fresh.Name, map[string]any{"name": fresh.Name, "value_configured": fresh.Data != "", "description_configured": fresh.Description != ""})
+	})
 }

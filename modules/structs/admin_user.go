@@ -8,6 +8,8 @@ import "time"
 
 // CreateUserOption create user options
 type CreateUserOption struct {
+	// 是否赋予全站审计员只读身份。
+	Auditor *bool `json:"auditor"`
 	// The authentication source ID to associate with the user
 	SourceID int64 `json:"source_id"`
 	// identifier of the user, provided by the external authenticator (if configured)
@@ -39,6 +41,8 @@ type CreateUserOption struct {
 
 // EditUserOption edit user options
 type EditUserOption struct {
+	// 是否赋予全站审计员只读身份；已有资源授权独立生效。
+	Auditor *bool `json:"auditor"`
 	// required: true
 	// The authentication source ID to associate with the user
 	SourceID int64 `json:"source_id"`

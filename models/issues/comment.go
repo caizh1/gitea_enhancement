@@ -16,6 +16,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
@@ -240,7 +241,10 @@ func (r RoleInRepo) LocaleHelper(lang translation.Locale) string {
 
 type SpecialDoerNameType string
 
-const SpecialDoerNameCodeOwners SpecialDoerNameType = "CODEOWNERS"
+const (
+	SpecialDoerNameCodeOwners          SpecialDoerNameType = "CODEOWNERS"
+	SpecialDoerNameGovernanceApprovals SpecialDoerNameType = "审批规则"
+)
 
 // CommentMetaData stores metadata for a comment, these data will not be changed once inserted into database
 type CommentMetaData struct {
@@ -815,78 +819,89 @@ func (c *Comment) TimelineRequestedReviewTr(locale translation.Locale, createdSt
 
 // CreateComment creates comment with context
 func CreateComment(ctx context.Context, opts *CreateCommentOptions) (_ *Comment, err error) {
-	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
-		var LabelID int64
-		if opts.Label != nil {
-			LabelID = opts.Label.ID
-		}
-
-		var commentMetaData *CommentMetaData
-		if opts.ProjectColumnTitle != "" {
-			commentMetaData = &CommentMetaData{
-				ProjectColumnID:    opts.ProjectColumnID,
-				ProjectColumnTitle: opts.ProjectColumnTitle,
-				ProjectTitle:       opts.ProjectTitle,
+	var result *Comment
+	err = governance_model.WithWrite(ctx, contentAuditResources(opts.Issue), func(ctx context.Context) error {
+		var txErr error
+		result, txErr = db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+			var LabelID int64
+			if opts.Label != nil {
+				LabelID = opts.Label.ID
 			}
-		}
-		if opts.SpecialDoerName != "" {
-			commentMetaData = &CommentMetaData{
-				SpecialDoerName: opts.SpecialDoerName,
+
+			var commentMetaData *CommentMetaData
+			if opts.ProjectColumnTitle != "" {
+				commentMetaData = &CommentMetaData{
+					ProjectColumnID:    opts.ProjectColumnID,
+					ProjectColumnTitle: opts.ProjectColumnTitle,
+					ProjectTitle:       opts.ProjectTitle,
+				}
 			}
-		}
+			if opts.SpecialDoerName != "" {
+				commentMetaData = &CommentMetaData{
+					SpecialDoerName: opts.SpecialDoerName,
+				}
+			}
 
-		comment := &Comment{
-			Type:             opts.Type,
-			PosterID:         opts.Doer.ID,
-			Poster:           opts.Doer,
-			IssueID:          opts.Issue.ID,
-			LabelID:          LabelID,
-			OldMilestoneID:   opts.OldMilestoneID,
-			MilestoneID:      opts.MilestoneID,
-			OldProjectID:     opts.OldProjectID,
-			ProjectID:        opts.ProjectID,
-			TimeID:           opts.TimeID,
-			RemovedAssignee:  opts.RemovedAssignee,
-			AssigneeID:       opts.AssigneeID,
-			AssigneeTeamID:   opts.AssigneeTeamID,
-			CommitID:         opts.CommitID,
-			CommitSHA:        opts.CommitSHA,
-			Line:             opts.LineNum,
-			Content:          opts.Content,
-			OldTitle:         opts.OldTitle,
-			NewTitle:         opts.NewTitle,
-			OldRef:           opts.OldRef,
-			NewRef:           opts.NewRef,
-			DependentIssueID: opts.DependentIssueID,
-			TreePath:         opts.TreePath,
-			ReviewID:         opts.ReviewID,
-			Patch:            opts.Patch,
-			RefRepoID:        opts.RefRepoID,
-			RefIssueID:       opts.RefIssueID,
-			RefCommentID:     opts.RefCommentID,
-			RefAction:        opts.RefAction,
-			RefIsPull:        opts.RefIsPull,
-			IsForcePush:      opts.IsForcePush,
-			Invalidated:      opts.Invalidated,
-			CommentMetaData:  commentMetaData,
-		}
-		if err = db.Insert(ctx, comment); err != nil {
-			return nil, err
-		}
+			comment := &Comment{
+				Type:             opts.Type,
+				PosterID:         opts.Doer.ID,
+				Poster:           opts.Doer,
+				IssueID:          opts.Issue.ID,
+				LabelID:          LabelID,
+				OldMilestoneID:   opts.OldMilestoneID,
+				MilestoneID:      opts.MilestoneID,
+				OldProjectID:     opts.OldProjectID,
+				ProjectID:        opts.ProjectID,
+				TimeID:           opts.TimeID,
+				RemovedAssignee:  opts.RemovedAssignee,
+				AssigneeID:       opts.AssigneeID,
+				AssigneeTeamID:   opts.AssigneeTeamID,
+				CommitID:         opts.CommitID,
+				CommitSHA:        opts.CommitSHA,
+				Line:             opts.LineNum,
+				Content:          opts.Content,
+				OldTitle:         opts.OldTitle,
+				NewTitle:         opts.NewTitle,
+				OldRef:           opts.OldRef,
+				NewRef:           opts.NewRef,
+				DependentIssueID: opts.DependentIssueID,
+				TreePath:         opts.TreePath,
+				ReviewID:         opts.ReviewID,
+				Patch:            opts.Patch,
+				RefRepoID:        opts.RefRepoID,
+				RefIssueID:       opts.RefIssueID,
+				RefCommentID:     opts.RefCommentID,
+				RefAction:        opts.RefAction,
+				RefIsPull:        opts.RefIsPull,
+				IsForcePush:      opts.IsForcePush,
+				Invalidated:      opts.Invalidated,
+				CommentMetaData:  commentMetaData,
+			}
+			if err = db.Insert(ctx, comment); err != nil {
+				return nil, err
+			}
 
-		if err = opts.Repo.LoadOwner(ctx); err != nil {
-			return nil, err
-		}
+			if err = opts.Repo.LoadOwner(ctx); err != nil {
+				return nil, err
+			}
 
-		if err = updateCommentInfos(ctx, opts, comment); err != nil {
-			return nil, err
-		}
+			if err = updateCommentInfos(ctx, opts, comment); err != nil {
+				return nil, err
+			}
 
-		if err = comment.AddCrossReferences(ctx, opts.Doer, false); err != nil {
-			return nil, err
-		}
-		return comment, nil
+			if err = comment.AddCrossReferences(ctx, opts.Doer, false); err != nil {
+				return nil, err
+			}
+			if opts.Type == CommentTypeComment || opts.Type == CommentTypeCode {
+				if err := AppendContentAudit(ctx, "comment.created", opts.Issue, "comment", comment.ID, map[string]any{"comment_type": opts.Type.String(), "issue_id": opts.Issue.ID}); err != nil {
+					return nil, err
+				}
+			}
+			return comment, nil
+		})
+		return txErr
 	})
+	return result, err
 }
 
 func updateCommentInfos(ctx context.Context, opts *CreateCommentOptions, comment *Comment) (err error) {
@@ -1150,54 +1165,82 @@ func UpdateCommentInvalidate(ctx context.Context, c *Comment) error {
 
 // UpdateComment updates information of comment.
 func UpdateComment(ctx context.Context, c *Comment, contentVersion int, doer *user_model.User) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		c.ContentVersion = contentVersion + 1
+	if err := c.LoadIssue(ctx); err != nil {
+		return err
+	}
+	return governance_model.WithWrite(ctx, contentAuditResources(c.Issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			c.ContentVersion = contentVersion + 1
 
-		affected, err := db.GetEngine(ctx).ID(c.ID).AllCols().Where("content_version = ?", contentVersion).Update(c)
-		if err != nil {
-			return err
-		}
-		if affected == 0 {
-			return ErrCommentAlreadyChanged
-		}
-		if err := c.LoadIssue(ctx); err != nil {
-			return err
-		}
-		return c.AddCrossReferences(ctx, doer, true)
+			affected, err := db.GetEngine(ctx).ID(c.ID).AllCols().Where("content_version = ?", contentVersion).Update(c)
+			if err != nil {
+				return err
+			}
+			if affected == 0 {
+				return ErrCommentAlreadyChanged
+			}
+			if err := c.LoadIssue(ctx); err != nil {
+				return err
+			}
+			if err := c.AddCrossReferences(ctx, doer, true); err != nil {
+				return err
+			}
+			if c.Type == CommentTypeComment || c.Type == CommentTypeCode {
+				return AppendContentAudit(ctx, "comment.updated", c.Issue, "comment", c.ID, map[string]any{"changed_fields": []string{"content"}, "comment_type": c.Type.String(), "issue_id": c.IssueID})
+			}
+			return nil
+		})
 	})
 }
 
 // DeleteComment deletes the comment
 func DeleteComment(ctx context.Context, comment *Comment) error {
-	e := db.GetEngine(ctx)
-	if _, err := e.ID(comment.ID).NoAutoCondition().Delete(comment); err != nil {
+	if err := comment.LoadIssue(ctx); err != nil {
 		return err
 	}
+	return governance_model.WithWrite(ctx, contentAuditResources(comment.Issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			e := db.GetEngine(ctx)
+			deleted, err := e.ID(comment.ID).NoAutoCondition().Delete(comment)
+			if err != nil {
+				return err
+			}
+			if deleted != 1 {
+				return ErrCommentNotExist{comment.ID, comment.IssueID}
+			}
 
-	if _, err := db.DeleteByBean(ctx, &ContentHistory{
-		CommentID: comment.ID,
-	}); err != nil {
-		return err
-	}
+			if _, err := db.DeleteByBean(ctx, &ContentHistory{
+				CommentID: comment.ID,
+			}); err != nil {
+				return err
+			}
 
-	if comment.Type.CountedAsConversation() {
-		if err := UpdateIssueNumComments(ctx, comment.IssueID); err != nil {
-			return err
-		}
-	}
-	if _, err := e.Table("action").
-		Where("comment_id = ?", comment.ID).
-		Update(map[string]any{
-			"is_deleted": true,
-		}); err != nil {
-		return err
-	}
+			if comment.Type.CountedAsConversation() {
+				if err := UpdateIssueNumComments(ctx, comment.IssueID); err != nil {
+					return err
+				}
+			}
+			if _, err := e.Table("action").
+				Where("comment_id = ?", comment.ID).
+				Update(map[string]any{
+					"is_deleted": true,
+				}); err != nil {
+				return err
+			}
 
-	if err := comment.neuterCrossReferences(ctx); err != nil {
-		return err
-	}
+			if err := comment.neuterCrossReferences(ctx); err != nil {
+				return err
+			}
 
-	return DeleteReaction(ctx, &ReactionOptions{CommentID: comment.ID})
+			if err := DeleteReaction(ctx, &ReactionOptions{CommentID: comment.ID}); err != nil {
+				return err
+			}
+			if comment.Type == CommentTypeComment || comment.Type == CommentTypeCode {
+				return AppendContentAudit(ctx, "comment.deleted", comment.Issue, "comment", comment.ID, map[string]any{"comment_type": comment.Type.String(), "issue_id": comment.IssueID})
+			}
+			return nil
+		})
+	})
 }
 
 // UpdateCommentsMigrationsByType updates comments' migrations information via given git service type and original id and poster id

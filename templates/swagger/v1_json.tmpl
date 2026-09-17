@@ -1331,6 +1331,2622 @@
         }
       }
     },
+    "/governance/access-requests": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看当前用户的待处理申请快照，最多一百条",
+        "operationId": "governanceOwnAccessRequests",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "待处理申请，使用最后一条申请 ID 继续分页",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/AccessRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/governance/access-requests/{request_id}": {
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "撤回当前用户的待处理申请，资源变为私有后仍可使用",
+        "operationId": "governanceWithdrawOwnAccessRequest",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "request_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "申请已撤回"
+          }
+        }
+      }
+    },
+    "/governance/approval-policies/{scope}/{scope_id}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看实例或顶级组的强制审批策略",
+        "operationId": "governanceApprovalPolicies",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceApprovalPolicies"
+          }
+        }
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "创建不可由后代项目降低的审批策略",
+        "operationId": "governanceCreateApprovalPolicy",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ApprovalRuleOption"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/responses/GovernanceApprovalRule"
+          }
+        }
+      }
+    },
+    "/governance/approval-policies/{scope}/{scope_id}/{rule_id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号修改本级审批策略",
+        "operationId": "governanceUpdateApprovalPolicy",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "rule_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ApprovalRuleOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceApprovalRule"
+          }
+        }
+      },
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号删除本级审批策略",
+        "operationId": "governanceRemoveApprovalPolicy",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "rule_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已删除"
+          }
+        }
+      }
+    },
+    "/governance/approval-settings/{scope}/{scope_id}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看实例或顶级组审批设置及来源",
+        "operationId": "governanceScopeApprovalSettings",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceScopeApprovalSettings"
+          }
+        }
+      },
+      "put": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号保存实例或顶级组审批设置",
+        "operationId": "governanceUpdateScopeApprovalSettings",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ScopeApprovalSettingsOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceApprovalSettings"
+          }
+        }
+      },
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "移除本级设置并恢复继承",
+        "operationId": "governanceRemoveScopeApprovalSettings",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已移除"
+          }
+        }
+      }
+    },
+    "/governance/audit-events": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查询授权范围内的治理事件，时间范围最多三十天",
+        "operationId": "governanceAuditEvents",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group",
+              "repository",
+              "user"
+            ],
+            "type": "string",
+            "name": "scope_type",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "format": "date-time",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "format": "date-time",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "actor_id",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "event_type",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "entity_type",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "entity_id",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "result",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "request_id",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer",
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceAuditPage"
+          },
+          "404": {
+            "$ref": "#/responses/notFound"
+          }
+        }
+      }
+    },
+    "/governance/audit-exports": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "申请分段生成 CSV 或 JSON 审计证据，临时副本保存七天",
+        "operationId": "governanceCreateAuditExport",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AuditExportOption"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "$ref": "#/responses/GovernanceAuditExport"
+          },
+          "404": {
+            "$ref": "#/responses/notFound"
+          }
+        }
+      }
+    },
+    "/governance/audit-exports/{id}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查询当前用户的审计导出进度",
+        "operationId": "governanceGetAuditExport",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceAuditExport"
+          },
+          "404": {
+            "$ref": "#/responses/notFound"
+          }
+        }
+      }
+    },
+    "/governance/audit-exports/{id}/download": {
+      "get": {
+        "produces": [
+          "application/json",
+          "text/csv"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "重新验证权限后下载已完成的审计证据",
+        "operationId": "governanceDownloadAuditExport",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UTF-8 CSV 或 JSON 文件，时间为 UTC",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "404": {
+            "$ref": "#/responses/notFound"
+          }
+        }
+      }
+    },
+    "/governance/audit-streams": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看实例或顶级群组的外送目标与积压状态",
+        "operationId": "governanceAuditStreams",
+        "parameters": [
+          {
+            "enum": [
+              "instance",
+              "group"
+            ],
+            "type": "string",
+            "name": "scope_type",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "scope_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceAuditStreams"
+          }
+        }
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "创建外送目标，自动生成的验证标识只在创建结果中返回",
+        "operationId": "governanceCreateAuditStream",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AuditStreamOption"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/responses/GovernanceAuditStreamSaved"
+          }
+        }
+      }
+    },
+    "/governance/audit-streams/{id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号更新目标配置；省略凭据时保留原值，积压期间不能变更实际接收地址",
+        "operationId": "governanceUpdateAuditStream",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AuditStreamOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceAuditStreamSaved"
+          }
+        }
+      }
+    },
+    "/governance/audit-streams/{id}/test": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "持久化连通性测试事件并由真实发送器投递",
+        "operationId": "governanceTestAuditStream",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AuditRevisionOption"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "测试事件已入队，可通过目标投递状态核对结果"
+          }
+        }
+      }
+    },
+    "/governance/capabilities": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查询原生企业治理已接入的能力",
+        "operationId": "governanceCapabilities",
+        "responses": {
+          "200": {
+            "description": "当前实现状态",
+            "schema": {
+              "$ref": "#/definitions/GovernanceCapabilities"
+            }
+          }
+        }
+      }
+    },
+    "/governance/groups": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按父级列出有权查看的群组",
+        "operationId": "governanceGroups",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "parent_id",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroups"
+          }
+        }
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "创建顶级群组或子群组",
+        "operationId": "governanceCreateGroup",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupOption"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/responses/GovernanceGroup"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看群组及当前用户的有效权限来源",
+        "operationId": "governanceGroup",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroup"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/archive": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看归档影响范围和阻断父级",
+        "operationId": "governanceGroupArchiveImpact",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupArchiveImpact"
+          }
+        }
+      },
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号统一归档或恢复群组及后代",
+        "operationId": "governanceArchiveGroup",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupArchiveOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroup"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/delete-permanently": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "确认路径并永久删除已经处于待删除状态的群组",
+        "operationId": "governanceDeletePendingGroup",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupDeletionOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "数据库删除已经提交，文件按持久化清理任务处理"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/deletion": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "安排可恢复的群组删除",
+        "operationId": "governanceScheduleGroupDeletion",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupDeletionOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroup"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/members": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看群组成员的直接、继承、共享和原生团队来源",
+        "operationId": "governanceGroupMembers",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "用户名或姓名",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "direct",
+              "inherited",
+              "shared",
+              "inherited_shared",
+              "native_team"
+            ],
+            "type": "string",
+            "name": "source",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "仅查看自己的授权来源",
+            "name": "own",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupMembers"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/members/{user_id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "设置当前群组的直接成员来源，不覆盖继承或团队授权",
+        "operationId": "governanceSetGroupMember",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupMemberOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "直接授权已更新"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "移除当前群组的一条直接授权来源",
+        "operationId": "governanceRemoveGroupMember",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "指定来源已移除，其他来源继续生效"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/move": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号原子移动或改名，保留旧地址别名",
+        "operationId": "governanceMoveGroup",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroup"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/restore": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "恢复待删除群组及原有归档状态",
+        "operationId": "governanceRestoreGroupDeletion",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupDeletionOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroup"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/roles": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看当前层级可用的自定义角色",
+        "operationId": "governanceGroupRoles",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupRoles"
+          }
+        }
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "在顶级群组创建自定义角色",
+        "operationId": "governanceCreateGroupRole",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupRoleOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupRole"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/roles/{role_id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "修改自定义角色并立即重算权限",
+        "operationId": "governanceUpdateGroupRole",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupRoleOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupRole"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "删除未被授权引用的自定义角色",
+        "operationId": "governanceRemoveGroupRole",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "role_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "角色已删除"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/shares": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看群组直接共享关系",
+        "operationId": "governanceGroupShares",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupShares"
+          }
+        }
+      }
+    },
+    "/governance/groups/{id}/shares/{group_id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "设置群组共享、角色上限和到期时间",
+        "operationId": "governanceSetGroupShare",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "group_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupShareOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "共享已生效"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "撤销当前群组的指定共享来源",
+        "operationId": "governanceRemoveGroupShare",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "group_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "共享已撤销"
+          }
+        }
+      }
+    },
+    "/governance/invitations/{id}/accept": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "验证邮箱与当前权限后接受邀请",
+        "operationId": "governanceAcceptInvitation",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/InvitationTokenOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "操作已完成"
+          }
+        }
+      }
+    },
+    "/governance/invitations/{id}/decline": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "拒绝本人邮箱邀请",
+        "operationId": "governanceDeclineInvitation",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/InvitationTokenOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "操作已完成"
+          }
+        }
+      }
+    },
+    "/governance/invitations/{id}/preview": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "通过正文令牌预览本人邮箱邀请",
+        "operationId": "governancePreviewInvitation",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/InvitationTokenOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceInvitationPreview"
+          }
+        }
+      }
+    },
+    "/governance/navigation/groups": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查询我的群组入口，按真实授权来源筛选",
+        "operationId": "governanceNavigationGroups",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "type": "string",
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "name",
+              "created",
+              "updated"
+            ],
+            "type": "string",
+            "name": "sort",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string",
+            "name": "direction",
+            "in": "query"
+          },
+          {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer",
+            "default": 20,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceNavigationPage"
+          }
+        }
+      }
+    },
+    "/governance/navigation/groups/{id}": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查询群组层级、面包屑及允许的操作",
+        "operationId": "governanceNavigationGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "type": "string",
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "name",
+              "created",
+              "updated"
+            ],
+            "type": "string",
+            "name": "sort",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "type": "string",
+            "name": "direction",
+            "in": "query"
+          },
+          {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer",
+            "default": 20,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "name": "groups_only",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceGroupNavigation"
+          }
+        }
+      }
+    },
+    "/governance/pulls/{id}/approval-rules": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看 PR 独立审批规则、当前版本及强制策略",
+        "operationId": "governancePullApprovalRules",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernancePullApprovalRules"
+          }
+        }
+      },
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按 PR 版本增删改一条独立规则，规则 ID 为零表示新增",
+        "operationId": "governanceSavePullApprovalRule",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PullApprovalRuleOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernancePullRuleVersion"
+          },
+          "409": {
+            "description": "PR 版本已变化或最终合并授权正在进行"
+          }
+        }
+      }
+    },
+    "/governance/pulls/{id}/approval-state": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查询 PR 逐条审批结果、证据版本和当前用户资格",
+        "operationId": "governancePullApprovalState",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernancePullApprovalState"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/approval-configuration": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "原子保存审批草稿，版本冲突不覆盖其他修改",
+        "operationId": "governanceSaveApprovalConfiguration",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/BranchApprovalUpdate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/BranchApprovalConfiguration"
+          },
+          "409": {
+            "description": "配置版本已变化，保留草稿后重新核对"
+          },
+          "422": {
+            "description": "草稿无效，未保存任何修改"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/approval-rules": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看项目审批规则及继承来源，单独报告门禁就绪状态",
+        "operationId": "governanceRepositoryApprovalRules",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceRepositoryApprovalRules"
+          }
+        }
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "创建项目本级审批规则",
+        "operationId": "governanceCreateRepositoryApprovalRule",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ApprovalRuleOption"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/responses/GovernanceApprovalRule"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/approval-rules/{rule_id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号更新项目本级审批规则",
+        "operationId": "governanceUpdateRepositoryApprovalRule",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "rule_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ApprovalRuleOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceApprovalRule"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号删除项目本级规则，不能删除祖先策略",
+        "operationId": "governanceRemoveRepositoryApprovalRule",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "rule_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "已删除"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/approval-settings": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "完整更新项目审批设置，保留继承锁定及 PR 规则版本",
+        "operationId": "governanceUpdateRepositoryApprovalSettings",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ApprovalSettingsOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceApprovalSettings"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/delete-permanently": {
+      "post": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "确认永久删除已进入恢复期的项目",
+        "operationId": "governanceDeletePendingRepository",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RepositoryDeletionOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/responses/empty"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/deletion": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看项目删除与恢复状态",
+        "operationId": "governanceRepositoryDeletionState",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceRepositoryDeletion"
+          }
+        }
+      },
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "计划删除项目并保留恢复期",
+        "operationId": "governanceScheduleRepositoryDeletion",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RepositoryDeletionOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceRepositoryDeletion"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/members": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "列出项目成员，可选择包含继承与原生来源",
+        "operationId": "governanceRepositoryMembers",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "包含继承、共享、原生协作者与团队来源，默认只返回直接成员",
+            "name": "include_inherited",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceRepositoryMembers"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/members/{user_id}": {
+      "put": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "创建或修改项目直接成员来源",
+        "operationId": "governanceSetRepositoryMember",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupMemberOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "直接授权已保存"
+          }
+        }
+      },
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按修订号撤销项目直接来源，保留其他有效权限来源",
+        "operationId": "governanceRemoveRepositoryMember",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "直接授权已撤销"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/restore": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "恢复待删除项目的原路径与归档状态",
+        "operationId": "governanceRestoreRepositoryDeletion",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RepositoryDeletionOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceRepositoryDeletion"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/shares": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看项目直接共享关系和修订号",
+        "operationId": "governanceRepositoryShares",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceRepositoryShares"
+          }
+        }
+      }
+    },
+    "/governance/repositories/{id}/shares/{group_id}": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "设置项目共享、角色上限和到期时间",
+        "operationId": "governanceSetRepositoryShare",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "group_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupShareOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "共享已生效"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "governance"
+        ],
+        "summary": "撤销当前项目的指定共享来源",
+        "operationId": "governanceRemoveRepositoryShare",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "group_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "revision",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "共享已撤销"
+          }
+        }
+      }
+    },
+    "/governance/{scope}/{id}/access-requests": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看自己的访问申请；管理员同时查看待处理队列",
+        "operationId": "governanceAccessRequests",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceAccessRequestState"
+          }
+        }
+      },
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "提交当前登录用户的访问申请",
+        "operationId": "governanceCreateAccessRequest",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/responses/GovernanceAccessRequest"
+          }
+        }
+      }
+    },
+    "/governance/{scope}/{id}/access-requests/settings": {
+      "put": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按设置修订号开启或关闭新的访问申请",
+        "operationId": "governanceSaveAccessRequestSetting",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AccessRequestSettingOption"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceAccessRequestSetting"
+          }
+        }
+      }
+    },
+    "/governance/{scope}/{id}/access-requests/{request_id}": {
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "申请人撤回自己的申请；管理员拒绝指定申请",
+        "operationId": "governanceRejectAccessRequest",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "request_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "操作已完成"
+          }
+        }
+      }
+    },
+    "/governance/{scope}/{id}/access-requests/{request_id}/approve": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "按申请稳定 ID 批准并创建直接授权",
+        "operationId": "governanceApproveAccessRequest",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "request_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GroupMemberOption"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "操作已完成"
+          }
+        }
+      }
+    },
+    "/governance/{scope}/{id}/invitations": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "查看有权管理的待接受邀请",
+        "operationId": "governanceInvitations",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "after_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/GovernanceInvitations"
+          }
+        }
+      },
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "创建邮箱成员邀请",
+        "operationId": "governanceCreateInvitation",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/InvitationOption"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/responses/GovernanceInvitation"
+          }
+        }
+      }
+    },
+    "/governance/{scope}/{id}/invitations/{invitation_id}": {
+      "delete": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "governance"
+        ],
+        "summary": "撤销待接受邀请",
+        "operationId": "governanceRevokeInvitation",
+        "parameters": [
+          {
+            "enum": [
+              "groups",
+              "repositories"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "name": "invitation_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "操作已完成"
+          }
+        }
+      }
+    },
     "/label/templates": {
       "get": {
         "produces": [
@@ -1885,7 +4501,7 @@
         "tags": [
           "organization"
         ],
-        "summary": "Delete an organization",
+        "summary": "安排组织延迟删除，保留期内可恢复",
         "operationId": "orgDelete",
         "parameters": [
           {
@@ -3656,7 +6272,7 @@
         "tags": [
           "organization"
         ],
-        "summary": "Delete all repositories in an organization",
+        "summary": "持久化组织全部项目的可恢复删除计划",
         "operationId": "orgDeleteRepos",
         "parameters": [
           {
@@ -4631,7 +7247,7 @@
         "tags": [
           "repository"
         ],
-        "summary": "Delete a repository",
+        "summary": "将仓库加入可恢复删除计划",
         "operationId": "repoDelete",
         "parameters": [
           {
@@ -22000,6 +24616,144 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "Abilities": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AccessRequest": {
+      "type": "object",
+      "title": "AccessRequest 只保存待处理申请；完成后的证据保存在不可变审计中。",
+      "properties": {
+        "created_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CreatedUnix"
+        },
+        "current_username": {
+          "type": "string",
+          "x-go-name": "CurrentUsername"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_path": {
+          "type": "string",
+          "x-go-name": "ScopePath"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "user_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "UserID"
+        },
+        "user_state": {
+          "type": "string",
+          "x-go-name": "UserState"
+        },
+        "username": {
+          "type": "string",
+          "x-go-name": "Username"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AccessRequestSetting": {
+      "type": "object",
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "x-go-name": "Disabled"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AccessRequestSettingOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "AccessRequestState": {
+      "type": "object",
+      "properties": {
+        "archived": {
+          "type": "boolean",
+          "x-go-name": "Archived"
+        },
+        "can_manage": {
+          "type": "boolean",
+          "x-go-name": "CanManage"
+        },
+        "can_manage_settings": {
+          "type": "boolean",
+          "x-go-name": "CanManageSettings"
+        },
+        "can_request": {
+          "type": "boolean",
+          "x-go-name": "CanRequest"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "next_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NextID"
+        },
+        "own_request": {
+          "$ref": "#/definitions/AccessRequest"
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AccessRequest"
+          },
+          "x-go-name": "Requests"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CustomRole"
+          },
+          "x-go-name": "Roles"
+        },
+        "setting": {
+          "$ref": "#/definitions/AccessRequestSetting"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
     "AccessToken": {
       "type": "object",
       "title": "AccessToken represents an API access token.",
@@ -22763,6 +25517,51 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "Actor": {
+      "type": "object",
+      "properties": {
+        "acting_as_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ActingAsID"
+        },
+        "acting_as_name": {
+          "type": "string",
+          "x-go-name": "ActingAsName"
+        },
+        "credential_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CredentialID"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "ip": {
+          "type": "string",
+          "x-go-name": "IP"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "request_id": {
+          "type": "string",
+          "x-go-name": "RequestID"
+        },
+        "transport": {
+          "type": "string",
+          "x-go-name": "Transport"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "AddCollaboratorOption": {
       "description": "AddCollaboratorOption options when adding a user as a collaborator of a repository",
       "type": "object",
@@ -22913,6 +25712,269 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "ApprovalPolicies": {
+      "type": "object",
+      "properties": {
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          },
+          "x-go-name": "Rules"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "ApprovalRule": {
+      "type": "object",
+      "properties": {
+        "all_eligible": {
+          "type": "boolean",
+          "x-go-name": "AllEligible"
+        },
+        "branch_mode": {
+          "type": "string",
+          "x-go-name": "BranchMode"
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Branches"
+        },
+        "enabled": {
+          "type": "boolean",
+          "x-go-name": "Enabled"
+        },
+        "group_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "GroupIDs"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "locked": {
+          "type": "boolean",
+          "x-go-name": "Locked"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "native_dismiss_stale": {
+          "type": "boolean",
+          "x-go-name": "NativeDismissStale"
+        },
+        "native_ignore_stale": {
+          "type": "boolean",
+          "x-go-name": "NativeIgnoreStale"
+        },
+        "native_protection_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NativeProtectionID"
+        },
+        "protection_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "ProtectionIDs"
+        },
+        "required": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Required"
+        },
+        "respect_native_approval_pool": {
+          "description": "RespectNativeApprovalPool 将动态主体限制到目标分支当前的原生审批资格池。",
+          "type": "boolean",
+          "x-go-name": "RespectNativeApprovalPool"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "subjects_hidden": {
+          "type": "boolean",
+          "x-go-name": "SubjectsHidden"
+        },
+        "team_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "TeamIDs"
+        },
+        "user_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "UserIDs"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "ApprovalRuleOption": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "rule": {
+          "$ref": "#/definitions/ApprovalRule"
+        }
+      },
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "ApprovalSettingSource": {
+      "type": "object",
+      "title": "ApprovalSettingSource 分别解释每个生效字段，不能用整行来源掩盖混合继承。",
+      "properties": {
+        "locked": {
+          "type": "boolean",
+          "x-go-name": "Locked"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "value": {
+          "type": "boolean",
+          "x-go-name": "Value"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "ApprovalSettings": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "inherit": {
+          "type": "boolean",
+          "x-go-name": "Inherit"
+        },
+        "locked": {
+          "type": "boolean",
+          "x-go-name": "Locked"
+        },
+        "prevent_author": {
+          "type": "boolean",
+          "x-go-name": "PreventAuthor"
+        },
+        "prevent_committer": {
+          "type": "boolean",
+          "x-go-name": "PreventCommitter"
+        },
+        "prevent_overrides": {
+          "type": "boolean",
+          "x-go-name": "PreventOverrides"
+        },
+        "require_reauthentication": {
+          "type": "boolean",
+          "x-go-name": "RequireReauthentication"
+        },
+        "reset_on_change": {
+          "type": "boolean",
+          "x-go-name": "ResetOnChange"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "ApprovalSettingsOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "ApprovalState": {
+      "type": "object",
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Generation"
+        },
+        "head": {
+          "type": "string",
+          "x-go-name": "Head"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuleResult"
+          },
+          "x-go-name": "Rules"
+        },
+        "satisfied": {
+          "type": "boolean",
+          "x-go-name": "Satisfied"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "Attachment": {
       "description": "Attachment a generic attachment",
       "type": "object",
@@ -22957,6 +26019,435 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "AuditDestination": {
+      "type": "object",
+      "title": "AuditDestination 只保存可公开配置；请求头与云凭据统一加密存入 Secret。",
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "x-go-name": "Bucket"
+        },
+        "log_id": {
+          "type": "string",
+          "x-go-name": "LogID"
+        },
+        "prefix": {
+          "type": "string",
+          "x-go-name": "Prefix"
+        },
+        "project_id": {
+          "type": "string",
+          "x-go-name": "ProjectID"
+        },
+        "region": {
+          "type": "string",
+          "x-go-name": "Region"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AuditEvent": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "$ref": "#/definitions/Actor"
+        },
+        "ancestor_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "AncestorIDs"
+        },
+        "author_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ActorID"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "OccurredAt"
+        },
+        "details": {
+          "type": "object",
+          "x-go-name": "Details"
+        },
+        "entity_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ObjectID"
+        },
+        "entity_path": {
+          "type": "string",
+          "x-go-name": "ObjectPath"
+        },
+        "entity_type": {
+          "type": "string",
+          "x-go-name": "ObjectType"
+        },
+        "event_type": {
+          "type": "string",
+          "x-go-name": "Type"
+        },
+        "id": {
+          "type": "string",
+          "x-go-name": "EventID"
+        },
+        "request_id": {
+          "type": "string",
+          "x-go-name": "RequestID"
+        },
+        "result": {
+          "type": "string",
+          "x-go-name": "Result"
+        },
+        "schema_version": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Version"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AuditExport": {
+      "type": "object",
+      "title": "AuditExport 的分段和游标与证据块一起提交，中断恢复不重复生成已完成的块。",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "CreatedAt"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "ExpiresAt"
+        },
+        "filter": {
+          "$ref": "#/definitions/AuditFilter"
+        },
+        "format": {
+          "type": "string",
+          "x-go-name": "Format"
+        },
+        "id": {
+          "type": "string",
+          "x-go-name": "ID"
+        },
+        "max_sequence": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MaxID"
+        },
+        "rows": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Rows"
+        },
+        "state": {
+          "type": "string",
+          "x-go-name": "State"
+        },
+        "user_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "UserID"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AuditExportOption": {
+      "type": "object",
+      "title": "AuditExportOption 创建后台导出任务。",
+      "properties": {
+        "filter": {
+          "$ref": "#/definitions/AuditFilter"
+        },
+        "format": {
+          "type": "string",
+          "x-go-name": "Format"
+        }
+      },
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "AuditFilter": {
+      "type": "object",
+      "title": "AuditFilter 使用半开 UTC 时间范围，连续分段不会遗漏或重复边界事件。",
+      "properties": {
+        "actor_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ActorID"
+        },
+        "entity_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ObjectID"
+        },
+        "entity_type": {
+          "type": "string",
+          "x-go-name": "ObjectType"
+        },
+        "event_type": {
+          "type": "string",
+          "x-go-name": "EventType"
+        },
+        "from": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "From"
+        },
+        "request_id": {
+          "type": "string",
+          "x-go-name": "RequestID"
+        },
+        "result": {
+          "type": "string",
+          "x-go-name": "Result"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "To"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AuditPage": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuditEvent"
+          },
+          "x-go-name": "Events"
+        },
+        "next_before": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NextBefore"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "AuditRevisionOption": {
+      "type": "object",
+      "title": "AuditRevisionOption 防止过期配置页面改变新目标。",
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        }
+      },
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "AuditStreamOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "AuditStreamSaved": {
+      "type": "object",
+      "properties": {
+        "delivered_count": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DeliveredCount"
+        },
+        "destination": {
+          "$ref": "#/definitions/AuditDestination"
+        },
+        "enabled": {
+          "type": "boolean",
+          "x-go-name": "Enabled"
+        },
+        "endpoint": {
+          "type": "string",
+          "x-go-name": "Endpoint"
+        },
+        "event_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "EventTypes"
+        },
+        "has_credentials": {
+          "type": "boolean",
+          "x-go-name": "HasCredentials"
+        },
+        "header_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "HeaderNames"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "in_flight": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "InFlight"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "last_delivered_at": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "LastDeliveredAt"
+        },
+        "last_error": {
+          "type": "string",
+          "x-go-name": "LastError"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "pending": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Pending"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "verification_token": {
+          "type": "string",
+          "x-go-name": "VerificationToken"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "AuditStreamState": {
+      "type": "object",
+      "properties": {
+        "delivered_count": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DeliveredCount"
+        },
+        "destination": {
+          "$ref": "#/definitions/AuditDestination"
+        },
+        "enabled": {
+          "type": "boolean",
+          "x-go-name": "Enabled"
+        },
+        "endpoint": {
+          "type": "string",
+          "x-go-name": "Endpoint"
+        },
+        "event_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "EventTypes"
+        },
+        "has_credentials": {
+          "type": "boolean",
+          "x-go-name": "HasCredentials"
+        },
+        "header_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "HeaderNames"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "in_flight": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "InFlight"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "last_delivered_at": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "LastDeliveredAt"
+        },
+        "last_error": {
+          "type": "string",
+          "x-go-name": "LastError"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "pending": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Pending"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
     },
     "Badge": {
       "description": "Badge represents a user badge",
@@ -23036,10 +26527,71 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "BranchApprovalConfiguration": {
+      "type": "object",
+      "properties": {
+        "can_manage": {
+          "type": "boolean",
+          "x-go-name": "CanManage"
+        },
+        "can_reauthenticate": {
+          "type": "boolean",
+          "x-go-name": "CanReauthenticate"
+        },
+        "presentation": {
+          "x-go-name": "Presentation"
+        },
+        "protection_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ProtectionID"
+        },
+        "protections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BranchProtectionChoice"
+          },
+          "x-go-name": "Protections"
+        },
+        "reference_enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "ReferenceEnforcementReady"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          },
+          "x-go-name": "Rules"
+        },
+        "settings": {
+          "$ref": "#/definitions/EffectiveApprovalSettings"
+        },
+        "settings_revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "SettingsRevision"
+        },
+        "version": {
+          "type": "string",
+          "x-go-name": "Version"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "BranchApprovalUpdate": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
     "BranchProtection": {
       "description": "BranchProtection represents a branch protection for a repository",
       "type": "object",
       "properties": {
+        "approval_configuration": {
+          "description": "原子审批配置，结构与仓库审批批量接口一致；省略时保留现有规则。",
+          "type": "object",
+          "x-go-name": "ApprovalConfiguration"
+        },
         "approvals_whitelist_teams": {
           "type": "array",
           "items": {
@@ -23194,6 +26746,11 @@
           },
           "x-go-name": "PushWhitelistUsernames"
         },
+        "require_governance_approval": {
+          "description": "启用后，目标分支仅接受原生治理最终授权的合并写入。",
+          "type": "boolean",
+          "x-go-name": "RequireGovernanceApproval"
+        },
         "require_signed_commits": {
           "type": "boolean",
           "x-go-name": "RequireSignedCommits"
@@ -23226,6 +26783,21 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "BranchProtectionChoice": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
     },
     "ChangeFileOperation": {
       "description": "ChangeFileOperation for creating, updating or deleting a file",
@@ -23914,6 +27486,11 @@
       "description": "CreateBranchProtectionOption options for creating a branch protection",
       "type": "object",
       "properties": {
+        "approval_configuration": {
+          "description": "原子审批配置，结构与仓库审批批量接口一致；省略时保留现有规则。",
+          "type": "object",
+          "x-go-name": "ApprovalConfiguration"
+        },
         "approvals_whitelist_teams": {
           "type": "array",
           "items": {
@@ -24061,6 +27638,11 @@
             "type": "string"
           },
           "x-go-name": "PushWhitelistUsernames"
+        },
+        "require_governance_approval": {
+          "description": "启用后，目标分支仅接受原生治理最终授权的合并写入。",
+          "type": "boolean",
+          "x-go-name": "RequireGovernanceApproval"
         },
         "require_signed_commits": {
           "type": "boolean",
@@ -24689,6 +28271,11 @@
       "description": "CreatePullReviewOptions are options to create a pull request review",
       "type": "object",
       "properties": {
+        "approval_password": {
+          "description": "仅用于本次批准前再次认证，不保存在评审记录中。",
+          "type": "string",
+          "x-go-name": "ApprovalPassword"
+        },
         "body": {
           "type": "string",
           "x-go-name": "Body"
@@ -24821,6 +28408,11 @@
           "description": "Gitignores to use",
           "type": "string",
           "x-go-name": "Gitignores"
+        },
+        "internal": {
+          "description": "Whether the repository is visible to every signed-in user but hidden from anonymous users.",
+          "type": "boolean",
+          "x-go-name": "Internal"
         },
         "issue_labels": {
           "description": "Label-Set to use",
@@ -25050,6 +28642,11 @@
         "email"
       ],
       "properties": {
+        "auditor": {
+          "description": "是否赋予全站审计员只读身份。",
+          "type": "boolean",
+          "x-go-name": "Auditor"
+        },
         "created_at": {
           "description": "For explicitly setting the user creation timestamp. Useful when users are\nmigrated from other systems. When omitted, the user's creation timestamp\nwill be set to \"now\".",
           "type": "string",
@@ -25234,6 +28831,36 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "CustomRole": {
+      "type": "object",
+      "properties": {
+        "abilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Abilities"
+        },
+        "base_role": {
+          "$ref": "#/definitions/Role"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "root_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RootID"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "DeleteEmailOption": {
       "description": "DeleteEmailOption options when deleting email addresses",
       "type": "object",
@@ -25297,6 +28924,39 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "DeletionState": {
+      "type": "object",
+      "title": "RepositoryDeletionState 只展示经当前删除权限核对的状态，不暴露原始审计身份快照。",
+      "properties": {
+        "ancestor_deletion_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "AncestorDeletionID"
+        },
+        "archived": {
+          "type": "boolean",
+          "x-go-name": "Archived"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "pending": {
+          "$ref": "#/definitions/RepositoryDeletion"
+        },
+        "repository_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RepositoryID"
+        },
+        "retention_days": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RetentionDays"
+        }
+      },
+      "x-go-package": "gitea.dev/services/repository"
     },
     "DeployKey": {
       "description": "DeployKey a deploy key",
@@ -25395,6 +29055,11 @@
       "description": "EditBranchProtectionOption options for editing a branch protection",
       "type": "object",
       "properties": {
+        "approval_configuration": {
+          "description": "原子审批配置，结构与仓库审批批量接口一致；省略时保留现有规则。",
+          "type": "object",
+          "x-go-name": "ApprovalConfiguration"
+        },
         "approvals_whitelist_teams": {
           "type": "array",
           "items": {
@@ -25537,6 +29202,11 @@
             "type": "string"
           },
           "x-go-name": "PushWhitelistUsernames"
+        },
+        "require_governance_approval": {
+          "description": "启用后，目标分支仅接受原生治理最终授权的合并写入。",
+          "type": "boolean",
+          "x-go-name": "RequireGovernanceApproval"
         },
         "require_signed_commits": {
           "type": "boolean",
@@ -26086,6 +29756,11 @@
           "type": "boolean",
           "x-go-name": "IgnoreWhitespaceConflicts"
         },
+        "internal": {
+          "description": "either `true` to make the repository internal or `false` to leave internal visibility.",
+          "type": "boolean",
+          "x-go-name": "Internal"
+        },
         "internal_tracker": {
           "$ref": "#/definitions/InternalTracker"
         },
@@ -26282,6 +29957,11 @@
           "type": "boolean",
           "x-go-name": "AllowImportLocal"
         },
+        "auditor": {
+          "description": "是否赋予全站审计员只读身份；已有资源授权独立生效。",
+          "type": "boolean",
+          "x-go-name": "Auditor"
+        },
         "description": {
           "description": "The user's personal description or bio",
           "type": "string",
@@ -26356,6 +30036,22 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "EffectiveApprovalSettings": {
+      "type": "object",
+      "properties": {
+        "settings": {
+          "$ref": "#/definitions/ApprovalSettings"
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ApprovalSettingSource"
+          },
+          "x-go-name": "Sources"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
     },
     "Email": {
       "description": "Email an email address belonging to a user",
@@ -27052,6 +30748,406 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "GovernanceCapabilities": {
+      "type": "object",
+      "title": "GovernanceCapabilities 描述原生治理接口能力与独立验收状态。",
+      "properties": {
+        "approval_rules": {
+          "type": "boolean",
+          "x-go-name": "ApprovalRules"
+        },
+        "audit_event_coverage": {
+          "type": "string",
+          "x-go-name": "AuditEventCoverage"
+        },
+        "audit_exports": {
+          "type": "boolean",
+          "x-go-name": "AuditExports"
+        },
+        "audit_health": {
+          "type": "object",
+          "additionalProperties": {},
+          "x-go-name": "AuditHealth"
+        },
+        "audit_query": {
+          "type": "boolean",
+          "x-go-name": "AuditQuery"
+        },
+        "feature_stages": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "x-go-name": "FeatureStages"
+        },
+        "hierarchical_groups": {
+          "type": "boolean",
+          "x-go-name": "HierarchicalGroups"
+        },
+        "production_ready": {
+          "type": "boolean",
+          "x-go-name": "ProductionReady"
+        },
+        "repository_storage_identity": {
+          "type": "boolean",
+          "x-go-name": "RepositoryStorageIdentity"
+        },
+        "repository_visibility": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "RepositoryVisibility"
+        },
+        "version": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Version"
+        }
+      },
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "Grant": {
+      "type": "object",
+      "properties": {
+        "abilities": {
+          "$ref": "#/definitions/Abilities"
+        },
+        "ceiling_role": {
+          "$ref": "#/definitions/Role"
+        },
+        "custom_role_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CustomRoleID"
+        },
+        "expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ExpiresUnix"
+        },
+        "membership_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MembershipID"
+        },
+        "native_team_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NativeTeamID"
+        },
+        "role": {
+          "$ref": "#/definitions/Role"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "share_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ShareID"
+        },
+        "source": {
+          "type": "string",
+          "x-go-name": "Source"
+        },
+        "via_share_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "ViaShareIDs"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "GroupArchiveImpact": {
+      "type": "object",
+      "properties": {
+        "ancestor_archived_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "AncestorArchivedID"
+        },
+        "ancestor_deletion_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "AncestorDeletionID"
+        },
+        "group_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "GroupID"
+        },
+        "groups": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Groups"
+        },
+        "previously_archived_repositories": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "PreviouslyArchivedRepositories"
+        },
+        "repositories": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Repositories"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "GroupArchiveOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "GroupDeletionOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "GroupMemberOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "GroupMemberSource": {
+      "type": "object",
+      "properties": {
+        "abilities": {
+          "$ref": "#/definitions/Abilities"
+        },
+        "can_manage": {
+          "type": "boolean",
+          "x-go-name": "CanManage"
+        },
+        "expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ExpiresUnix"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "role": {
+          "type": "string",
+          "x-go-name": "Role"
+        },
+        "units": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "x-go-name": "Units"
+        },
+        "url": {
+          "type": "string",
+          "x-go-name": "URL"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "GroupMemberState": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean",
+          "x-go-name": "Active"
+        },
+        "can_edit": {
+          "type": "boolean",
+          "x-go-name": "CanEdit"
+        },
+        "direct": {
+          "$ref": "#/definitions/Membership"
+        },
+        "effective_role": {
+          "type": "string",
+          "x-go-name": "EffectiveRole"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Grant"
+          },
+          "x-go-name": "Grants"
+        },
+        "native_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NativeMemberSource"
+          },
+          "x-go-name": "NativeSources"
+        },
+        "native_teams": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "NativeTeams"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GroupMemberSource"
+          },
+          "x-go-name": "Sources"
+        },
+        "user_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "UserID"
+        },
+        "username": {
+          "type": "string",
+          "x-go-name": "Username"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "GroupNavigation": {
+      "type": "object",
+      "properties": {
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "AllowedActions"
+        },
+        "breadcrumbs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NavigationBreadcrumb"
+          },
+          "x-go-name": "Breadcrumbs"
+        },
+        "group": {
+          "$ref": "#/definitions/NavigationNode"
+        },
+        "has_more": {
+          "type": "boolean",
+          "x-go-name": "HasMore"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NavigationNode"
+          },
+          "x-go-name": "Items"
+        },
+        "next_cursor": {
+          "type": "string",
+          "x-go-name": "NextCursor"
+        },
+        "restricted_navigation": {
+          "type": "boolean",
+          "x-go-name": "RestrictedNavigation"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "GroupOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "GroupRoleOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "GroupShareOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "GroupState": {
+      "type": "object",
+      "properties": {
+        "abilities": {
+          "$ref": "#/definitions/Abilities"
+        },
+        "archived": {
+          "type": "boolean",
+          "x-go-name": "Archived"
+        },
+        "compatibility_name": {
+          "type": "string",
+          "x-go-name": "InternalName"
+        },
+        "delete_after": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DeleteAfter"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Grant"
+          },
+          "x-go-name": "Grants"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "native_owner_team_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NativeOwnerTeamID"
+        },
+        "parent_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ParentID"
+        },
+        "path": {
+          "type": "string",
+          "x-go-name": "Slug"
+        },
+        "restrict_external_shares": {
+          "type": "boolean",
+          "x-go-name": "RestrictExternalShares"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "visibility": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Visibility"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
     "Hook": {
       "description": "Hook a hook is a web hook when one repository changed",
       "type": "object",
@@ -27154,6 +31250,172 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "Invitation": {
+      "type": "object",
+      "title": "Invitation 保存未接受邀请及持久化投递状态。令牌字段不通过 JSON 或审计公开。",
+      "properties": {
+        "created_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CreatedUnix"
+        },
+        "custom_role_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CustomRoleID"
+        },
+        "delivery_failures": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DeliveryFailures"
+        },
+        "delivery_state": {
+          "type": "string",
+          "x-go-name": "DeliveryState"
+        },
+        "delivery_step": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DeliveryStep"
+        },
+        "email": {
+          "type": "string",
+          "x-go-name": "Email"
+        },
+        "expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ExpiresUnix"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "inviter": {
+          "$ref": "#/definitions/Actor"
+        },
+        "last_sent_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "LastSentUnix"
+        },
+        "membership_expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MembershipExpiresUnix"
+        },
+        "next_delivery_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NextDeliveryUnix"
+        },
+        "role": {
+          "$ref": "#/definitions/Role"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_path": {
+          "type": "string",
+          "x-go-name": "ScopePath"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "InvitationOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "InvitationPage": {
+      "type": "object",
+      "properties": {
+        "archived": {
+          "type": "boolean",
+          "x-go-name": "Archived"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "invitations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Invitation"
+          },
+          "x-go-name": "Invitations"
+        },
+        "next_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NextID"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CustomRole"
+          },
+          "x-go-name": "Roles"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "InvitationPreview": {
+      "type": "object",
+      "properties": {
+        "custom_role_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CustomRoleID"
+        },
+        "email": {
+          "type": "string",
+          "x-go-name": "Email"
+        },
+        "expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ExpiresUnix"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "inviter_name": {
+          "type": "string",
+          "x-go-name": "InviterName"
+        },
+        "membership_expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "MembershipExpiresUnix"
+        },
+        "role": {
+          "$ref": "#/definitions/Role"
+        },
+        "scope_path": {
+          "type": "string",
+          "x-go-name": "ScopePath"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "InvitationTokenOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
     },
     "Issue": {
       "description": "Issue represents an issue in a repository",
@@ -27688,6 +31950,44 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "Membership": {
+      "type": "object",
+      "properties": {
+        "custom_role_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CustomRoleID"
+        },
+        "expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ExpiresUnix"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "role": {
+          "$ref": "#/definitions/Role"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "user_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "UserID"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "MergePullRequestOption": {
       "description": "MergePullRequestForm form for merging Pull Request",
       "type": "object",
@@ -27940,6 +32240,132 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "NativeMemberSource": {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "string",
+          "x-go-name": "Access"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "team_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TeamID"
+        },
+        "units": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "x-go-name": "Units"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "NavigationBreadcrumb": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "url": {
+          "type": "string",
+          "x-go-name": "URL"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "NavigationNode": {
+      "type": "object",
+      "properties": {
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "AllowedActions"
+        },
+        "created_at": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "CreatedAt"
+        },
+        "expandable": {
+          "type": "boolean",
+          "x-go-name": "Expandable"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "key": {
+          "type": "string",
+          "x-go-name": "Key"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "restricted_navigation": {
+          "type": "boolean",
+          "x-go-name": "RestrictedNavigation"
+        },
+        "state": {
+          "type": "string",
+          "x-go-name": "State"
+        },
+        "type": {
+          "type": "string",
+          "x-go-name": "Type"
+        },
+        "updated_at": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "UpdatedAt"
+        },
+        "url": {
+          "type": "string",
+          "x-go-name": "URL"
+        },
+        "visibility": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Visibility"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "NavigationPage": {
+      "type": "object",
+      "properties": {
+        "has_more": {
+          "type": "boolean",
+          "x-go-name": "HasMore"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NavigationNode"
+          },
+          "x-go-name": "Items"
+        },
+        "next_cursor": {
+          "type": "string",
+          "x-go-name": "NextCursor"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
     },
     "NewIssuePinsAllowed": {
       "description": "NewIssuePinsAllowed represents an API response that says if new Issue Pins are allowed",
@@ -28290,6 +32716,11 @@
           "description": "The full display name of the organization",
           "type": "string",
           "x-go-name": "FullName"
+        },
+        "full_path": {
+          "description": "完整公开命名空间路径。",
+          "type": "string",
+          "x-go-name": "FullPath"
         },
         "id": {
           "description": "The unique identifier of the organization",
@@ -28738,6 +33169,105 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "PullApprovalResult": {
+      "type": "object",
+      "properties": {
+        "eligible_rule_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "EligibleRuleIDs"
+        },
+        "enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "EnforcementReady"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "merge_enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "MergeEnforcementReady"
+        },
+        "reason": {
+          "type": "string",
+          "x-go-name": "Reason"
+        },
+        "reference_enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "ReferenceEnforcementReady"
+        },
+        "rule_revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RuleRevision"
+        },
+        "settings": {
+          "$ref": "#/definitions/EffectiveApprovalSettings"
+        },
+        "state": {
+          "$ref": "#/definitions/ApprovalState"
+        },
+        "version_ready": {
+          "type": "boolean",
+          "x-go-name": "VersionReady"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "PullApprovalRuleOption": {
+      "type": "object",
+      "properties": {
+        "remove": {
+          "type": "boolean",
+          "x-go-name": "Remove"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "rule": {
+          "$ref": "#/definitions/ApprovalRule"
+        },
+        "rule_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RuleID"
+        }
+      },
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "PullApprovalRules": {
+      "type": "object",
+      "properties": {
+        "can_manage": {
+          "type": "boolean",
+          "x-go-name": "CanManage"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          },
+          "x-go-name": "Policies"
+        },
+        "settings": {
+          "$ref": "#/definitions/EffectiveApprovalSettings"
+        },
+        "version": {
+          "$ref": "#/definitions/PullRuleVersion"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
     },
     "PullRequest": {
       "description": "PullRequest represents a pull request",
@@ -29206,6 +33736,40 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "PullRuleVersion": {
+      "type": "object",
+      "title": "PullRuleVersion 只追加规则快照；项目模板后续变化不能覆盖已保存的 PR 历史。",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "CreatedAt"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "pull_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "PullID"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          },
+          "x-go-name": "Rules"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "PushMirror": {
       "description": "PushMirror represents information of a push mirror",
       "type": "object",
@@ -29640,6 +34204,11 @@
           "type": "string",
           "x-go-name": "FullName"
         },
+        "full_path": {
+          "description": "完整公开命名空间路径。",
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
         "has_actions": {
           "type": "boolean",
           "x-go-name": "HasActions"
@@ -29828,6 +34397,152 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "RepositoryApprovalRules": {
+      "type": "object",
+      "properties": {
+        "can_manage": {
+          "type": "boolean",
+          "x-go-name": "CanManage"
+        },
+        "enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "EnforcementReady"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "merge_enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "MergeEnforcementReady"
+        },
+        "reference_enforcement_ready": {
+          "type": "boolean",
+          "x-go-name": "ReferenceEnforcementReady"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovalRule"
+          },
+          "x-go-name": "Rules"
+        },
+        "settings": {
+          "$ref": "#/definitions/EffectiveApprovalSettings"
+        },
+        "settings_revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "SettingsRevision"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "RepositoryDeletion": {
+      "type": "object",
+      "title": "RepositoryDeletion 保存独立项目删除计划；群组删除不覆盖此记录。",
+      "properties": {
+        "due_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "DueUnix"
+        },
+        "failures": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Failures"
+        },
+        "next_attempt_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NextAttemptUnix"
+        },
+        "original_name": {
+          "type": "string",
+          "x-go-name": "OriginalName"
+        },
+        "owner_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "OwnerID"
+        },
+        "repository_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RepositoryID"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "RepositoryDeletionOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
+    },
+    "RepositoryMembersState": {
+      "type": "object",
+      "title": "RepositoryMembersState 管理项目直接来源，同时解释这些成员保留的其他授权。",
+      "properties": {
+        "all_sources": {
+          "type": "boolean",
+          "x-go-name": "AllSources"
+        },
+        "archived": {
+          "type": "boolean",
+          "x-go-name": "Archived"
+        },
+        "can_manage": {
+          "type": "boolean",
+          "x-go-name": "CanManage"
+        },
+        "can_manage_roles": {
+          "type": "boolean",
+          "x-go-name": "CanManageRoles"
+        },
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GroupMemberState"
+          },
+          "x-go-name": "Members"
+        },
+        "next_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "NextID"
+        },
+        "personal_root": {
+          "type": "boolean",
+          "x-go-name": "PersonalRoot"
+        },
+        "repo_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RepoID"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CustomRole"
+          },
+          "x-go-name": "Roles"
+        },
+        "root_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RootID"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
     "RepositoryMeta": {
       "description": "RepositoryMeta basic repository information",
       "type": "object",
@@ -29852,6 +34567,101 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "RepositorySharesState": {
+      "type": "object",
+      "properties": {
+        "full_path": {
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "shares": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Share"
+          },
+          "x-go-name": "Shares"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "Role": {
+      "type": "integer",
+      "format": "int64",
+      "x-go-package": "gitea.dev/models/governance"
+    },
+    "RuleResult": {
+      "type": "object",
+      "properties": {
+        "approved_user_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "ApprovedUserIDs"
+        },
+        "eligible_count": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "EligibleCount"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "missing": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Missing"
+        },
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "needs_attention": {
+          "type": "boolean",
+          "x-go-name": "NeedsAttention"
+        },
+        "optional": {
+          "type": "boolean",
+          "x-go-name": "Optional"
+        },
+        "required": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Required"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Revision"
+        },
+        "satisfied": {
+          "type": "boolean",
+          "x-go-name": "Satisfied"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        },
+        "subjects_hidden": {
+          "type": "boolean",
+          "x-go-name": "SubjectsHidden"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "RunDetails": {
       "description": "RunDetails returns workflow_dispatch runid and url",
       "type": "object",
@@ -29871,6 +34681,22 @@
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
+    },
+    "ScopeApprovalSettings": {
+      "type": "object",
+      "properties": {
+        "effective": {
+          "$ref": "#/definitions/EffectiveApprovalSettings"
+        },
+        "local": {
+          "$ref": "#/definitions/ApprovalSettings"
+        }
+      },
+      "x-go-package": "gitea.dev/services/governance"
+    },
+    "ScopeApprovalSettingsOption": {
+      "type": "object",
+      "x-go-package": "gitea.dev/routers/api/v1/governance"
     },
     "SearchResults": {
       "description": "SearchResults results of a successful search",
@@ -29926,6 +34752,39 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "Share": {
+      "type": "object",
+      "properties": {
+        "expires_unix": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ExpiresUnix"
+        },
+        "group_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "GroupID"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
+        },
+        "max_role": {
+          "$ref": "#/definitions/Role"
+        },
+        "scope_id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ScopeID"
+        },
+        "scope_type": {
+          "type": "string",
+          "x-go-name": "ScopeType"
+        }
+      },
+      "x-go-package": "gitea.dev/models/governance"
+    },
     "StopWatch": {
       "description": "StopWatch represent a running stopwatch",
       "type": "object",
@@ -29974,6 +34833,11 @@
       "description": "SubmitPullReviewOptions are options to submit a pending pull request review",
       "type": "object",
       "properties": {
+        "approval_password": {
+          "description": "仅用于本次批准前再次认证，不保存在评审记录中。",
+          "type": "string",
+          "x-go-name": "ApprovalPassword"
+        },
         "body": {
           "type": "string",
           "x-go-name": "Body"
@@ -30622,6 +35486,11 @@
           "type": "string",
           "x-go-name": "FullName"
         },
+        "full_path": {
+          "description": "完整公开命名空间路径。",
+          "type": "string",
+          "x-go-name": "FullPath"
+        },
         "html_url": {
           "description": "URL to the user's gitea page",
           "type": "string",
@@ -30637,6 +35506,10 @@
           "description": "Is the user an administrator",
           "type": "boolean",
           "x-go-name": "IsAdmin"
+        },
+        "is_auditor": {
+          "type": "boolean",
+          "x-go-name": "IsAuditor"
         },
         "language": {
           "description": "User locale",
@@ -31086,6 +35959,12 @@
         "$ref": "#/definitions/Branch"
       }
     },
+    "BranchApprovalConfiguration": {
+      "description": "原生分支保护与仓库审批共用的配置读取结果。",
+      "schema": {
+        "$ref": "#/definitions/BranchApprovalConfiguration"
+      }
+    },
     "BranchList": {
       "description": "BranchList",
       "schema": {
@@ -31391,6 +36270,207 @@
         "items": {
           "type": "string"
         }
+      }
+    },
+    "GovernanceAccessRequest": {
+      "description": "已创建的待处理访问申请。",
+      "schema": {
+        "$ref": "#/definitions/AccessRequest"
+      }
+    },
+    "GovernanceAccessRequestSetting": {
+      "description": "访问申请开关与修订号。",
+      "schema": {
+        "$ref": "#/definitions/AccessRequestSetting"
+      }
+    },
+    "GovernanceAccessRequestState": {
+      "description": "访问申请与当前调用者可见的处理队列。",
+      "schema": {
+        "$ref": "#/definitions/AccessRequestState"
+      }
+    },
+    "GovernanceApprovalPolicies": {
+      "description": "实例或顶级群组强制审批策略。",
+      "schema": {
+        "$ref": "#/definitions/ApprovalPolicies"
+      }
+    },
+    "GovernanceApprovalRule": {
+      "description": "项目审批规则保存回执。",
+      "schema": {
+        "$ref": "#/definitions/ApprovalRule"
+      }
+    },
+    "GovernanceApprovalSettings": {
+      "description": "项目本级审批设置及编辑修订号。",
+      "schema": {
+        "$ref": "#/definitions/ApprovalSettings"
+      }
+    },
+    "GovernanceAuditExport": {
+      "description": "当前用户的后台导出任务。",
+      "schema": {
+        "$ref": "#/definitions/AuditExport"
+      }
+    },
+    "GovernanceAuditPage": {
+      "description": "授权范围内的审计事件页。",
+      "schema": {
+        "$ref": "#/definitions/AuditPage"
+      }
+    },
+    "GovernanceAuditStreamSaved": {
+      "description": "外送目标保存回执。",
+      "schema": {
+        "$ref": "#/definitions/AuditStreamSaved"
+      }
+    },
+    "GovernanceAuditStreams": {
+      "description": "已授权的外送目标与投递状态。",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/AuditStreamState"
+        }
+      }
+    },
+    "GovernanceCapabilitiesResponse": {
+      "description": "原生能力与验收状态。",
+      "schema": {
+        "$ref": "#/definitions/GovernanceCapabilities"
+      }
+    },
+    "GovernanceGroup": {
+      "description": "群组及当前调用者的权限来源。",
+      "schema": {
+        "$ref": "#/definitions/GroupState"
+      }
+    },
+    "GovernanceGroupArchiveImpact": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/GroupArchiveImpact"
+      }
+    },
+    "GovernanceGroupMembers": {
+      "description": "群组成员及各自的授权来源。",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/GroupMemberState"
+        }
+      }
+    },
+    "GovernanceGroupNavigation": {
+      "description": "群组导航及页面允许操作。",
+      "schema": {
+        "$ref": "#/definitions/GroupNavigation"
+      }
+    },
+    "GovernanceGroupRole": {
+      "description": "自定义角色保存回执。",
+      "schema": {
+        "$ref": "#/definitions/CustomRole"
+      }
+    },
+    "GovernanceGroupRoles": {
+      "description": "可用于当前层级的自定义角色。",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/CustomRole"
+        }
+      }
+    },
+    "GovernanceGroupShares": {
+      "description": "群组的直接共享来源。",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/Share"
+        }
+      }
+    },
+    "GovernanceGroups": {
+      "description": "经过可见性过滤的群组列表。",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/GroupState"
+        }
+      }
+    },
+    "GovernanceInvitation": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/Invitation"
+      }
+    },
+    "GovernanceInvitationPreview": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/InvitationPreview"
+      }
+    },
+    "GovernanceInvitations": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/InvitationPage"
+      }
+    },
+    "GovernanceNavigationPage": {
+      "description": "已鉴权的群组导航分页。",
+      "schema": {
+        "$ref": "#/definitions/NavigationPage"
+      }
+    },
+    "GovernancePullApprovalRules": {
+      "description": "PR 独立规则及不可覆盖的策略来源。",
+      "schema": {
+        "$ref": "#/definitions/PullApprovalRules"
+      }
+    },
+    "GovernancePullApprovalState": {
+      "description": "当前 PR 审批证据判定，不替代最终合并授权。",
+      "schema": {
+        "$ref": "#/definitions/PullApprovalResult"
+      }
+    },
+    "GovernancePullRuleVersion": {
+      "description": "已保存的不可变 PR 规则版本。",
+      "schema": {
+        "$ref": "#/definitions/PullRuleVersion"
+      }
+    },
+    "GovernanceRepositoryApprovalRules": {
+      "description": "项目审批规则、设置来源和门禁就绪状态。",
+      "schema": {
+        "$ref": "#/definitions/RepositoryApprovalRules"
+      }
+    },
+    "GovernanceRepositoryDeletion": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/DeletionState"
+      }
+    },
+    "GovernanceRepositoryMembers": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/RepositoryMembersState"
+      }
+    },
+    "GovernanceRepositoryShares": {
+      "description": "项目共享关系及当前预览修订号。",
+      "schema": {
+        "$ref": "#/definitions/RepositorySharesState"
+      }
+    },
+    "GovernanceScopeApprovalSettings": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/ScopeApprovalSettings"
       }
     },
     "Hook": {
@@ -32099,6 +37179,11 @@
       "description": "parameterBodies",
       "schema": {
         "$ref": "#/definitions/LockIssueOption"
+      },
+      "headers": {
+        "GovernanceInvitationOption": {},
+        "GovernanceInvitationTokenOption": {},
+        "GovernancePullApprovalRuleOption": {}
       }
     },
     "redirect": {

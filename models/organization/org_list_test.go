@@ -57,10 +57,13 @@ func testFindOrgs(t *testing.T) {
 }
 
 func testGetUserOrgsList(t *testing.T) {
+	_, err := db.GetEngine(t.Context()).Table("user").Where("id = ?", 3).Cols("namespace_path").Update(map[string]any{"namespace_path": "parent/org3"})
+	assert.NoError(t, err)
 	orgs, err := organization.GetUserOrgsList(t.Context(), &user_model.User{ID: 4})
 	assert.NoError(t, err)
 	if assert.Len(t, orgs, 1) {
 		assert.EqualValues(t, 3, orgs[0].ID)
+		assert.Equal(t, "parent/org3", orgs[0].FullPath())
 		// repo_id: 3 is in the team, 32 is public, 5 is private with no team
 		assert.Equal(t, 2, orgs[0].NumRepos)
 	}

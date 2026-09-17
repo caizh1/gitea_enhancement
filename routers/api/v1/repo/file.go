@@ -28,6 +28,7 @@ import (
 	"gitea.dev/routers/api/v1/utils"
 	"gitea.dev/routers/common"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	pull_service "gitea.dev/services/pull"
 	files_service "gitea.dev/services/repository/files"
 )
@@ -78,6 +79,17 @@ func GetRawFile(ctx *context.APIContext) {
 	blob, entry, lastModified := getBlobForEntry(ctx)
 	if ctx.Written() {
 		return
+	}
+
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginCodeAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, ctx.Repo.TreePath, ctx.Repo.Commit.ID.String())
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 
 	ctx.RespHeader().Set(giteaObjectTypeHeader, string(files_service.GetObjectTypeFromTreeEntry(entry)))
@@ -131,6 +143,17 @@ func GetRawFileOrLFS(ctx *context.APIContext) {
 	blob, entry, lastModified := getBlobForEntry(ctx)
 	if ctx.Written() {
 		return
+	}
+
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginCodeAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, ctx.Repo.TreePath, ctx.Repo.Commit.ID.String())
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 
 	ctx.RespHeader().Set(giteaObjectTypeHeader, string(files_service.GetObjectTypeFromTreeEntry(entry)))
@@ -768,7 +791,7 @@ func GetContentsExt(ctx *context.APIContext) {
 			return
 		}
 	}
-	ctx.JSON(http.StatusOK, getRepoContents(ctx, opts))
+	serveRepoContents(ctx, opts, false)
 }
 
 func GetContents(ctx *context.APIContext) {
@@ -804,28 +827,38 @@ func GetContents(ctx *context.APIContext) {
 	//     "$ref": "#/responses/ContentsResponse"
 	//   "404":
 	//     "$ref": "#/responses/notFound"
-	ret := getRepoContents(ctx, files_service.GetContentsOrListOptions{
+	serveRepoContents(ctx, files_service.GetContentsOrListOptions{
 		TreePath:                 ctx.PathParam("*"),
 		IncludeSingleFileContent: true,
 		IncludeCommitMetadata:    true,
-	})
+	}, true)
+}
+
+func serveRepoContents(ctx *context.APIContext, opts files_service.GetContentsOrListOptions, legacyShape bool) {
+	refCommit := resolveRefCommit(ctx, ctx.FormTrim("ref"))
 	if ctx.Written() {
 		return
 	}
-	ctx.JSON(http.StatusOK, util.Iif[any](ret.FileContents != nil, ret.FileContents, ret.DirContents))
-}
-
-func getRepoContents(ctx *context.APIContext, opts files_service.GetContentsOrListOptions) *api.ContentsExtResponse {
-	refCommit := resolveRefCommit(ctx, ctx.FormTrim("ref"))
-	if ctx.Written() {
-		return nil
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginCodeAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, opts.TreePath, refCommit.CommitID)
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 	ret, err := files_service.GetContentsOrList(ctx, ctx.Repo.Repository, ctx.Repo.GitRepo, refCommit, opts)
 	if err != nil {
 		ctx.APIErrorAuto(err)
-		return nil
+		return
 	}
-	return &ret
+	if legacyShape {
+		ctx.JSON(http.StatusOK, util.Iif[any](ret.FileContents != nil, ret.FileContents, ret.DirContents))
+	} else {
+		ctx.JSON(http.StatusOK, &ret)
+	}
 }
 
 func GetContentsList(ctx *context.APIContext) {
@@ -955,6 +988,20 @@ func handleGetFileContents(ctx *context.APIContext) {
 	refCommit := resolveRefCommit(ctx, ctx.FormTrim("ref"))
 	if ctx.Written() {
 		return
+	}
+	if opts == nil {
+		ctx.APIError(http.StatusBadRequest, "invalid body parameter")
+		return
+	}
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, "access.code", map[string]any{"paths": opts.Files, "commit": refCommit.CommitID, "operation": "batch_files"})
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 	filesResponse := files_service.GetContentsListFromTreePaths(ctx, ctx.Repo.Repository, ctx.Repo.GitRepo, refCommit, opts.Files)
 	ctx.JSON(http.StatusOK, util.SliceNilAsEmpty(filesResponse))

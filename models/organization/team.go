@@ -107,6 +107,12 @@ func newGhostTeam() *Team {
 // visibility. Privileged callers (site admins, org owners, team members) are
 // decided by the caller before reaching here.
 func (t *Team) CanNonMemberReadMeta(ctx context.Context, org, doer *user_model.User) (bool, error) {
+	if doer != nil && doer.IsAuditor {
+		auditor, err := user_model.IsActiveAuditor(ctx, doer.ID)
+		if err != nil || auditor {
+			return auditor, err
+		}
+	}
 	switch t.Visibility {
 	case structs.VisibleTypePublic:
 		return HasOrgOrUserVisible(ctx, org, doer), nil

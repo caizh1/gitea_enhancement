@@ -5,12 +5,15 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
@@ -153,15 +156,76 @@ func (opts FindRepoArchiversOption) ToOrders() string {
 }
 
 // SetArchiveRepoState sets if a repo is archived
-func SetArchiveRepoState(ctx context.Context, repo *Repository, isArchived bool) (err error) {
-	repo.IsArchived = isArchived
-
-	if isArchived {
-		repo.ArchivedUnix = timeutil.TimeStampNow()
-	} else {
-		repo.ArchivedUnix = timeutil.TimeStamp(0)
+func SetArchiveRepoState(ctx context.Context, repo *Repository, isArchived bool) error {
+	var next *Repository
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		var err error
+		next, err = GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if !isArchived {
+			pending, err := db.ExistByID[governance_model.RepositoryDeletion](ctx, repo.ID)
+			if err != nil {
+				return err
+			}
+			if pending {
+				return governance_model.ErrConflict
+			}
+			chain, err := governance_model.Ancestors(ctx, next.OwnerID)
+			if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+				return err
+			}
+			for _, ancestor := range chain {
+				if ancestor.Archived || ancestor.DeleteAfter != 0 {
+					return governance_model.ErrConflict
+				}
+			}
+		}
+		if next.IsArchived == isArchived {
+			return nil
+		}
+		before := next.IsArchived
+		next.IsArchived = isArchived
+		if isArchived {
+			next.ArchivedUnix = timeutil.TimeStampNow()
+		} else {
+			next.ArchivedUnix = 0
+		}
+		if err := UpdateRepositoryColsNoAutoTime(ctx, next, "is_archived", "archived_unix"); err != nil {
+			return err
+		}
+		chain, err := governance_model.Ancestors(ctx, next.OwnerID)
+		var ancestors []int64
+		if errors.Is(err, governance_model.ErrNotFound) {
+			if err = next.LoadOwner(ctx); err != nil {
+				return err
+			}
+			if next.Owner.IsOrganization() {
+				ancestors = append(ancestors, next.OwnerID)
+			}
+		} else if err != nil {
+			return err
+		} else {
+			for _, group := range chain {
+				if group.Kind == "group" {
+					ancestors = append(ancestors, group.ID)
+				}
+			}
+		}
+		details, err := json.Marshal(map[string]any{"before": before, "after": isArchived})
+		if err != nil {
+			return err
+		}
+		kind := "repository.archived"
+		if !isArchived {
+			kind = "repository.unarchived"
+		}
+		return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: kind, Actor: governance_model.AuditActor(ctx), ScopeType: "repository", ScopeID: next.ID, AncestorIDs: ancestors, ObjectType: "repository", ObjectID: next.ID, ObjectPath: next.FullPath(), Result: "success", Details: details})
+	})
+	if err != nil {
+		return err
 	}
-
-	_, err = db.GetEngine(ctx).ID(repo.ID).Cols("is_archived", "archived_unix").NoAutoTime().Update(repo)
-	return err
+	repo.IsArchived, repo.ArchivedUnix = next.IsArchived, next.ArchivedUnix
+	return nil
 }

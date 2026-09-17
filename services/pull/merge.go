@@ -18,6 +18,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	pull_model "gitea.dev/models/pull"
@@ -27,6 +28,7 @@ import (
 	"gitea.dev/modules/cache"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/httplib"
@@ -36,6 +38,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
+	governance_service "gitea.dev/services/governance"
 	issue_service "gitea.dev/services/issue"
 	notify_service "gitea.dev/services/notify"
 )
@@ -238,8 +241,19 @@ func addTestPullRequestTaskAfterWebOperation(pr *issues_model.PullRequest, doer 
 
 // Merge merges pull request to base repository.
 // Caller should check PR is ready to be merged (review and status checks)
-func Merge(pr *issues_model.PullRequest, doer *user_model.User, mergeStyle repo_model.MergeStyle, expectedHeadCommitID, message string, wasAutoMerged bool) error {
+func Merge(pr *issues_model.PullRequest, doer *user_model.User, mergeStyle repo_model.MergeStyle, expectedHeadCommitID, message string, wasAutoMerged bool, actors ...governance_model.Actor) error {
 	ctx := graceful.GetManager().HammerContext() // don't abort the git operation even if the user's request is canceled
+	actor := governance_service.RequestActor(doer, "", "native_merge")
+	if wasAutoMerged {
+		actor.Transport = "auto_merge"
+	}
+	if len(actors) > 0 {
+		if actors[0].EffectiveUserID() != doer.ID {
+			return governance_model.ErrForbidden
+		}
+		actor = actors[0]
+	}
+	ctx = governance_model.WithAuditActor(ctx, actor)
 
 	if err := pr.LoadBaseRepo(ctx); err != nil {
 		log.Error("Unable to load base repo: %v", err)
@@ -348,6 +362,10 @@ func doMergeAndPush(ctx context.Context, pr *issues_model.PullRequest, doer *use
 		return "", err
 	}
 	defer cancel()
+	approvalHead, err := git.GetFullCommitID(ctx, mergeCtx.tmpBasePath, git.BranchPrefix+tmpRepoTrackingBranch)
+	if err != nil {
+		return "", err
+	}
 
 	// Merge commits.
 	switch mergeStyle {
@@ -417,12 +435,73 @@ func doMergeAndPush(ctx context.Context, pr *issues_model.PullRequest, doer *use
 	)
 
 	mergeCtx.env = append(mergeCtx.env, repo_module.EnvPushTrigger+"="+string(pushTrigger))
+	var authorization *governance_model.MergeAuthorization
+	if pushTrigger == repo_module.PushTriggerPRMergeToBase {
+		authorization, err = governance_service.AuthorizePullMerge(ctx, governance_model.AuditActor(ctx), pr, approvalHead, mergeBaseSHA, mergeCommitID, func(ctx context.Context, fresh *issues_model.PullRequest) error {
+			if err := fresh.LoadBaseRepo(ctx); err != nil {
+				return err
+			}
+			currentUser, err := user_model.GetUserByID(ctx, doer.ID)
+			if err != nil {
+				return err
+			}
+			permission, err := access_model.GetIndividualUserRepoPermission(ctx, fresh.BaseRepo, currentUser)
+			if err != nil {
+				return err
+			}
+			allowed, err := IsUserAllowedToMerge(ctx, fresh, permission, currentUser)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return governance_model.ErrForbidden
+			}
+			if err := CheckPullBranchProtectionsAtHead(ctx, fresh, approvalHead); err != nil {
+				if errors.Is(err, ErrNotReadyToMerge) {
+					return fmt.Errorf("%w：原生合并条件已变化：%v", governance_model.ErrConflict, err)
+				}
+				return err
+			}
+			return nil
+		})
+	}
+	if err != nil {
+		return "", err
+	}
+	if authorization != nil {
+		mergeCtx.env = append(mergeCtx.env, repo_module.EnvMergeAuthorizationID+"="+authorization.ID)
+	}
 	pushCmd := gitcmd.NewCommand("push", "origin").AddDynamicArguments(tmpRepoBaseBranch + ":" + git.BranchPrefix + pr.BaseBranch)
 
 	// Push back to upstream.
 	// This cause an api call to "/api/internal/hook/post-receive/...",
 	// If it's merge, all db transaction and operations should be there but not here to prevent deadlock.
-	if err := mergeCtx.PrepareGitCmd(pushCmd).RunWithStderr(ctx); err != nil {
+	pushErr := mergeCtx.PrepareGitCmd(pushCmd).RunWithStderr(ctx)
+	if authorization != nil {
+		baseGit, err := gitrepo.OpenRepository(ctx, pr.BaseRepo)
+		if err != nil {
+			return "", fmt.Errorf("合并结果待核对：%w", err)
+		}
+		actual, readErr := baseGit.GetBranchCommitID(pr.BaseBranch)
+		baseGit.Close()
+		if readErr != nil {
+			return "", fmt.Errorf("合并结果待核对：%w", readErr)
+		}
+		state, err := governance_model.ReconcileMerge(ctx, authorization.ID, actual)
+		if err != nil {
+			return "", fmt.Errorf("合并结果待核对：%w", err)
+		}
+		if state == "unknown" {
+			return "", fmt.Errorf("%w：合并目标引用结果未知", governance_model.ErrConflict)
+		}
+		if state != "succeeded" {
+			return "", fmt.Errorf("%w：合并授权已失效或目标引用未写入", governance_model.ErrConflict)
+		}
+		if err := FinalizeAuthorizedMerge(ctx, authorization.ID); err != nil {
+			return "", fmt.Errorf("Git 已合并，原生 PR 状态需要恢复：%w", err)
+		}
+	}
+	if err := pushErr; err != nil {
 		if strings.Contains(err.Stderr(), "non-fast-forward") {
 			return "", &git.ErrPushOutOfDate{
 				StdOut: mergeCtx.outbuf.String(),
@@ -569,11 +648,24 @@ func isUserAllowedToMergeInRepoBranch(ctx context.Context, repoID int64, branch 
 		return false, err
 	}
 
-	if (p.CanWrite(unit.TypeCode) && pb == nil) || (pb != nil && git_model.IsUserMergeWhitelisted(ctx, pb, user.ID, p)) {
+	nativePermission := p.WithoutGovernance()
+	if (nativePermission.CanWrite(unit.TypeCode) && pb == nil) || (pb != nil && git_model.IsUserMergeWhitelisted(ctx, pb, user.ID, nativePermission)) {
 		return true, nil
 	}
+	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		return false, err
+	}
+	canMerge, err := access_model.HasGovernanceAbility(ctx, repo, user, governance_model.MergeCode)
+	if err != nil || !canMerge {
+		return false, err
+	}
+	if pb == nil || !pb.EnableMergeWhitelist {
+		return true, nil
+	}
+	// 显式原生合并白名单仍约束自定义 MergeCode，且不会把 PushCode 当成 MergeCode。
+	return git_model.IsUserMergeWhitelisted(ctx, pb, user.ID, nativePermission), nil
 
-	return false, nil
 }
 
 // CheckPullBranchProtections checks whether the PR is ready to be merged (reviews and status checks)
@@ -597,9 +689,48 @@ func CheckPullBranchProtections(ctx context.Context, pr *issues_model.PullReques
 	if !isPass {
 		return util.ErrorWrap(ErrNotReadyToMerge, "Not all required status checks successful")
 	}
+	return checkPullReviewProtections(ctx, pr, pb, skipProtectedFilesCheck)
+}
 
-	if !issues_model.HasEnoughApprovals(ctx, pb, pr) {
-		return util.ErrorWrap(ErrNotReadyToMerge, "Does not have enough approvals")
+// CheckPullBranchProtectionsAtHead 使用候选合并绑定的固定源提交，最终授权事务内只读取数据库。
+func CheckPullBranchProtectionsAtHead(ctx context.Context, pr *issues_model.PullRequest, head string) error {
+	if err := pr.LoadBaseRepo(ctx); err != nil {
+		return err
+	}
+	pb, err := git_model.GetFirstMatchProtectedBranchRule(ctx, pr.BaseRepoID, pr.BaseBranch)
+	if err != nil {
+		return err
+	}
+	if pb == nil {
+		return nil
+	}
+	required, err := EffectiveRequiredContexts(ctx, pr.BaseRepo, pb)
+	if err != nil {
+		return err
+	}
+	if len(required) > 0 || pb.EnableStatusCheck {
+		statuses, err := git_model.GetLatestCommitStatus(ctx, pr.BaseRepoID, head, db.ListOptionsAll)
+		if err != nil {
+			return err
+		}
+		if !MergeRequiredContextsCommitStatus(statuses, required).IsSuccess() {
+			return util.ErrorWrap(ErrNotReadyToMerge, "Not all required status checks successful")
+		}
+	}
+	return checkPullReviewProtections(ctx, pr, pb, false)
+}
+
+func checkPullReviewProtections(ctx context.Context, pr *issues_model.PullRequest, pb *git_model.ProtectedBranch, skipProtectedFilesCheck bool) error {
+	// 缺失或损坏的迁移结果必须阻断；这里不运行第二套审批计票。
+	if pb.RequiredApprovals > 0 {
+		var rule governance_model.ApprovalRule
+		has, err := db.GetEngine(ctx).Where("native_protection_id = ? AND scope_type = ? AND scope_id = ?", pb.ID, "repository", pb.RepoID).Get(&rule)
+		if err != nil {
+			return err
+		}
+		if !has || !rule.Enabled || int64(rule.Required) != pb.RequiredApprovals {
+			return util.ErrorWrap(ErrNotReadyToMerge, "原生审批配置尚未完成统一迁移")
+		}
 	}
 	if issues_model.MergeBlockedByRejectedReview(ctx, pb, pr) {
 		return util.ErrorWrap(ErrNotReadyToMerge, "There are requested changes")
@@ -707,42 +838,48 @@ func SetMerged(ctx context.Context, pr *issues_model.PullRequest, mergedCommitID
 		return false, fmt.Errorf("unable to merge PullRequest[%d], some required fields are empty", pr.Index)
 	}
 
-	return db.WithTx2(ctx, func(ctx context.Context) (bool, error) {
-		pr.Issue = nil
-		if err := pr.LoadIssue(ctx); err != nil {
-			return false, err
-		}
+	var merged bool
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", pr.BaseRepoID), governance_model.Resource("pull", pr.ID), governance_model.Resource("issue", pr.IssueID)}, func(ctx context.Context) error {
+		var txErr error
+		merged, txErr = db.WithTx2(ctx, func(ctx context.Context) (bool, error) {
+			pr.Issue = nil
+			if err := pr.LoadIssue(ctx); err != nil {
+				return false, err
+			}
 
-		if err := pr.Issue.LoadRepo(ctx); err != nil {
-			return false, err
-		}
+			if err := pr.Issue.LoadRepo(ctx); err != nil {
+				return false, err
+			}
 
-		if err := pr.Issue.Repo.LoadOwner(ctx); err != nil {
-			return false, err
-		}
+			if err := pr.Issue.Repo.LoadOwner(ctx); err != nil {
+				return false, err
+			}
 
-		// Removing an auto merge pull and ignore if not exist
-		if err := pull_model.DeleteScheduledAutoMerge(ctx, pr.ID); err != nil && !db.IsErrNotExist(err) {
-			return false, fmt.Errorf("DeleteScheduledAutoMerge[%d]: %v", pr.ID, err)
-		}
+			// Removing an auto merge pull and ignore if not exist
+			if err := pull_model.DeleteScheduledAutoMerge(ctx, pr.ID); err != nil && !db.IsErrNotExist(err) {
+				return false, fmt.Errorf("DeleteScheduledAutoMerge[%d]: %v", pr.ID, err)
+			}
 
-		// Set issue as closed
-		if _, err := issues_model.SetIssueAsClosed(ctx, pr.Issue, pr.Merger, true); err != nil {
-			return false, fmt.Errorf("ChangeIssueStatus: %w", err)
-		}
+			// Set issue as closed
+			if _, err := issues_model.SetIssueAsClosed(ctx, pr.Issue, pr.Merger, true); err != nil {
+				return false, fmt.Errorf("ChangeIssueStatus: %w", err)
+			}
 
-		// We need to save all of the data used to compute this merge as it may have already been changed by checkPullRequestBranchMergeable. FIXME: need to set some state to prevent checkPullRequestBranchMergeable from running whilst we are merging.
-		if cnt, err := db.GetEngine(ctx).Where("id = ?", pr.ID).
-			And("has_merged = ?", false).
-			Cols("has_merged, status, merge_base, merged_commit_id, merger_id, merged_unix, conflicted_files").
-			Update(pr); err != nil {
-			return false, fmt.Errorf("failed to update pr[%d]: %w", pr.ID, err)
-		} else if cnt != 1 {
-			return false, issues_model.ErrIssueAlreadyChanged
-		}
+			// We need to save all of the data used to compute this merge as it may have already been changed by checkPullRequestBranchMergeable. FIXME: need to set some state to prevent checkPullRequestBranchMergeable from running whilst we are merging.
+			if cnt, err := db.GetEngine(ctx).Where("id = ?", pr.ID).
+				And("has_merged = ?", false).
+				Cols("has_merged, status, merge_base, merged_commit_id, merger_id, merged_unix, conflicted_files").
+				Update(pr); err != nil {
+				return false, fmt.Errorf("failed to update pr[%d]: %w", pr.ID, err)
+			} else if cnt != 1 {
+				return false, issues_model.ErrIssueAlreadyChanged
+			}
 
-		return true, nil
+			return true, nil
+		})
+		return txErr
 	})
+	return merged, err
 }
 
 func ShouldDeleteBranchAfterMerge(ctx context.Context, userOption *bool, repo *repo_model.Repository, pr *issues_model.PullRequest) (bool, error) {

@@ -974,8 +974,8 @@ func (prInfo *pullRequestViewInfo) prepareMergeBox(ctx *context.Context, issue *
 	data.canMergeNow = (!data.hasOverridableBlockers || data.canBypassProtection) && // status checks are satisfied
 		(!data.requireSigned || data.willSign) // signing requirement is satisfied
 
-	prInfo.prepareMergeBoxFormProps(ctx)
 	prInfo.prepareMergeBoxInfoItems(ctx)
+	prInfo.prepareMergeBoxFormProps(ctx)
 	prInfo.prepareMergeBoxIconColor()
 
 	ctx.Data["PullMergeBoxData"] = prInfo.MergeBoxData
@@ -1050,16 +1050,6 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxProtectedRules(ctx *context.Co
 
 	pull := prInfo.issue.PullRequest
 	data := prInfo.MergeBoxData
-
-	data.isBlockedByApprovals = !issues_model.HasEnoughApprovals(ctx, pb, pull)
-	if data.isBlockedByApprovals {
-		grantedApprovals := issues_model.GetGrantedApprovalsCount(ctx, pb, pull)
-		blockerInfo := ctx.Locale.Tr("repo.pulls.blocked_by_approvals", grantedApprovals, pb.RequiredApprovals)
-		if pb.EnableApprovalsWhitelist {
-			blockerInfo = ctx.Locale.Tr("repo.pulls.blocked_by_approvals_whitelisted", grantedApprovals, pb.RequiredApprovals)
-		}
-		data.infoProtectionBlockers.AddErrorItem(blockerInfo)
-	}
 
 	data.isBlockedByRejection = issues_model.MergeBlockedByRejectedReview(ctx, pb, pull)
 	if data.isBlockedByRejection {

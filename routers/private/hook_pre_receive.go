@@ -4,6 +4,7 @@
 package private
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	asymkey_model "gitea.dev/models/asymkey"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	perm_model "gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -21,10 +23,12 @@ import (
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/private"
+	repo_module "gitea.dev/modules/repository"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/services/agit"
 	gitea_context "gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	pull_service "gitea.dev/services/pull"
 )
 
@@ -147,8 +151,12 @@ func HookPreReceive(ctx *gitea_context.PrivateContext) {
 func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, refFullName git.RefName) {
 	branchName := refFullName.BranchName()
 
-	if !ctx.assertCanWriteRef(refFullName) {
-		return
+	mergeOperation := referenceMergeOperation(ctx)
+	if !ctx.canWriteCodeRef(refFullName) {
+		if _, err := trustedMergeAuthorizationContext(ctx, mergeOperation); err != nil {
+			ctx.assertCanWriteRef(refFullName)
+			return
+		}
 	}
 
 	repo := ctx.Repo.Repository
@@ -181,6 +189,17 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 		return
 	}
 	protectBranch.Repo = repo
+	if protectBranch.RequireGovernanceApproval {
+		_, err := trustedMergeAuthorizationContext(ctx, mergeOperation)
+		if err != nil {
+			if auditErr := recordGovernanceGitDenial(ctx.PrivateContext, ctx.opts); auditErr != nil {
+				ctx.PrivateError(http.StatusInternalServerError, auditErr, "无法保存拒绝审计，写入已阻止")
+				return
+			}
+			ctx.JSON(http.StatusForbidden, private.Response{UserMsg: "目标分支只接受通过最终审批授权的合并"})
+			return
+		}
+	}
 
 	// This ref is a protected branch.
 	//
@@ -391,6 +410,27 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 			return
 		}
 	}
+}
+
+// referenceMergeOperation 将本次完整引用写入转换成最终合并授权的精确核对输入。
+func referenceMergeOperation(ctx *preReceiveContext) *governance_model.ReferenceTransaction {
+	operation := &governance_model.ReferenceTransaction{RepoID: ctx.Repo.Repository.ID, Actor: governance_model.Actor{ID: ctx.opts.UserID}, MergeAuthorizationID: ctx.opts.MergeAuthorizationID}
+	for i, ref := range ctx.opts.RefFullNames {
+		operation.Changes = append(operation.Changes, governance_model.ReferenceChange{Ref: string(ref), Old: ctx.opts.OldCommitIDs[i], New: ctx.opts.NewCommitIDs[i]})
+	}
+	return operation
+}
+
+// trustedMergeAuthorizationContext 仅信任服务端合并进程携带的一次性授权；普通推送即使拥有 MergeCode 也不会绕过 PushCode。
+func trustedMergeAuthorizationContext(ctx *preReceiveContext, operation *governance_model.ReferenceTransaction) (context.Context, error) {
+	if ctx.opts.PushTrigger != repo_module.PushTriggerPRMergeToBase || operation.MergeAuthorizationID == "" {
+		return ctx, governance_model.ErrForbidden
+	}
+	installed, err := gitrepo.ReferenceTransactionHookInstalled(ctx.Repo.Repository)
+	if err != nil || !installed {
+		return ctx, governance_model.ErrForbidden
+	}
+	return governance_service.ReferenceMergeAuthorizationContext(ctx, operation)
 }
 
 func preReceiveTag(ctx *preReceiveContext, refFullName git.RefName) {

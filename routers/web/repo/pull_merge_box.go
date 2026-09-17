@@ -4,12 +4,14 @@
 package repo
 
 import (
+	"fmt"
 	"html/template"
 
 	"gitea.dev/modules/htmlutil"
 	"gitea.dev/modules/svg"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 )
 
 type pullMergeBoxInfoItem struct {
@@ -24,6 +26,10 @@ type pullMergeBoxInfoItemCollection struct {
 
 type pullInfoSection struct {
 	InfoItems []*pullMergeBoxInfoItem
+}
+
+func approvalStateBlocksMerge(hasRequiredRules bool, state *governance_service.PullApprovalResult, errText string) bool {
+	return errText != "" || hasRequiredRules && (state == nil || !state.VersionReady || !state.State.Satisfied)
 }
 
 func escapeStringSliceToHTML(s []string) (ret []template.HTML) {
@@ -89,6 +95,58 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxIconColor() {
 func (prInfo *pullRequestViewInfo) prepareMergeBoxInfoItems(ctx *context.Context) {
 	pull := prInfo.issue.PullRequest
 	data := prInfo.MergeBoxData
+	actorID := int64(0)
+	if ctx.Doer != nil {
+		actorID = ctx.Doer.ID
+	}
+	approvalRules, rulesErr := governance_service.ListPullApprovalRules(ctx, actorID, pull.ID)
+	hasApprovalRules := false
+	hasRequiredApprovalRules := false
+	if rulesErr == nil {
+		for _, rule := range approvalRules.Policies {
+			hasApprovalRules = hasApprovalRules || rule.Enabled
+			applies, err := governance_service.ApprovalRuleApplies(ctx, pull.BaseRepoID, pull.BaseBranch, rule)
+			if err != nil {
+				rulesErr = err
+				break
+			}
+			hasRequiredApprovalRules = hasRequiredApprovalRules || applies && rule.Required > 0
+		}
+		if rulesErr == nil {
+			for i := range approvalRules.Version.Rules {
+				rule := &approvalRules.Version.Rules[i]
+				hasApprovalRules = hasApprovalRules || rule.Enabled
+				applies, err := governance_service.ApprovalRuleApplies(ctx, pull.BaseRepoID, pull.BaseBranch, rule)
+				if err != nil {
+					rulesErr = err
+					break
+				}
+				hasRequiredApprovalRules = hasRequiredApprovalRules || applies && rule.Required > 0
+			}
+		}
+	}
+	if hasApprovalRules || rulesErr != nil {
+		data.ApprovalStateURL = fmt.Sprintf("%s/pulls/%d/approvals", ctx.Repo.RepoLink, pull.Index)
+		if rulesErr != nil {
+			data.ApprovalStateError = "审批状态正在变化或暂时无法核对，合并时会由服务端重新判定。"
+		} else {
+			approvalState, err := governance_service.ReadPullApprovalState(ctx, actorID, pull.ID)
+			if err != nil {
+				data.ApprovalStateError = "审批状态正在变化或暂时无法核对，合并时会由服务端重新判定。"
+			} else {
+				data.ApprovalState, err = governance_service.ProjectPullApprovalResult(ctx, actorID, pull.ID, pull.BaseRepoID, approvalState)
+				if err != nil {
+					data.ApprovalStateError = "审批状态正在变化或暂时无法核对，合并时会由服务端重新判定。"
+				}
+			}
+		}
+		data.approvalBlocked = approvalStateBlocksMerge(hasRequiredApprovalRules, data.ApprovalState, data.ApprovalStateError)
+		if data.approvalBlocked {
+			// 审批规则不可由管理员绕过；保留自动合并排队入口，但禁止立即合并。
+			data.canMergeNow = false
+			data.infoCommitBlockers.AddErrorItem(template.HTML("审批规则尚未满足或暂时无法核对，当前不能立即合并。"))
+		}
+	}
 
 	if pull.HasMerged && data.IsPullBranchDeletable {
 		data.ClosedInfoTitle = ctx.Locale.Tr("repo.pulls.merged_success")

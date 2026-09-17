@@ -10,6 +10,7 @@ import (
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/reqctx"
 	"gitea.dev/modules/session"
+	"gitea.dev/services/auth/password"
 )
 
 type DataStore = reqctx.ContextDataProvider
@@ -31,9 +32,7 @@ type Method interface {
 }
 
 // PasswordAuthenticator represents a source of authentication
-type PasswordAuthenticator interface {
-	Authenticate(ctx context.Context, user *user_model.User, login, password string) (*user_model.User, error)
-}
+type PasswordAuthenticator = password.Authenticator
 
 // SynchronizableSource represents a source that can synchronize users
 type SynchronizableSource interface {

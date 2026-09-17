@@ -8,6 +8,7 @@ import (
 	"time"
 
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
 	"gitea.dev/models/unittest"
 	"gitea.dev/modules/timeutil"
 
@@ -340,4 +341,22 @@ func TestOAuth2AuthorizationCode_GenerateRedirectURI(t *testing.T) {
 
 func TestOAuth2AuthorizationCode_TableName(t *testing.T) {
 	assert.Equal(t, "oauth2_authorization_code", new(auth_model.OAuth2AuthorizationCode).TableName())
+}
+
+func TestZZDeleteOAuth2RelictsRevokesOtherUsersOfOwnedApplication(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	app := &auth_model.OAuth2Application{UID: 1, Name: "owned-app", ClientID: "owned-app-client"}
+	require.NoError(t, db.Insert(t.Context(), app))
+	grant := &auth_model.OAuth2Grant{UserID: 2, ApplicationID: app.ID, Scope: "read:user"}
+	require.NoError(t, db.Insert(t.Context(), grant))
+	code := &auth_model.OAuth2AuthorizationCode{GrantID: grant.ID, Code: "owned-app-code"}
+	require.NoError(t, db.Insert(t.Context(), code))
+
+	require.NoError(t, auth_model.DeleteOAuth2RelictsByUserID(t.Context(), 1))
+	unittest.AssertNotExistsBean(t, &auth_model.OAuth2Application{ID: app.ID})
+	unittest.AssertNotExistsBean(t, &auth_model.OAuth2Grant{ID: grant.ID})
+	unittest.AssertNotExistsBean(t, &auth_model.OAuth2AuthorizationCode{ID: code.ID})
+	loaded, err := auth_model.GetOAuth2GrantByID(t.Context(), grant.ID)
+	require.NoError(t, err)
+	assert.Nil(t, loaded, "已签发令牌引用的授权必须失效")
 }

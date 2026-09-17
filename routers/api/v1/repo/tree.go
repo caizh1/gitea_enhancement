@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	files_service "gitea.dev/services/repository/files"
 )
 
@@ -60,6 +61,16 @@ func GetTree(ctx *context.APIContext) {
 	if len(sha) == 0 {
 		ctx.APIError(http.StatusBadRequest, "sha not provided")
 		return
+	}
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, "access.code", map[string]any{"object_kind": "tree", "object_ref": sha})
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 	if tree, err := files_service.GetTreeBySHA(ctx, ctx.Repo.Repository, ctx.Repo.GitRepo, sha, ctx.FormInt("page"), ctx.FormInt("per_page"), ctx.FormBool("recursive")); err != nil {
 		ctx.APIError(http.StatusBadRequest, err.Error())

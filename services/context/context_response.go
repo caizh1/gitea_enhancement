@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/httplib"
 	"gitea.dev/modules/log"
@@ -172,6 +173,10 @@ func (ctx *Context) notFoundInternal(logMsg string, logErr error) {
 // ServerError displays a 500 (Internal Server Error) page and prints the given error, if any.
 // If the error is controlled by our error system, a related 404 page can be displayed instead.
 func (ctx *Context) ServerError(logMsg string, logErr error) {
+	if errors.Is(logErr, governance_model.ErrConflict) {
+		ctx.HTTPError(http.StatusConflict, governance_model.ErrConflict.Error())
+		return
+	}
 	if errors.Is(logErr, util.ErrNotExist) {
 		ctx.notFoundInternal(logMsg, logErr)
 		return

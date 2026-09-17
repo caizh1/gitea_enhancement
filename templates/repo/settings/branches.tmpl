@@ -45,11 +45,11 @@
 							</div>
 							<div class="item-main">
 								<div class="item-title">
-									<div class="ui basic primary label">{{.RuleName}}</div>
+									<div class="ui basic primary label">{{.RuleName}}</div><span class="tw-text-text-light">{{index $.ApprovalSummaries .ID}}</span>
 								</div>
 							</div>
 							<div class="item-trailing">
-								<a class="ui tiny button" href="{{$.Repository.Link}}/settings/branches/edit?rule_name={{.RuleName}}">{{ctx.Locale.Tr "repo.settings.edit_protected_branch"}}</a>
+								<a class="ui tiny button" href="{{$.Repository.Link}}/settings/branches/edit?rule_id={{.ID}}">{{ctx.Locale.Tr "repo.settings.edit_protected_branch"}}</a>
 								<button class="ui red tiny button link-action" data-modal-confirm="#repo-branch-protection-delete-modal" data-url="{{$.Repository.Link}}/settings/branches/{{.ID}}/delete?id={{.ID}}">
 									{{ctx.Locale.Tr "repo.settings.protected_branch.delete_rule"}}
 								</button>

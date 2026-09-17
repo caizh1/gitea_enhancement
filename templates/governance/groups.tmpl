@@ -1,0 +1,117 @@
+{{template "base/head" .}}
+<div role="main" class="page-content governance groups governance-navigation">
+ <div class="ui container tw-py-6">
+  {{template "base/alert" .}}
+  {{if .Group}}{{template "governance/navigation_header" .}}{{else}}<h2>我的群组</h2>{{end}}
+  {{if and (eq .GroupTab "settings") (not .ShowCreate)}}{{with .Group}}
+	{{if index .Abilities "manage_group"}}<a class="ui button" href="{{AppSubUrl}}/org/{{.FullPath|PathEscapeSegments}}/settings/approvals">强制审批策略</a>{{end}}
+   <h3 class="tw-break-all">{{.Name}} <span class="ui label">{{index $.VisibilityNames .Visibility}}</span></h3>
+   <p class="tw-break-all">{{.FullPath}} {{if .Archived}}<span class="ui label">已归档</span>{{end}}</p>
+   <div class="tw-flex tw-gap-2 tw-flex-wrap">
+    <a class="ui button" href="{{AppSubUrl}}/{{.FullPath|PathEscapeSegments}}">查看项目</a>
+    {{if index .Abilities "manage_group"}}<a class="ui button" href="{{AppSubUrl}}/{{.FullPath|PathEscapeSegments}}/settings">原生群组设置</a>{{end}}
+    <a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ID}}/access-requests">访问申请</a>
+    {{if index .Abilities "manage_group_members"}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ID}}/invitations">成员邀请</a>{{end}}
+    {{if $.MoveParentPath}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ParentID}}">父群组</a>{{end}}
+    {{if index .Abilities "read_audit"}}<a class="ui button" href="{{AppSubUrl}}/governance/audit?scope_type=group&scope_id={{.ID}}">操作审计</a>{{end}}
+   </div>
+   {{if $.ArchiveImpact}}
+    {{if $.ArchiveImpact.AncestorDeletionID}}<p>删除计划来自父级群组，请前往<a href="{{AppSubUrl}}/governance/groups/{{$.ArchiveImpact.AncestorDeletionID}}">删除来源</a>恢复或查看详情。</p>{{else}}
+    <details class="ui segment"><summary>{{if .DeleteAfter}}恢复或永久删除群组{{else}}删除群组{{end}}</summary>
+     {{if .DeleteAfter}}<p>本群组正在等待删除；到期时间：{{DateUtils.FullTime .DeleteAfter}}。恢复会还原删除前的路径和归档状态。永久删除后不能通过此页面恢复。</p>{{else}}<p>群组及其后代将进入 {{$.DeletionRetentionDays}} 天保留期，期间可恢复。到期前会重新检查删除发起人的权限。涉及 {{$.ArchiveImpact.Groups}} 个群组、{{$.ArchiveImpact.Repositories}} 个项目。</p>{{end}}
+     <form class="ui form" method="post" action="{{AppSubUrl}}/governance/groups/{{.ID}}/deletion">{{$.CsrfTokenHtml}}
+      <input type="hidden" name="revision" value="{{.Revision}}">
+      <div class="field"><label for="deletion-confirm-path">输入完整群组路径以确认</label><input id="deletion-confirm-path" name="confirmation_path" autocomplete="off" required><p class="tw-break-all">{{.FullPath}}</p></div>
+      <div class="tw-flex tw-flex-wrap tw-gap-2">{{if .DeleteAfter}}<button class="ui primary button" name="action" value="restore">恢复群组</button><button class="ui red basic button" name="action" value="delete">永久删除</button>{{else}}<button class="ui red basic button" name="action" value="schedule">安排删除</button>{{end}}</div>
+     </form>
+    </details>{{end}}
+   {{end}}
+   {{if not .DeleteAfter}}{{with $.ArchiveImpact}}<details class="ui segment"><summary>{{if $.Group.Archived}}恢复归档{{else}}归档群组{{end}}</summary>
+    <p>影响 {{.Groups}} 个群组（含本组）、{{.Repositories}} 个项目；其中当前已归档 {{.PreviouslyArchivedRepositories}} 个项目。</p>
+    {{if .AncestorArchivedID}}<p>父级群组已归档，需要先<a href="{{AppSubUrl}}/governance/groups/{{.AncestorArchivedID}}">恢复父级群组</a>。</p>
+    {{else}}<p>归档后内容只读。按 GitLab 19.3.2，恢复父组会统一恢复后代，包括原本单独归档的项目；不恢复原来的独立归档标记。</p>
+     <form method="post" action="{{AppSubUrl}}/governance/groups/{{.GroupID}}/archive">{{$.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="archived" value="{{if $.Group.Archived}}false{{else}}true{{end}}"><button class="ui button" type="submit">{{if $.Group.Archived}}恢复本组及后代{{else}}归档本组及后代{{end}}</button></form>
+    {{end}}
+   </details>{{end}}{{end}}
+   <details class="ui segment"><summary>我的权限来源</summary>
+    {{range .Grants}}<p>{{index $.SourceNames .Source}} · {{index $.RoleNames .Role}}{{if .NativeTeamID}} · 原生 Owners 团队{{end}}{{if .ExpiresUnix}} · 到期时间：{{DateUtils.FullTime .ExpiresUnix}}{{end}}</p>{{else}}<p>公开访问或实例管理员权限。</p>{{end}}
+   </details>
+   {{if and (index .Abilities "manage_group") (not .Archived) (not .DeleteAfter)}}
+    {{if eq .ParentID 0}}<details class="ui segment"><summary>跨顶级群组共享限制</summary>
+     <p>开启后，本群组的子组和项目只能新建指向同一顶级群组内的共享。已有跨层级共享保留，可单独修改或撤销。</p>
+     <form method="post" action="{{AppSubUrl}}/governance/groups/{{.ID}}/share-restriction">{{$.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="enabled" value="{{if .RestrictExternalShares}}false{{else}}true{{end}}"><button class="ui button" type="submit">{{if .RestrictExternalShares}}允许新建跨顶级共享{{else}}限制新建跨顶级共享{{end}}</button></form>
+    </details>{{end}}
+    <details class="ui segment" {{if $.MoveImpact}}open{{end}}><summary>改名或转移群组</summary>
+     <form class="ui form tw-mt-3" method="get" action="{{AppSubUrl}}/governance/groups/{{.ID}}">
+      <input type="hidden" name="move_preview" value="true">
+      <div class="two fields"><div class="field"><label for="move-parent-path">目标父群组完整路径</label><input id="move-parent-path" name="move_parent_path" value="{{$.MoveParentPath}}" placeholder="留空表示顶级群组"><p>必须填写完整路径，系统不会按同名短路径选择。</p></div><div class="field"><label for="move-path">新的地址名称</label><input id="move-path" name="move_path" value="{{if $.MoveOption}}{{$.MoveOption.Path}}{{else}}{{.Slug}}{{end}}" maxlength="100" required pattern="[A-Za-z0-9][A-Za-z0-9_.-]*"></div></div>
+      <button class="ui button" type="submit">预览影响</button>
+     </form>
+     {{with $.MoveImpact}}<div class="ui warning message tw-mt-3">
+      <p><strong>规范地址：</strong><span class="tw-break-all">{{.OldPath}}</span> → <span class="tw-break-all">{{.NewPath}}</span></p>
+      <p>将原子切换 {{.Groups}} 个群组和 {{.Repositories}} 个项目。原地址保留为受原权限校验的兼容别名。</p>
+      <p><strong>移除的父级范围：</strong>{{range .RemovedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}</p>
+      <p><strong>新增的父级范围：</strong>{{range .AddedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}</p>
+      <p>离开范围包含：{{.RemovedMembershipSources}} 条成员来源、{{.RemovedShareSources}} 条共享、{{.RemovedApprovalPolicies}} 条强制审批规则、{{.RemovedApprovalSettings}} 组审批设置、{{.RemovedAuditStreams}} 个启用的审计外送。</p>
+      <p>进入范围包含：{{.AddedMembershipSources}} 条成员来源、{{.AddedShareSources}} 条共享、{{.AddedApprovalPolicies}} 条强制审批规则、{{.AddedApprovalSettings}} 组审批设置、{{.AddedAuditStreams}} 个启用的审计外送。群组自身及后代直接配置保持不变。</p>
+      {{if or .CustomRoleMembershipsRemapped .CustomRoleInvitationsRemapped}}<p><strong>跨顶级群组自定义角色处理：</strong>{{.CustomRoleMembershipsRemapped}} 条成员授权和 {{.CustomRoleInvitationsRemapped}} 条待接受邀请会映射到目标根的等价角色，显式角色及附加能力保持不变。</p>{{end}}
+      <p>预览不授予操作权限；确认时会在同一事务内重新核对来源、目标权限和修订号。</p>
+      <form method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/move">{{$.CsrfTokenHtml}}<input type="hidden" name="action" value="move"><input type="hidden" name="parent_id" value="{{$.MoveOption.ParentID}}"><input type="hidden" name="path" value="{{$.MoveOption.Path}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><button class="ui primary button" type="submit">确认改名或转移</button></form>
+     </div>{{end}}
+    </details>
+   {{end}}
+  {{end}}
+
+  {{end}}
+  {{if not .Group}}<div class="ui segment"><div class="governance-navigation-panel"></div></div>{{if .SignedUser.CanCreateOrganization}}<a class="ui primary button" href="?create=1">创建顶级群组</a>{{end}}{{end}}
+  {{if .ShowCreate}}{{if or (and (not .Group) .SignedUser.CanCreateOrganization) (and (not .Group.Archived) (index .Group.Abilities "create_group"))}}
+   {{if .CreateError}}<p class="ui negative message" role="alert">{{.CreateError}}</p>{{end}}<details open class="ui segment"><summary>{{if .Group}}创建子群组{{else}}创建顶级群组{{end}}</summary>
+    <form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups">
+     {{.CsrfTokenHtml}}<input type="hidden" name="parent_id" value="{{if .Group}}{{.Group.ID}}{{else}}0{{end}}">
+     <div class="two fields"><div class="field"><label for="group-name">显示名称</label><input id="group-name" value="{{.CreateName}}" name="name" maxlength="100" required></div><div class="field"><label for="group-path">地址名称</label><input data-parent-path="{{if .Group}}{{.Group.FullPath}}/{{end}}" id="group-path" value="{{.CreatePath}}" name="path" maxlength="100" required pattern="[A-Za-z0-9][A-Za-z0-9_.-]*"></div></div>
+     <div class="field"><label for="group-visibility">可见性</label><select id="group-visibility" name="visibility" class="ui dropdown"><option value="2" {{if or (not .CreateError) (eq .CreateVisibility 2)}}selected{{end}}>私有</option><option value="1" {{if and .CreateError (eq .CreateVisibility 1)}}selected{{end}}>内部</option><option value="0" {{if and .CreateError (eq .CreateVisibility 0)}}selected{{end}}>公开</option></select></div>
+     <p>完整路径：<output id="group-full-path-preview"></output></p><p>子群组不能比父级更开放。支持最多 20 层。</p><button class="ui primary button" type="submit">创建群组</button>
+    </form>
+   </details>
+  {{end}}
+  {{end}}
+  {{if .Group}}
+   {{if and (eq .GroupTab "shares") (index .Group.Abilities "manage_group")}}
+    <h3 class="ui dividing header">群组共享</h3>
+    <p>被邀请群组的直接成员可按角色上限访问本组及后代资源。继承成员和子群组成员不自动加入。</p>
+    <div class="flex-list">
+     {{range .Shares}}<div class="flex-item tw-flex-wrap"><div class="flex-item-main tw-min-w-0"><span class="tw-break-all">{{index $.ShareNames .GroupID}}</span> · 稳定 ID {{.GroupID}} · {{index $.RoleNames .MaxRole}}{{if .ExpiresUnix}} · 有效至 {{DateUtils.FullTime .ExpiresUnix}}{{end}}</div><form method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/shares">{{$.CsrfTokenHtml}}<input type="hidden" name="group_id" value="{{.GroupID}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><button class="ui red basic button" name="action" value="remove">撤销共享</button></form></div>{{else}}<p>暂无共享关系。</p>{{end}}
+    </div>
+    {{if .SharesNext}}<a class="ui button" href="?tab=shares&amp;shares_after={{.SharesNext}}">下一页共享</a>{{end}}
+    <details class="ui segment"><summary>新增或修改共享</summary><form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups/{{.Group.ID}}/shares">
+     {{.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Group.Revision}}">
+     <div class="three fields"><div class="field"><label for="share-group">被邀请群组完整路径</label><input id="share-group" name="group_path" maxlength="2048" required placeholder="acme/rd"><p>提交时解析为稳定 ID；不会按同名短路径选择。</p></div><div class="field"><label for="share-role">最高角色</label><select id="share-role" name="role" class="ui dropdown">{{range $role, $name := .RoleNames}}<option value="{{$role}}">{{$name}}</option>{{end}}</select></div><div class="field"><label for="share-expiry">有效至（UTC 日期，留空为永久）</label><input id="share-expiry" type="date" name="expires"></div></div>
+     <button class="ui primary button" type="submit">保存共享</button>
+    </form></details>
+   {{end}}
+   {{if and (eq .GroupTab "settings") (not .ShowCreate) (index .Group.Abilities "manage_group_members")}}
+    <h3 class="ui dividing header">自定义角色</h3>
+    {{range .CustomRoles}}<div class="ui segment"><strong>{{.Name}}</strong> · {{index $.RoleNames .BaseRole}}<p>附加能力：{{range .Abilities}}{{index $.AbilityNames .}} {{else}}无{{end}}</p>
+     {{if and (not $.Group.Archived) (not $.Group.ParentID) (index $.Group.Abilities "manage_group")}}
+      <details><summary>编辑角色</summary><form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/roles">{{$.CsrfTokenHtml}}<input type="hidden" name="role_id" value="{{.ID}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><input type="hidden" name="base_role" value="{{.BaseRole}}"><div class="field"><label>名称<input name="name" value="{{.Name}}" maxlength="100" required></label></div><fieldset class="field"><legend>附加能力</legend><div class="tw-flex tw-flex-wrap tw-gap-3">{{$selected := .Abilities}}{{range $ability,$name := $.AbilityNames}}<label class="tw-inline-flex tw-items-center tw-gap-2"><input type="checkbox" name="abilities" value="{{$ability}}" {{if SliceUtils.Contains $selected $ability}}checked{{end}}>{{$name}}</label>{{end}}</div></fieldset><button class="ui primary button">保存角色</button><button class="ui red basic button" name="action" value="remove">删除未使用角色</button></form></details>
+     {{end}}
+    </div>{{else}}<p>暂无自定义角色。</p>{{end}}
+    {{if .RolesNext}}<a class="ui button" href="?roles_after={{.RolesNext}}">下一页角色</a>{{end}}
+    {{if and (not .Group.Archived) (not .Group.ParentID) (index .Group.Abilities "manage_group")}}
+     <details class="ui segment"><summary>创建自定义角色</summary><form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups/{{.Group.ID}}/roles">{{.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Group.Revision}}"><div class="field"><label for="custom-name">名称</label><input id="custom-name" name="name" maxlength="100" required></div><div class="field"><label for="custom-base">基础角色</label><select id="custom-base" name="base_role" class="ui dropdown">{{range $role,$name := .RoleNames}}<option value="{{$role}}">{{$name}}</option>{{end}}</select></div><fieldset class="field"><legend>附加能力</legend><div class="tw-flex tw-flex-wrap tw-gap-3">{{range $ability,$name := .AbilityNames}}<label class="tw-inline-flex tw-items-center tw-gap-2"><input type="checkbox" name="abilities" value="{{$ability}}">{{$name}}</label>{{end}}</div></fieldset><p>角色作用于本顶级群组及后代。已分配角色的能力调整立即生效。</p><button class="ui primary button">创建角色</button></form></details>
+    {{end}}
+   {{end}}
+   {{if eq .GroupTab "members"}}<div class="ui segment">
+    {{template "governance/navigation_members" .}}
+    {{if .MembersNext}}<a class="ui button" href="?tab=members&amp;members_after={{.MembersNext}}&amp;q={{.MemberSearch}}&amp;source={{.MemberFilter}}">下一页成员</a>{{end}}
+    {{if index .Group.Abilities "manage_group_members"}}<details id="group-member-form" class="ui segment"><summary>{{if .Group.Archived}}修改已有直接授权{{else}}新增或修改直接授权{{end}}</summary><form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups/{{.Group.ID}}/members">
+     {{.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Group.Revision}}">
+     <div class="three fields"><div class="field"><label for="member-name">用户名</label><input id="member-name" name="username" required autocomplete="off"></div><div class="field"><label for="member-role">角色</label><select id="member-role" name="role">{{range $role, $name := .RoleNames}}<option value="{{$role}}">{{$name}}</option>{{end}}</select></div><div class="field"><label for="member-expiry">有效至（UTC 日期，留空为永久）</label><input id="member-expiry" type="date" name="expires"></div></div>
+     <div class="field"><label for="member-custom-role">自定义角色（基础角色须与上面选择一致）</label><select id="member-custom-role" name="custom_role_id"><option value="0">使用标准角色</option>{{range .CustomRoles}}<option value="{{.ID}}">{{.Name}} · {{index $.RoleNames .BaseRole}}</option>{{end}}</select></div>
+     <p>修改本组直接来源。父组、共享和原生团队授权需要在对应来源处管理。{{if .Group.Archived}}归档期间只能调整或移除已有成员，不能新增成员。{{end}}</p><button class="ui primary button" type="submit">保存直接授权</button>
+    </form></details>{{end}}
+   </div>{{end}}
+  {{end}}
+ </div>
+</div>
+{{template "base/footer" .}}

@@ -19,3 +19,4 @@ type sourceInterface interface {
 }
 
 var _ (sourceInterface) = &oauth2.Source{}
+var _ auth_model.TransactionalRegisterableSource = &oauth2.Source{}

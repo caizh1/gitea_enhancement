@@ -5,8 +5,11 @@ package repo
 
 import (
 	"context"
+	"reflect"
+	"slices"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/json"
@@ -351,13 +354,46 @@ func getUnitsByRepoID(ctx context.Context, repoID int64) (units []*RepoUnit, err
 }
 
 // UpdateRepoUnitConfig updates the config of the provided repo unit
-func UpdateRepoUnitConfig(ctx context.Context, unit *RepoUnit) error {
-	_, err := db.GetEngine(ctx).ID(unit.ID).Cols("config").Update(unit)
-	return err
+func UpdateRepoUnitConfig(ctx context.Context, repoUnit *RepoUnit) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repoUnit.RepoID)}, func(ctx context.Context) error {
+		fresh := new(RepoUnit)
+		has, err := db.GetEngine(ctx).ID(repoUnit.ID).Get(fresh)
+		if err != nil || !has || fresh.RepoID != repoUnit.RepoID || fresh.Type != repoUnit.Type {
+			return governance_model.ErrConflict
+		}
+		affected, err := db.GetEngine(ctx).ID(repoUnit.ID).Cols("config").Update(repoUnit)
+		if err != nil || affected != 1 {
+			return governance_model.ErrConflict
+		}
+		if repoUnit.Type != unit.TypeActions || reflect.DeepEqual(fresh.ActionsConfig(), repoUnit.ActionsConfig()) {
+			return nil
+		}
+		before, after := fresh.ActionsConfig(), repoUnit.ActionsConfig()
+		changed := make([]string, 0, 5)
+		if !reflect.DeepEqual(before.DisabledWorkflows, after.DisabledWorkflows) {
+			changed = append(changed, "disabled_workflows")
+		}
+		if !reflect.DeepEqual(before.DisabledScopedWorkflows, after.DisabledScopedWorkflows) {
+			changed = append(changed, "disabled_scoped_workflows")
+		}
+		if !reflect.DeepEqual(before.CollaborativeOwnerIDs, after.CollaborativeOwnerIDs) {
+			changed = append(changed, "collaborative_owner_ids")
+		}
+		if before.TokenPermissionMode != after.TokenPermissionMode || !reflect.DeepEqual(before.MaxTokenPermissions, after.MaxTokenPermissions) {
+			changed = append(changed, "token_permissions")
+		}
+		if before.OverrideOwnerConfig != after.OverrideOwnerConfig {
+			changed = append(changed, "override_owner_config")
+		}
+		slices.Sort(changed)
+		return AppendContentAudit(ctx, "actions.config_updated", repoUnit.RepoID, "actions_config", repoUnit.ID, "/actions/settings", map[string]any{"before": before, "after": after, "changed_fields": changed})
+	})
 }
 
 func UpdateRepoUnitPublicAccess(ctx context.Context, unit *RepoUnit) error {
-	_, err := db.GetEngine(ctx).Where("repo_id=? AND `type`=?", unit.RepoID, unit.Type).
-		Cols("anonymous_access_mode", "everyone_access_mode").Update(unit)
-	return err
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", unit.RepoID)}, func(ctx context.Context) error {
+		_, err := db.GetEngine(ctx).Where("repo_id=? AND `type`=?", unit.RepoID, unit.Type).
+			Cols("anonymous_access_mode", "everyone_access_mode").Update(unit)
+		return err
+	})
 }

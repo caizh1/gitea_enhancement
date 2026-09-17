@@ -12,6 +12,7 @@ import (
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
 	repo_model "gitea.dev/models/repo"
@@ -119,6 +120,7 @@ func CreateUser(ctx *context.APIContext) {
 		IsActive:     optional.Some(true),
 		IsRestricted: optional.FromPtr(form.Restricted),
 	}
+	u.IsAuditor = form.Auditor != nil && *form.Auditor
 
 	if form.Visibility != "" {
 		visibility := api.VisibilityModes[string(form.Visibility)]
@@ -134,7 +136,9 @@ func CreateUser(ctx *context.APIContext) {
 	}
 
 	if err := user_model.AdminCreateUser(ctx, u, &user_model.Meta{}, overwriteDefault); err != nil {
-		if user_model.IsErrUserAlreadyExist(err) ||
+		if errors.Is(err, governance_model.ErrForbidden) {
+			ctx.APIError(http.StatusForbidden, "管理员权限已失效，不能授予全站审计员身份")
+		} else if user_model.IsErrUserAlreadyExist(err) ||
 			user_model.IsErrEmailAlreadyUsed(err) ||
 			db.IsErrNameReserved(err) ||
 			db.IsErrNameCharsNotAllowed(err) ||
@@ -199,36 +203,6 @@ func EditUser(ctx *context.APIContext) {
 		MustChangePassword: optional.FromPtr(form.MustChangePassword),
 		ProhibitLogin:      optional.FromPtr(form.ProhibitLogin),
 	}
-	if err := user_service.UpdateAuth(ctx, ctx.ContextUser, authOpts); err != nil {
-		switch {
-		case errors.Is(err, password.ErrMinLength):
-			ctx.APIError(http.StatusBadRequest, fmt.Sprintf("password must be at least %d characters", setting.MinPasswordLength))
-		case errors.Is(err, password.ErrComplexity):
-			ctx.APIError(http.StatusBadRequest, err.Error())
-		case errors.Is(err, password.ErrIsPwned), password.IsErrIsPwnedRequest(err):
-			ctx.APIError(http.StatusBadRequest, err.Error())
-		default:
-			ctx.APIErrorInternal(err)
-		}
-		return
-	}
-
-	if form.Email != nil {
-		if err := user_service.ReplacePrimaryEmailAddress(ctx, ctx.ContextUser, *form.Email); err != nil {
-			switch {
-			case user_model.IsErrEmailCharIsNotSupported(err), user_model.IsErrEmailInvalid(err):
-				if !user_model.IsEmailDomainAllowed(*form.Email) {
-					err = fmt.Errorf("the domain of user email %s conflicts with EMAIL_DOMAIN_ALLOWLIST or EMAIL_DOMAIN_BLOCKLIST", *form.Email)
-				}
-				ctx.APIError(http.StatusBadRequest, err.Error())
-			case user_model.IsErrEmailAlreadyUsed(err):
-				ctx.APIError(http.StatusBadRequest, err.Error())
-			default:
-				ctx.APIErrorInternal(err)
-			}
-			return
-		}
-	}
 
 	opts := &user_service.UpdateOptions{
 		FullName:                optional.FromPtr(form.FullName),
@@ -237,6 +211,7 @@ func EditUser(ctx *context.APIContext) {
 		Description:             optional.FromPtr(form.Description),
 		IsActive:                optional.FromPtr(form.Active),
 		IsAdmin:                 user_service.UpdateOptionFieldFromPtr(form.Admin),
+		IsAuditor:               optional.FromPtr(form.Auditor),
 		Visibility:              optional.FromMapLookup(api.VisibilityModes, string(form.Visibility)),
 		AllowGitHook:            optional.FromPtr(form.AllowGitHook),
 		AllowImportLocal:        optional.FromPtr(form.AllowImportLocal),
@@ -245,10 +220,22 @@ func EditUser(ctx *context.APIContext) {
 		IsRestricted:            optional.FromPtr(form.Restricted),
 	}
 
-	if err := user_service.UpdateUser(ctx, ctx.ContextUser, opts); err != nil {
-		if user_model.IsErrDeleteLastAdminUser(err) {
+	if err := user_service.UpdateAdminUser(ctx, ctx.ContextUser, authOpts, opts, optional.FromPtr(form.Email), false); err != nil {
+		switch {
+		case errors.Is(err, governance_model.ErrForbidden):
+			ctx.APIError(http.StatusForbidden, "管理员权限已失效，不能修改账户")
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.APIError(http.StatusConflict, "账户认证方式或授权状态已变化，请重新加载")
+		case errors.Is(err, password.ErrMinLength):
+			ctx.APIError(http.StatusBadRequest, fmt.Sprintf("password must be at least %d characters", setting.MinPasswordLength))
+		case errors.Is(err, password.ErrComplexity), errors.Is(err, password.ErrIsPwned), password.IsErrIsPwnedRequest(err), user_model.IsErrDeleteLastAdminUser(err), user_model.IsErrEmailAlreadyUsed(err):
 			ctx.APIError(http.StatusBadRequest, err.Error())
-		} else {
+		case user_model.IsErrEmailCharIsNotSupported(err), user_model.IsErrEmailInvalid(err):
+			if form.Email != nil && !user_model.IsEmailDomainAllowed(*form.Email) {
+				err = fmt.Errorf("the domain of user email %s conflicts with EMAIL_DOMAIN_ALLOWLIST or EMAIL_DOMAIN_BLOCKLIST", *form.Email)
+			}
+			ctx.APIError(http.StatusBadRequest, err.Error())
+		default:
 			ctx.APIErrorInternal(err)
 		}
 		return

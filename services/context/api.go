@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -39,6 +40,8 @@ type APIContext struct {
 	Doer        *user_model.User // current signed-in user
 	IsSigned    bool
 	IsBasicAuth bool
+	// AuthenticatedUser 保留可信登录身份，供管理员代办操作的审计使用。
+	AuthenticatedUser *user_model.User
 
 	ContextUser *user_model.User // the user which is being visited, in most cases it differs from Doer
 
@@ -125,6 +128,15 @@ func (ctx *APIContext) APIErrorInternal(err error) {
 }
 
 func (ctx *APIContext) apiErrorInternal(skip int, err error) {
+	// 原生评审入口也必须明确返回合并授权冲突，不能包装为可盲目重试的服务故障。
+	if errors.Is(err, governance_model.ErrConflict) {
+		ctx.APIError(http.StatusConflict, governance_model.ErrConflict.Error())
+		return
+	}
+	if errors.Is(err, governance_model.ErrForbidden) {
+		ctx.APIError(http.StatusForbidden, governance_model.ErrForbidden.Error())
+		return
+	}
 	log.ErrorWithSkip(skip+1, "InternalServerError: %v", err)
 
 	var message string

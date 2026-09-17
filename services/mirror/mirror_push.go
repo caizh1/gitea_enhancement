@@ -9,11 +9,15 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/lfs"
 	"gitea.dev/modules/log"
@@ -29,32 +33,154 @@ import (
 
 var stripExitStatus = regexp.MustCompile(`exit status \d+ - `)
 
+// CreatePushMirror 以持久操作记录串联数据库、Git remote 与成功审计。
+func CreatePushMirror(ctx context.Context, mirror *repo_model.PushMirror, addr string) (retErr error) {
+	repo := mirror.GetRepository(ctx)
+	hasWiki := repo_service.HasWiki(ctx, repo)
+	wikiAddr := ""
+	if hasWiki {
+		wikiAddr = repository.WikiRemoteURL(ctx, addr)
+	}
+	operation, err := beginPushMirrorOperation(ctx, mirror, "create", "", addr, "", wikiAddr, hasWiki)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			compensateMirrorOperation(ctx, operation, func(tx context.Context) bool {
+				removeErr := RemovePushMirrorRemote(tx, mirror)
+				_, deleteErr := db.GetEngine(tx).ID(mirror.ID).Delete(new(repo_model.PushMirror))
+				return (removeErr == nil || git.IsRemoteNotExistError(removeErr)) && deleteErr == nil
+			})
+		}
+	}()
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", mirror.RepoID)}, func(ctx context.Context) error {
+		if err := db.Insert(ctx, mirror); err != nil {
+			return err
+		}
+		operation.MirrorID = mirror.ID
+		_, err := db.GetEngine(ctx).ID(operation.ID).Cols("mirror_id").Update(operation)
+		return err
+	}); err != nil {
+		return err
+	}
+	if err := AddPushMirrorRemote(ctx, mirror, addr); err != nil {
+		return err
+	}
+	if err := completePushMirrorOperation(ctx, operation, mirror, "repository.mirror_configured", map[string]any{"action": "created", "remote_name": mirror.RemoteName, "remote": safeMirrorURL(mirror.RemoteAddress), "interval_seconds": mirror.Interval.Seconds(), "sync_on_commit": mirror.SyncOnCommit}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeletePushMirror 删除Git remote失败或数据库事务失败时保留恢复记录。
+func DeletePushMirror(ctx context.Context, mirror *repo_model.PushMirror) (retErr error) {
+	remote, err := gitrepo.GitRemoteGetURL(ctx, mirror.GetRepository(ctx), mirror.RemoteName)
+	if err != nil {
+		return err
+	}
+	hasWiki := repo_service.HasWiki(ctx, mirror.Repo)
+	wikiRemote := ""
+	if hasWiki {
+		value, wikiErr := gitrepo.GitRemoteGetURL(ctx, mirror.Repo.WikiStorageRepo(), mirror.RemoteName)
+		if wikiErr != nil {
+			return wikiErr
+		}
+		wikiRemote = value.String()
+	}
+	operation, err := beginPushMirrorOperation(ctx, mirror, "delete", remote.String(), "", wikiRemote, "", hasWiki)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			compensateMirrorOperation(ctx, operation, func(tx context.Context) bool {
+				return restorePushMirrorRemotes(tx, mirror, remote.String(), wikiRemote, hasWiki) == nil
+			})
+		}
+	}()
+	if err := RemovePushMirrorRemote(ctx, mirror); err != nil {
+		return err
+	}
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", mirror.RepoID)}, func(ctx context.Context) error {
+		fresh, has, err := repo_model.GetPushMirrorByIDAndRepoID(ctx, mirror.ID, mirror.RepoID)
+		if err != nil || !has || fresh.RemoteName != mirror.RemoteName {
+			return governance_model.ErrConflict
+		}
+		if err := repo_model.DeletePushMirrors(ctx, repo_model.PushMirrorOptions{ID: mirror.ID, RepoID: mirror.RepoID}); err != nil {
+			return err
+		}
+		return completePushMirrorOperation(ctx, operation, mirror, "repository.mirror_updated", map[string]any{"action": "deleted", "remote_name": mirror.RemoteName})
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// UpdatePushMirrorInterval 保存真实旧值并在同一事务记录配置变更。
+func UpdatePushMirrorInterval(ctx context.Context, mirror *repo_model.PushMirror) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", mirror.RepoID)}, func(ctx context.Context) error {
+		fresh, has, err := repo_model.GetPushMirrorByIDAndRepoID(ctx, mirror.ID, mirror.RepoID)
+		if err != nil || !has {
+			return governance_model.ErrNotFound
+		}
+		before := fresh.Interval
+		fresh.Interval = mirror.Interval
+		if err := repo_model.UpdatePushMirrorInterval(ctx, fresh); err != nil {
+			return err
+		}
+		fresh.Repo = mirror.GetRepository(ctx)
+		return repo_service.AppendRepositoryAudit(ctx, fresh.Repo, fresh.Repo, "repository.mirror_updated", map[string]any{"direction": "push", "mirror_id": fresh.ID, "remote_name": fresh.RemoteName, "changed_fields": []string{"interval_seconds"}, "before_interval_seconds": before.Seconds(), "after_interval_seconds": fresh.Interval.Seconds()})
+	})
+}
+
 // AddPushMirrorRemote registers the push mirror remote.
 func AddPushMirrorRemote(ctx context.Context, m *repo_model.PushMirror, addr string) error {
-	addRemoteAndConfig := func(storageRepo gitrepo.Repository, addr string) error {
-		if err := gitrepo.GitRemoteAdd(ctx, storageRepo, m.RemoteName, addr, gitrepo.RemoteOptionMirrorPush); err != nil {
-			return err
-		}
-		if err := gitrepo.GitConfigAdd(ctx, storageRepo, "remote."+m.RemoteName+".push", "+refs/heads/*:refs/heads/*"); err != nil {
-			return err
-		}
-		return gitrepo.GitConfigAdd(ctx, storageRepo, "remote."+m.RemoteName+".push", "+refs/tags/*:refs/tags/*")
-	}
-
-	if err := addRemoteAndConfig(m.Repo, addr); err != nil {
+	if err := addPushMirrorRemoteToRepository(ctx, m.Repo, m.RemoteName, addr); err != nil {
 		return err
 	}
 
 	if repo_service.HasWiki(ctx, m.Repo) {
 		wikiRemoteURL := repository.WikiRemoteURL(ctx, addr)
 		if len(wikiRemoteURL) > 0 {
-			if err := addRemoteAndConfig(m.Repo.WikiStorageRepo(), wikiRemoteURL); err != nil {
+			if err := addPushMirrorRemoteToRepository(ctx, m.Repo.WikiStorageRepo(), m.RemoteName, wikiRemoteURL); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func addPushMirrorRemoteToRepository(ctx context.Context, storageRepo gitrepo.Repository, remoteName, addr string) error {
+	if err := gitrepo.GitRemoteAdd(ctx, storageRepo, remoteName, addr, gitrepo.RemoteOptionMirrorPush); err != nil {
+		return err
+	}
+	if err := gitrepo.GitConfigAdd(ctx, storageRepo, "remote."+remoteName+".push", "+refs/heads/*:refs/heads/*"); err != nil {
+		return err
+	}
+	return gitrepo.GitConfigAdd(ctx, storageRepo, "remote."+remoteName+".push", "+refs/tags/*:refs/tags/*")
+}
+
+func pushMirrorRemoteConfigurationMatches(ctx context.Context, storageRepo gitrepo.Repository, remoteName string) (bool, error) {
+	key := "remote." + remoteName
+	mirror, _, err := gitrepo.RunCmdString(ctx, storageRepo, gitcmd.NewCommand("config", "--bool", "--get").AddDynamicArguments(key+".mirror"))
+	if err != nil {
+		if gitcmd.IsErrorExitCode(err, 1) {
+			return false, nil
+		}
+		return false, err
+	}
+	values, _, err := gitrepo.RunCmdString(ctx, storageRepo, gitcmd.NewCommand("config", "--get-all").AddDynamicArguments(key+".push"))
+	if err != nil {
+		if gitcmd.IsErrorExitCode(err, 1) {
+			return false, nil
+		}
+		return false, err
+	}
+	refspecs := strings.Fields(values)
+	slices.Sort(refspecs)
+	return strings.TrimSpace(mirror) == "true" && slices.Equal(refspecs, []string{"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"}), nil
 }
 
 // RemovePushMirrorRemote removes the push mirror remote.
@@ -66,12 +192,23 @@ func RemovePushMirrorRemote(ctx context.Context, m *repo_model.PushMirror) error
 
 	if repo_service.HasWiki(ctx, m.Repo) {
 		if err := gitrepo.GitRemoteRemove(ctx, m.Repo.WikiStorageRepo(), m.RemoteName); err != nil {
-			// The wiki remote may not exist
-			log.Warn("Wiki Remote[%d] could not be removed: %v", m.ID, err)
+			return fmt.Errorf("remove Wiki push mirror remote: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func restorePushMirrorRemotes(ctx context.Context, mirror *repo_model.PushMirror, mainURL, wikiURL string, hasWiki bool) error {
+	_ = gitrepo.GitRemoteRemove(ctx, mirror.Repo, mirror.RemoteName)
+	if err := addPushMirrorRemoteToRepository(ctx, mirror.Repo, mirror.RemoteName, mainURL); err != nil {
+		return err
+	}
+	if !hasWiki {
+		return nil
+	}
+	_ = gitrepo.GitRemoteRemove(ctx, mirror.Repo.WikiStorageRepo(), mirror.RemoteName)
+	return addPushMirrorRemoteToRepository(ctx, mirror.Repo.WikiStorageRepo(), mirror.RemoteName, wikiURL)
 }
 
 // SyncPushMirror starts the sync of the push mirror and schedules the next run.

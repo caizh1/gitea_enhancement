@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/optional"
@@ -163,6 +165,26 @@ func TestCreateWebhook(t *testing.T) {
 	unittest.AssertNotExistsBean(t, hook)
 	assert.NoError(t, CreateWebhook(t.Context(), hook))
 	unittest.AssertExistsAndLoadBean(t, hook)
+	event := unittest.AssertExistsAndLoadBean(t, &governance_model.AuditEvent{Type: "webhook.created", ObjectID: hook.ID})
+	assert.Contains(t, event.ObjectPath, "org3/repo3")
+	assert.NotContains(t, string(event.Details), "/unit_test")
+	assert.NotContains(t, string(event.Details), "Secret")
+}
+
+func TestCreateWebhookAuditFailureRollsBack(t *testing.T) {
+	hook := &Webhook{RepoID: unittest.NonexistentID, URL: "https://example.com/path?token=secret", ContentType: ContentTypeJSON, Secret: "secret"}
+	require.Error(t, CreateWebhook(t.Context(), hook))
+	assert.Zero(t, hook.ID, "事务回滚不能向调用者泄露未提交的 ID")
+	unittest.AssertNotExistsBean(t, &Webhook{URL: hook.URL})
+}
+
+func TestCreateWebhookAuditUsesNestedOwnerPath(t *testing.T) {
+	_, err := db.GetEngine(t.Context()).ID(3).Cols("owner_namespace").Update(&repo_model.Repository{OwnerNamespace: "parent/org3"})
+	require.NoError(t, err)
+	hook := &Webhook{RepoID: 3, URL: "https://example.com/hook", ContentType: ContentTypeJSON}
+	require.NoError(t, CreateWebhook(t.Context(), hook))
+	event := unittest.AssertExistsAndLoadBean(t, &governance_model.AuditEvent{Type: "webhook.created", ObjectID: hook.ID})
+	assert.Contains(t, event.ObjectPath, "parent/org3/repo3/")
 }
 
 func TestGetWebhookByRepoID(t *testing.T) {
@@ -227,17 +249,27 @@ func TestGetWebhooksByOwnerID(t *testing.T) {
 func TestUpdateWebhook(t *testing.T) {
 	hook := unittest.AssertExistsAndLoadBean(t, &Webhook{RepoID: 1, Events: `{}`})
 	require.False(t, hook.IsActive)
+	require.NoError(t, UpdateWebhookLastStatus(t.Context(), &Webhook{ID: hook.ID, LastStatus: webhook_module.HookStatusSucceed}))
 	hook.IsActive = true
 	hook.ContentType = ContentTypeForm
 	unittest.AssertNotExistsBean(t, hook)
 	assert.NoError(t, UpdateWebhook(t.Context(), hook))
-	unittest.AssertExistsAndLoadBean(t, hook)
+	updated := unittest.AssertExistsAndLoadBean(t, hook)
+	assert.Equal(t, webhook_module.HookStatusSucceed, updated.LastStatus, "配置保存不能覆盖并发投递状态")
+	unittest.AssertExistsAndLoadBean(t, &governance_model.AuditEvent{Type: "webhook.updated", ObjectID: hook.ID})
+}
+
+func TestUpdateWebhookRejectsScopeChange(t *testing.T) {
+	hook := unittest.AssertExistsAndLoadBean(t, &Webhook{RepoID: 1, Events: `{}`})
+	hook.RepoID = 2
+	require.ErrorIs(t, UpdateWebhook(t.Context(), hook), governance_model.ErrConflict)
 }
 
 func TestDeleteWebhookByRepoID(t *testing.T) {
 	hook := unittest.AssertExistsAndLoadBean(t, &Webhook{RepoID: 1, Events: `{}`})
 	assert.NoError(t, DeleteWebhookByRepoID(t.Context(), 1, hook.ID))
 	unittest.AssertNotExistsBean(t, &Webhook{ID: hook.ID, RepoID: 1})
+	unittest.AssertExistsAndLoadBean(t, &governance_model.AuditEvent{Type: "webhook.deleted", ObjectID: hook.ID})
 
 	err := DeleteWebhookByRepoID(t.Context(), unittest.NonexistentID, unittest.NonexistentID)
 	assert.True(t, IsErrWebhookNotExist(err))

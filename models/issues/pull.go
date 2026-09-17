@@ -14,6 +14,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
 	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
@@ -460,7 +461,7 @@ func (pr *PullRequest) IsFromFork() bool {
 
 // NewPullRequest creates new pull request with labels for repository.
 func NewPullRequest(ctx context.Context, repo *repo_model.Repository, issue *Issue, labelIDs []int64, uuids []string, pr *PullRequest) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID), governance_model.Resource("repository", pr.HeadRepoID)}, func(ctx context.Context) error {
 		idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
 		if err != nil {
 			return fmt.Errorf("generate pull request index failed: %w", err)
@@ -488,7 +489,8 @@ func NewPullRequest(ctx context.Context, repo *repo_model.Repository, issue *Iss
 		if err = db.Insert(ctx, pr); err != nil {
 			return fmt.Errorf("insert pull repo: %w", err)
 		}
-		return nil
+		_, err = governance_model.SnapshotProjectPullRules(ctx, pr.ID, repo.ID, false)
+		return err
 	})
 }
 

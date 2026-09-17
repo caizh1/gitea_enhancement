@@ -77,10 +77,12 @@ type PullReviewComment struct {
 
 // CreatePullReviewOptions are options to create a pull request review
 type CreatePullReviewOptions struct {
-	Event    ReviewStateType           `json:"event"`
-	Body     string                    `json:"body"`
-	CommitID string                    `json:"commit_id"`
-	Comments []CreatePullReviewComment `json:"comments"`
+	// 仅用于本次批准前再次认证，不保存在评审记录中。
+	ApprovalPassword string                    `json:"approval_password,omitempty"`
+	Event            ReviewStateType           `json:"event"`
+	Body             string                    `json:"body"`
+	CommitID         string                    `json:"commit_id"`
+	Comments         []CreatePullReviewComment `json:"comments"`
 }
 
 // CreatePullReviewComment represent a review comment for creation api
@@ -101,8 +103,10 @@ type CreatePullReviewCommentReplyOptions struct {
 
 // SubmitPullReviewOptions are options to submit a pending pull request review
 type SubmitPullReviewOptions struct {
-	Event ReviewStateType `json:"event"`
-	Body  string          `json:"body"`
+	// 仅用于本次批准前再次认证，不保存在评审记录中。
+	ApprovalPassword string          `json:"approval_password,omitempty"`
+	Event            ReviewStateType `json:"event"`
+	Body             string          `json:"body"`
 }
 
 // DismissPullReviewOptions are options to dismiss a pull request review

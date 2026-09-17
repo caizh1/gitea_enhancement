@@ -1,0 +1,12 @@
+{{template "base/head" .}}
+<div role="main" class="page-content governance invitations"><div class="ui container tw-py-6">
+ {{template "base/alert" .}}<h2>成员邀请 · {{.State.FullPath}}</h2>
+ <p>邀请不会立即授予权限。收件人需登录并验证邮箱后接受；未接受邀请保留 90 天，第 2、5、10 天发送提醒。失败时保留状态并重试。</p>
+ {{range .State.Invitations}}<div class="ui segment"><strong class="tw-break-all">{{.Email}}</strong><p>{{index $.RoleNames .Role}}{{if .CustomRoleID}} · 自定义角色 #{{.CustomRoleID}}{{end}} · {{index $.DeliveryNames .DeliveryState}}</p><p>邀请到期：{{DateUtils.FullTime .ExpiresUnix}}{{if .LastSentUnix}} · 最近投递：{{DateUtils.FullTime .LastSentUnix}}{{end}}{{if .DeliveryFailures}} · 连续失败 {{.DeliveryFailures}} 次{{end}}</p><form method="post">{{$.CsrfTokenHtml}}<input type="hidden" name="invitation_id" value="{{.ID}}"><button class="ui red basic button" name="action" value="revoke">撤销邀请</button></form></div>{{else}}<p>暂无待接受邀请。</p>{{end}}
+ {{if .State.NextID}}<a class="ui button" href="?after_id={{.State.NextID}}">下一页邀请</a>{{end}}
+ {{if not .State.Archived}}<h3>邀请新成员</h3><form method="post" class="ui form">{{.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.State.Revision}}">
+ <div class="three fields"><div class="field"><label for="invite-email">邮箱</label><input id="invite-email" name="email" type="email" maxlength="254" required></div><div class="field"><label for="invite-role">角色</label><select id="invite-role" name="role">{{range $role,$name := .RoleNames}}{{if or (eq $.Scope "group") (ne $role 50)}}<option value="{{$role}}" {{if eq $role 30}}selected{{end}}>{{$name}}</option>{{end}}{{end}}</select></div><div class="field"><label for="invite-expiry">成员权限有效至（UTC 日期，留空为永久）</label><input id="invite-expiry" type="date" name="expires"></div></div>
+ <div class="field"><label for="invite-custom">自定义角色（基础角色须一致）</label><select id="invite-custom" name="custom_role_id"><option value="0">使用标准角色</option>{{range .State.Roles}}{{if or (eq $.Scope "group") (ne .BaseRole 50)}}<option value="{{.ID}}">{{.Name}} · {{index $.RoleNames .BaseRole}}</option>{{end}}{{end}}</select></div>
+ <p>需要已配置的邮件服务。已知用户名也可以通过成员页面直接添加。</p><button class="ui primary button" name="action" value="create">创建并安排投递</button></form>{{end}}
+</div></div>
+{{template "base/footer" .}}

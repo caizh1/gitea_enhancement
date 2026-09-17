@@ -13,7 +13,7 @@ import (
 	"time"
 
 	auth_model "gitea.dev/models/auth"
-	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	conan_model "gitea.dev/models/packages/conan"
 	"gitea.dev/modules/container"
@@ -628,7 +628,7 @@ func deleteRecipeOrPackage(apictx *context.Context, rref *conan_module.RecipeRef
 	var pd *packages_model.PackageDescriptor
 	versionDeleted := false
 
-	err := db.WithTx(apictx, func(ctx std_ctx.Context) error {
+	err := governance_model.WithWrite(apictx, nil, func(ctx std_ctx.Context) error {
 		pv, err := packages_model.GetVersionByNameAndVersion(ctx, apictx.Package.Owner.ID, packages_model.TypeConan, rref.Name, rref.Version)
 		if err != nil {
 			return err

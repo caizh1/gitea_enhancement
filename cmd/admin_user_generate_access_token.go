@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 
 	"github.com/urfave/cli/v3"
@@ -83,7 +84,7 @@ func runGenerateAccessToken(ctx context.Context, c *cli.Command) error {
 	t.Scope = accessTokenScope
 
 	// create the token
-	if err := auth_model.NewAccessToken(ctx, t); err != nil {
+	if err := auth_model.NewAccessToken(governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "system", Name: "Gitea 管理命令", Transport: "cli"}), t); err != nil {
 		return err
 	}
 

@@ -15,7 +15,7 @@ import (
 
 // VerifySSHKey marks a SSH key as verified
 func VerifySSHKey(ctx context.Context, ownerID int64, fingerprint, token, signature string) (string, error) {
-	return db.WithTx2(ctx, func(ctx context.Context) (string, error) {
+	return WithKeyWrite(ctx, func(ctx context.Context) (string, error) {
 		key := new(PublicKey)
 
 		has, err := db.GetEngine(ctx).Where("owner_id = ? AND fingerprint = ?", ownerID, fingerprint).Get(key)
@@ -42,6 +42,9 @@ func VerifySSHKey(ctx context.Context, ownerID int64, fingerprint, token, signat
 			return "", err
 		}
 
+		if err := AppendPublicKeyAudit(ctx, key, "credential.ssh_key_verified"); err != nil {
+			return "", err
+		}
 		return key.Fingerprint, nil
 	})
 }

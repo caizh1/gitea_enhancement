@@ -11,7 +11,7 @@
 </head>
 
 {{$release_url := HTMLFormat "<a href='%s'>%s</a>" .Release.HTMLURL .Release.TagName}}
-{{$repo_url := HTMLFormat "<a href='%s'>%s</a>" .Release.Repo.HTMLURL .Release.Repo.FullName}}
+{{$repo_url := HTMLFormat "<a href='%s'>%s</a>" .Release.Repo.HTMLURL .Release.Repo.FullPath}}
 <body>
 	<p>
 		{{.locale.Tr "mail.release.new.text" .Release.Publisher.Name $release_url $repo_url}}

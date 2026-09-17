@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -19,6 +20,7 @@ import (
 	"gitea.dev/routers/api/v1/utils"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
+	governance_service "gitea.dev/services/governance"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
 )
@@ -454,8 +456,8 @@ func DeletePullReview(ctx *context.APIContext) {
 		return
 	}
 
-	if err := issues_model.DeleteReview(ctx, review); err != nil {
-		ctx.APIErrorInternal(fmt.Errorf("can not delete ReviewID: %d", review.ID))
+	if err := issues_model.DeleteReview(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), review); err != nil {
+		ctx.APIErrorInternal(fmt.Errorf("can not delete ReviewID: %d: %w", review.ID, err))
 		return
 	}
 
@@ -560,7 +562,7 @@ func CreatePullReview(ctx *context.APIContext) {
 	}
 
 	// create review and associate all pending review comments
-	review, _, err := pull_service.SubmitReview(ctx, ctx.Doer, ctx.Repo.GitRepo, pr.Issue, reviewType, opts.Body, opts.CommitID, nil)
+	review, _, err := pull_service.SubmitReview(ctx, ctx.Doer, ctx.Repo.GitRepo, pr.Issue, reviewType, opts.Body, opts.CommitID, nil, governance_service.ReviewAuthentication{Password: opts.ApprovalPassword, Actor: governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())})
 	if err != nil {
 		if errors.Is(err, pull_service.ErrSubmitReviewOnClosedPR) {
 			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
@@ -652,7 +654,7 @@ func SubmitPullReview(ctx *context.APIContext) {
 	}
 
 	// create review and associate all pending review comments
-	review, _, err = pull_service.SubmitReview(ctx, ctx.Doer, ctx.Repo.GitRepo, pr.Issue, reviewType, opts.Body, headCommitID, nil)
+	review, _, err = pull_service.SubmitReview(ctx, ctx.Doer, ctx.Repo.GitRepo, pr.Issue, reviewType, opts.Body, headCommitID, nil, governance_service.ReviewAuthentication{Password: opts.ApprovalPassword, Actor: governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())})
 	if err != nil {
 		if errors.Is(err, pull_service.ErrSubmitReviewOnClosedPR) {
 			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
@@ -686,8 +688,15 @@ func preparePullReviewType(ctx *context.APIContext, pr *issues_model.PullRequest
 	case api.ReviewStateApproved:
 		// can not approve your own PR
 		if pr.Issue.IsPoster(ctx.Doer.ID) {
-			ctx.APIError(http.StatusUnprocessableEntity, "approve your own pull is not allowed")
-			return -1, true
+			settings, err := governance_model.ResolveApprovalSettings(ctx, ctx.Repo.Repository.ID, ctx.Repo.Repository.OwnerID)
+			if err != nil {
+				ctx.APIErrorInternal(err)
+				return -1, true
+			}
+			if settings.Settings.PreventAuthor {
+				ctx.APIError(http.StatusUnprocessableEntity, "approve your own pull is not allowed")
+				return -1, true
+			}
 		}
 		reviewType = issues_model.ReviewTypeApprove
 		needsBody = false
@@ -1075,7 +1084,7 @@ func dismissReview(ctx *context.APIContext, msg string, isDismiss, dismissPriors
 		return
 	}
 
-	_, err := pull_service.DismissReview(ctx, review.ID, ctx.Repo.Repository.ID, msg, ctx.Doer, isDismiss, dismissPriors)
+	_, err := pull_service.DismissReview(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), review.ID, ctx.Repo.Repository.ID, msg, ctx.Doer, isDismiss, dismissPriors)
 	if err != nil {
 		if pull_service.IsErrDismissRequestOnClosedPR(err) {
 			ctx.APIError(http.StatusForbidden, err.Error())

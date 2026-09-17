@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/label"
 	"gitea.dev/modules/optional"
@@ -237,24 +238,49 @@ func NewLabel(ctx context.Context, l *Label) error {
 	}
 	l.Color = color
 
-	return db.Insert(ctx, l)
+	if !l.BelongsToRepo() {
+		return db.Insert(ctx, l)
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", l.RepoID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			if err := db.Insert(ctx, l); err != nil {
+				return err
+			}
+			return AppendRepositoryContentAudit(ctx, "repository.label_created", l.RepoID, "label", l.ID, "/labels/"+l.Name, map[string]any{"after": map[string]any{"label_id": l.ID, "name": l.Name}})
+		})
+	})
 }
 
 // NewLabels creates new labels
 func NewLabels(ctx context.Context, labels ...*Label) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		for _, l := range labels {
-			color, err := label.NormalizeColor(l.Color)
-			if err != nil {
-				return err
-			}
-			l.Color = color
-
-			if err := db.Insert(ctx, l); err != nil {
-				return err
-			}
+	resources := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if l.BelongsToRepo() {
+			resources = append(resources, governance_model.Resource("repository", l.RepoID))
 		}
-		return nil
+	}
+	slices.Sort(resources)
+	resources = slices.Compact(resources)
+	return governance_model.WithWrite(ctx, resources, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			for _, l := range labels {
+				color, err := label.NormalizeColor(l.Color)
+				if err != nil {
+					return err
+				}
+				l.Color = color
+
+				if err := db.Insert(ctx, l); err != nil {
+					return err
+				}
+				if l.BelongsToRepo() {
+					if err := AppendRepositoryContentAudit(ctx, "repository.label_created", l.RepoID, "label", l.ID, "/labels/"+l.Name, map[string]any{"after": map[string]any{"label_id": l.ID, "name": l.Name}}); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
 	})
 }
 
@@ -266,7 +292,21 @@ func UpdateLabel(ctx context.Context, l *Label) error {
 	}
 	l.Color = color
 
-	return updateLabelCols(ctx, l, "name", "description", "color", "exclusive", "exclusive_order", "archived_unix")
+	if !l.BelongsToRepo() {
+		return updateLabelCols(ctx, l, "name", "description", "color", "exclusive", "exclusive_order", "archived_unix")
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", l.RepoID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			current, err := GetLabelByID(ctx, l.ID)
+			if err != nil {
+				return err
+			}
+			if err := updateLabelCols(ctx, l, "name", "description", "color", "exclusive", "exclusive_order", "archived_unix"); err != nil {
+				return err
+			}
+			return AppendRepositoryContentAudit(ctx, "repository.label_updated", l.RepoID, "label", l.ID, "/labels/"+l.Name, map[string]any{"before": map[string]any{"label_id": current.ID, "name": current.Name}, "after": map[string]any{"label_id": l.ID, "name": l.Name}})
+		})
+	})
 }
 
 // DeleteLabel delete a label
@@ -279,25 +319,45 @@ func DeleteLabel(ctx context.Context, id, labelID int64) error {
 		return err
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		if l.BelongsToOrg() && l.OrgID != id {
-			return nil
-		}
-		if l.BelongsToRepo() && l.RepoID != id {
-			return nil
-		}
+	resources := []string(nil)
+	if l.BelongsToRepo() {
+		resources = []string{governance_model.Resource("repository", l.RepoID)}
+	}
+	return governance_model.WithWrite(ctx, resources, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			current, err := GetLabelByID(ctx, labelID)
+			if err != nil {
+				if IsErrLabelNotExist(err) {
+					return nil
+				}
+				return err
+			}
+			l = current
+			if l.BelongsToOrg() && l.OrgID != id {
+				return nil
+			}
+			if l.BelongsToRepo() && l.RepoID != id {
+				return nil
+			}
 
-		if _, err = db.DeleteByID[Label](ctx, labelID); err != nil {
-			return err
-		} else if _, err = db.GetEngine(ctx).
-			Where("label_id = ?", labelID).
-			Delete(new(IssueLabel)); err != nil {
-			return err
-		}
+			if _, err = db.DeleteByID[Label](ctx, labelID); err != nil {
+				return err
+			} else if _, err = db.GetEngine(ctx).
+				Where("label_id = ?", labelID).
+				Delete(new(IssueLabel)); err != nil {
+				return err
+			}
 
-		// delete comments about now deleted label_id
-		_, err = db.GetEngine(ctx).Where("label_id = ?", labelID).Cols("label_id").Delete(&Comment{})
-		return err
+			// delete comments about now deleted label_id
+			_, err = db.GetEngine(ctx).Where("label_id = ?", labelID).Cols("label_id").Delete(&Comment{})
+			if err != nil {
+				return err
+			}
+			if l.BelongsToRepo() {
+				return AppendRepositoryContentAudit(ctx, "repository.label_deleted", l.RepoID, "label", l.ID, "/labels/"+l.Name, map[string]any{"before": map[string]any{"label_id": l.ID, "name": l.Name}})
+			}
+			return nil
+		})
 	})
 }
 

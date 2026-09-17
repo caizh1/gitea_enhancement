@@ -6,7 +6,28 @@ package oauth2
 import (
 	"gitea.dev/models/auth"
 	"gitea.dev/modules/json"
+	"net/url"
+	"slices"
 )
+
+func auditURLOrigin(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Hostname()
+}
+
+func (source *Source) AuditSourceConfig() map[string]any {
+	scopes := slices.Clone(source.Scopes)
+	slices.Sort(scopes)
+	return map[string]any{
+		"provider": source.Provider, "client_id": source.ClientID, "client_secret_configured": source.ClientSecret != "",
+		"discovery_origin": auditURLOrigin(source.OpenIDConnectAutoDiscoveryURL), "scopes": scopes,
+		"required_claim_name": source.RequiredClaimName, "group_claim_name": source.GroupClaimName,
+		"ssh_public_key_claim_name": source.SSHPublicKeyClaimName, "external_id_claim": source.ExternalIDClaim,
+	}
+}
 
 // Source holds configuration for the OAuth2 login source.
 type Source struct {

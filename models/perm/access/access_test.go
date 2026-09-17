@@ -28,6 +28,27 @@ func TestAccess(t *testing.T) {
 	t.Run("RecalculateAccessesRemoveAccess", testRecalculateAccessesRemoveAccess)
 }
 
+func TestInternalRepositoryRequiresLoginAndGrantsRead(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	repo.Visibility = repo_model.VisibilityInternal
+	repo.IsPrivate = true
+	_, err := db.GetEngine(t.Context()).ID(repo.ID).Cols("visibility", "is_private").Update(repo)
+	require.NoError(t, err)
+
+	level, err := access_model.AccessLevel(t.Context(), nil, repo)
+	require.NoError(t, err)
+	assert.Equal(t, perm_model.AccessModeNone, level)
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	level, err = access_model.AccessLevel(t.Context(), user, repo)
+	require.NoError(t, err)
+	assert.Equal(t, perm_model.AccessModeRead, level)
+	restricted := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 29})
+	level, err = access_model.AccessLevel(t.Context(), restricted, repo)
+	require.NoError(t, err)
+	assert.Equal(t, perm_model.AccessModeNone, level)
+}
+
 func testAccessLevel(t *testing.T) {
 	user2 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	user5 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})

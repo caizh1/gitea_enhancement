@@ -105,7 +105,7 @@ func addDeployKey(ctx context.Context, keyID, repoID int64, name, fingerprint st
 	return key, db.Insert(ctx, key)
 }
 
-// AddDeployKey add new deploy key to database and authorized_keys file.
+// AddDeployKey 同事务保存部署密钥、审计及授权文件待同步记录。
 func AddDeployKey(ctx context.Context, repoID int64, name, content string, readOnly bool) (*DeployKey, error) {
 	fingerprint, err := CalcFingerprint(content)
 	if err != nil {
@@ -117,7 +117,7 @@ func AddDeployKey(ctx context.Context, repoID int64, name, content string, readO
 		accessMode = perm.AccessModeWrite
 	}
 
-	return db.WithTx2(ctx, func(ctx context.Context) (*DeployKey, error) {
+	return WithKeyWrite(ctx, func(ctx context.Context) (*DeployKey, error) {
 		pkey, exist, err := db.Get[PublicKey](ctx, builder.Eq{"fingerprint": fingerprint})
 		if err != nil {
 			return nil, err
@@ -134,7 +134,7 @@ func AddDeployKey(ctx context.Context, repoID int64, name, content string, readO
 				Content:     content,
 				Name:        name,
 			}
-			if err = addKey(ctx, pkey); err != nil {
+			if err = db.Insert(ctx, pkey); err != nil {
 				return nil, fmt.Errorf("addKey: %w", err)
 			}
 		}
@@ -144,6 +144,9 @@ func AddDeployKey(ctx context.Context, repoID int64, name, content string, readO
 			return nil, err
 		}
 
+		if err := AppendDeployKeyAudit(ctx, key, "credential.deploy_key_created"); err != nil {
+			return nil, err
+		}
 		return key, nil
 	})
 }

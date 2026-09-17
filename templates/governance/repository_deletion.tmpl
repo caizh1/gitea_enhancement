@@ -1,0 +1,29 @@
+{{template "base/head" .}}
+<div role="main" class="page-content"><div class="ui container">
+ <h2 class="ui dividing header">项目删除与恢复</h2>
+ {{template "base/alert" .}}
+ <p><a href="{{.RepositoryLink}}">{{.State.FullPath}}</a></p>
+ {{if .State.AncestorDeletionID}}
+  <div class="ui warning message">所属群组正在等待删除，请先在<a href="{{AppSubUrl}}/governance/groups/{{.State.AncestorDeletionID}}">群组删除计划</a>中恢复。</div>
+ {{else}}
+  {{if .State.Pending}}
+   <div class="ui warning message">项目等待删除，预计执行时间：{{DateUtils.FullTime .State.Pending.DueUnix}}。恢复会还原原路径和之前的归档状态。</div>
+   {{if .State.Pending.Failures}}<p>到期处理未完成，系统会继续核对并重试。失败次数：{{.State.Pending.Failures}}。</p>{{end}}
+  {{else}}
+   <p>删除后保留 {{.State.RetentionDays}} 天。期间项目只读，可以恢复；到期时重新检查发起人的删除资格。</p>
+  {{end}}
+  <form class="ui form" method="post">{{.CsrfTokenHtml}}
+   {{if .State.Pending}}<input type="hidden" name="due_unix" value="{{.State.Pending.DueUnix}}">{{end}}
+   <div class="field"><label for="deletion-path">输入上方项目完整路径以确认操作</label><input id="deletion-path" name="confirmation_path" required maxlength="4096" autocomplete="off"></div>
+   <div class="tw-flex tw-flex-wrap tw-gap-2">
+    {{if .State.Pending}}
+     <button class="ui primary button" name="action" value="restore">恢复项目</button>
+     <button class="ui red button" name="action" value="delete">永久删除项目及全部内容</button>
+    {{else}}
+     <button class="ui red button" name="action" value="schedule">计划删除项目</button>
+    {{end}}
+   </div>
+  </form>
+ {{end}}
+</div></div>
+{{template "base/footer" .}}

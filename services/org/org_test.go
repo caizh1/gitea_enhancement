@@ -6,6 +6,8 @@ package org
 import (
 	"testing"
 
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -87,4 +89,21 @@ func TestOrg(t *testing.T) {
 		unittest.AssertNotExistsBean(t, &repo_model.Watch{UserID: watcher.ID, RepoID: repo.ID})
 		unittest.AssertNotExistsBean(t, &repo_model.Star{UID: watcher.ID, RepoID: repo.ID})
 	})
+}
+
+func TestPurgeOrganizationChecksChildrenBeforeDeletingRepositories(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	require.NoError(t, governance_model.InsertNamespace(ctx, &governance_model.Namespace{ID: 10000, ParentID: 3, Slug: "child", Kind: "group", Visibility: 2}))
+	org := unittest.AssertExistsAndLoadBean(t, &organization.Organization{ID: 3})
+	var before []*repo_model.Repository
+	require.NoError(t, db.GetEngine(ctx).Where("owner_id = ?", 3).Find(&before))
+	require.NotEmpty(t, before)
+	assert.ErrorIs(t, DeleteOrganization(ctx, org, true), governance_model.ErrConflict)
+	for _, repo := range before {
+		unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+	}
+	unittest.AssertExistsAndLoadBean(t, &organization.Organization{ID: 3})
+	unittest.AssertExistsAndLoadBean(t, &governance_model.Namespace{ID: 10000})
 }

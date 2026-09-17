@@ -30,6 +30,7 @@ import (
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 	archiver_service "gitea.dev/services/repository/archiver"
 	commitstatus_service "gitea.dev/services/repository/commitstatus"
@@ -63,7 +64,7 @@ func MustBeAbleToUpload(ctx *context.Context) {
 }
 
 func checkContextUser(ctx *context.Context, uid int64) *user_model.User {
-	orgs, err := organization.GetOrgsCanCreateRepoByUserID(ctx, ctx.Doer.ID)
+	orgs, err := governance_service.NavigationOrganizations(ctx, ctx.Doer.ID, true)
 	if err != nil {
 		ctx.ServerError("GetOrgsCanCreateRepoByUserID", err)
 		return nil
@@ -149,6 +150,11 @@ func Create(ctx *context.Context) {
 
 	ctx.Data["readme"] = "Default"
 	ctx.Data["private"] = getRepoPrivate(ctx)
+	visibility := int(ctxUser.Visibility)
+	if getRepoPrivate(ctx) {
+		visibility = 2
+	}
+	ctx.Data["visibility"] = visibility
 	ctx.Data["default_branch"] = setting.Repository.DefaultBranch
 	ctx.Data["repo_template_name"] = ctx.Tr("repo.template_select")
 
@@ -265,7 +271,8 @@ func CreatePost(ctx *context.Context) {
 			IssueLabels:      form.IssueLabels,
 			License:          form.License,
 			Readme:           form.Readme,
-			IsPrivate:        form.Private || setting.Repository.ForcePrivate,
+			IsPrivate:        form.Private || form.Visibility == repo_model.VisibilityPrivate || setting.Repository.ForcePrivate,
+			IsInternal:       !setting.Repository.ForcePrivate && form.Visibility == repo_model.VisibilityInternal,
 			DefaultBranch:    form.DefaultBranch,
 			AutoInit:         form.AutoInit,
 			IsTemplate:       form.Template,
@@ -362,6 +369,17 @@ func Download(ctx *context.Context) {
 		}
 		return
 	}
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), ctx.Repo.Repository, "access.archive", map[string]any{"commit": aReq.CommitID, "format": aReq.Type.String(), "paths": aReq.Paths, "method": ctx.Req.Method})
+		if err != nil {
+			ctx.ServerError("归档访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
+	}
+
 	err = archiver_service.ServeRepoArchive(ctx.Base, aReq)
 	if err != nil {
 		if errors.Is(err, util.ErrInvalidArgument) {
@@ -533,6 +551,7 @@ func SearchRepo(ctx *context.Context) {
 			Repository: &api.Repository{
 				ID:       repo.ID,
 				FullName: repo.FullName(),
+				FullPath: repo.FullPath(),
 				Fork:     repo.IsFork,
 				Private:  repo.IsPrivate,
 				Template: repo.IsTemplate,

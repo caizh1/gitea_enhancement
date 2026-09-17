@@ -81,6 +81,9 @@ func VerifyGPGKey(ctx context.Context, ownerID int64, keyID, token, signature st
 		if _, err := db.GetEngine(ctx).ID(key.ID).Cols("verified").Update(key); err != nil {
 			return "", err
 		}
+		if err := AppendGPGKeyAudit(ctx, key, "verified"); err != nil {
+			return "", err
+		}
 
 		return key.KeyID, nil
 	})

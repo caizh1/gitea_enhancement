@@ -19,5 +19,6 @@
 			{{template "repo/diff/stats" dict "Addition" .DiffShortStat.TotalAddition "Deletion" .DiffShortStat.TotalDeletion "Classes" "tw-ml-auto tw-pl-3 tw-font-semibold"}}
 		{{end}}
 	</div>
+	{{if .IsSigned}}<div class="tw-flex tw-flex-wrap tw-items-center tw-gap-2 tw-py-2"><a href="{{.RepoLink}}/pulls/{{.Issue.Index}}/approvals">审批规则与策略来源</a></div>{{end}}
 	<div class="ui tabs divider"></div>
 </div>

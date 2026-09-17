@@ -9,7 +9,9 @@ import (
 
 	"gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 
 	"github.com/markbates/goth"
@@ -71,22 +73,54 @@ func (source *Source) refresh(ctx context.Context, provider goth.Provider, u *us
 	// recognizes them as a valid user, they will be able to login
 	// via their provider and reactivate their account.
 	if shouldDisable {
-		return db.WithTx(ctx, func(ctx context.Context) error {
-			if hasUser {
-				log.Info("SyncExternalUsers[%s] disabling user %d", source.AuthSource.Name, user.ID)
-				user.IsActive = false
-				if err := user_model.UpdateUserCols(ctx, user, "is_active"); err != nil {
-					return err
-				}
+		resources := []string{}
+		if hasUser {
+			resources = append(resources, governance_model.Resource("user", user.ID))
+			groups, err := governance_model.GroupsRequiringOwnerReplacement(ctx, user.ID)
+			if err != nil {
+				return err
 			}
+			for _, groupID := range groups {
+				resources = append(resources, governance_model.Resource("group", groupID))
+			}
+		}
+		return governance_model.WithWrite(ctx, resources, func(ctx context.Context) error {
+			return db.WithTx(ctx, func(ctx context.Context) error {
+				if hasUser {
+					log.Info("SyncExternalUsers[%s] disabling user %d", source.AuthSource.Name, user.ID)
+					groups, err := governance_model.GroupsRequiringOwnerReplacement(ctx, user.ID)
+					if err != nil {
+						return err
+					}
+					user.IsActive = false
+					if err := user_model.UpdateUserCols(ctx, user, "is_active"); err != nil {
+						return err
+					}
+					for _, groupID := range groups {
+						path := ""
+						if group, err := governance_model.GetNamespace(ctx, groupID); err == nil {
+							path = group.FullPath
+						} else if org, userErr := user_model.GetUserByID(ctx, groupID); userErr == nil {
+							path = org.Name
+						}
+						details, err := json.Marshal(map[string]any{"reason": "external_identity_deactivated", "user_id": user.ID})
+						if err != nil {
+							return err
+						}
+						if err := governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: "group.owner_attention_required", Actor: governance_model.Actor{Kind: "system", Name: "外部身份源同步", Transport: "background"}, ScopeType: "group", ScopeID: groupID, ObjectType: "group", ObjectID: groupID, ObjectPath: path, Result: "success", Details: details}); err != nil {
+							return err
+						}
+					}
+				}
 
-			// HINT: OAUTH-AUTO-SYNC-USER-ACTIVATION
-			// Delete stored tokens, since they are invalid. This also prevents us from checking this in subsequent runs.
-			u.AccessToken = ""
-			u.RefreshToken = ""
-			u.ExpiresAt = time.Time{}
+				// HINT: OAUTH-AUTO-SYNC-USER-ACTIVATION
+				// Delete stored tokens, since they are invalid. This also prevents us from checking this in subsequent runs.
+				u.AccessToken = ""
+				u.RefreshToken = ""
+				u.ExpiresAt = time.Time{}
 
-			return user_model.UpdateExternalUserByExternalID(ctx, u)
+				return user_model.UpdateExternalUserByExternalID(ctx, u)
+			})
 		})
 	}
 

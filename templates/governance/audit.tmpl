@@ -1,0 +1,65 @@
+{{template "base/head" .}}
+<div role="main" aria-label="操作审计" class="page-content">
+	<div class="ui container">
+		{{template "base/alert" .}}
+		<div class="tw-flex tw-items-center tw-justify-between tw-gap-3 tw-flex-wrap">
+			<h2 class="ui header tw-break-all">操作审计 · {{.ScopeTitle}}</h2>
+			<div class="tw-flex tw-gap-2 tw-flex-wrap">
+				{{if .StreamURL}}<a class="ui button" href="{{.StreamURL}}">外送目标</a>{{end}}
+				<a class="ui button" href="{{AppSubUrl}}/governance/audit">我的相关事件</a>
+				{{if or .SignedUser.IsAdmin .SignedUser.IsAuditor}}<a class="ui button" href="{{AppSubUrl}}/governance/audit?scope_type=instance">实例审计</a>{{end}}
+			</div>
+		</div>
+		<div class="ui message">治理事件永久保存，导出时间使用 UTC。详细访问审计需配置外送目标；完整事件覆盖仍待验收。</div>
+		{{if .ValidationError}}<div role="alert" class="ui negative message">{{.ValidationError}}</div>{{end}}
+		<form class="ui form segment" method="post" action="{{AppSubUrl}}/governance/audit">
+			<input type="hidden" name="scope_type" value="{{.Filter.ScopeType}}">
+			<input type="hidden" name="scope_id" value="{{.Filter.ScopeID}}">
+			{{.CsrfTokenHtml}}
+			<div class="two fields">
+				<div class="field"><label for="audit-from">开始时间（UTC，包含）</label><input id="audit-from" type="datetime-local" name="from" value="{{.From}}" required></div>
+				<div class="field"><label for="audit-to">结束时间（UTC，不包含）</label><input id="audit-to" type="datetime-local" name="to" value="{{.To}}" required></div>
+			</div>
+			<div class="three fields">
+				<div class="field"><label for="audit-actor">用户 ID</label><input id="audit-actor" name="actor_id" type="number" min="0" value="{{if .Filter.ActorID}}{{.Filter.ActorID}}{{end}}"></div>
+				<div class="field"><label for="audit-type">事件类型</label><input id="audit-type" name="event_type" value="{{.Filter.EventType}}" placeholder="全部类型" list="audit-event-types"><datalist id="audit-event-types">{{range $key, $definition := .EventCatalog}}<option value="{{$key}}">{{$definition.Description}}</option>{{end}}</datalist></div>
+				<div class="field"><label for="audit-result">操作结果</label><select class="ui dropdown" id="audit-result" name="result"><option value="">全部结果</option>{{range $key, $name := .ResultNames}}<option value="{{$key}}" {{if eq $key $.Filter.Result}}selected{{end}}>{{$name}}</option>{{end}}</select></div>
+			</div>
+			<div class="three fields">
+				<div class="field"><label for="audit-entity-type">对象类型</label><input id="audit-entity-type" name="entity_type" value="{{.Filter.ObjectType}}"></div>
+				<div class="field"><label for="audit-entity-id">对象 ID</label><input id="audit-entity-id" name="entity_id" type="number" min="0" value="{{if .Filter.ObjectID}}{{.Filter.ObjectID}}{{end}}"></div>
+				<div class="field"><label for="audit-request">关联 ID</label><input id="audit-request" name="request_id" value="{{.Filter.RequestID}}"></div>
+			</div>
+			<div class="tw-flex tw-gap-2 tw-flex-wrap">
+				<button class="ui primary button" type="submit">查询（最多 30 天）</button>
+				<button class="ui button" type="submit" formmethod="post" formaction="{{AppSubUrl}}/governance/audit/exports" name="format" value="csv">导出 CSV</button>
+				<button class="ui button" type="submit" formmethod="post" formaction="{{AppSubUrl}}/governance/audit/exports" name="format" value="json">导出 JSON</button>
+			</div>
+			<p class="help">跨期取证可直接导出，后台会自动分段处理。每人最多保留 20 个未过期导出任务。</p>
+		</form>
+		<div class="flex-list">
+			{{range .Events}}
+			<div class="flex-item tw-items-start">
+				<div class="flex-item-main tw-min-w-0">
+					<div class="flex-item-title tw-flex-wrap"><strong>{{with index $.EventCatalog .Type}}{{.Description}}{{else}}{{.Type}}{{end}}</strong><span class="ui label">{{index $.ResultNames .Result}}</span></div>
+					<div>{{if eq .Actor.Kind "deploy_key"}}部署密钥：{{.Actor.Name}}（凭据 #{{.Actor.CredentialID}}）{{else}}{{.Actor.Name}}{{end}} · {{DateUtils.FullTime .OccurredAt}} · {{.Actor.Transport}}</div>
+					{{if .Actor.ActingAsID}}<div>代办用户：{{.Actor.ActingAsName}}（#{{.Actor.ActingAsID}}）</div>{{end}}
+					<div class="tw-break-all">{{.ObjectPath}} · {{.ObjectType}} #{{.ObjectID}}</div>
+					<details class="tw-mt-2"><summary>事件证据</summary><dl class="tw-break-all"><dt>事件 ID</dt><dd>{{.EventID}}</dd><dt>关联 ID</dt><dd>{{.RequestID}}</dd><dt>来源 IP</dt><dd>{{.Actor.IP}}</dd><dt>变更详情</dt><dd><pre class="tw-whitespace-pre-wrap">{{JsonUtils.EncodeToString .Details}}</pre></dd></dl></details>
+				</div>
+			</div>
+			{{else}}{{if not .ValidationError}}<div class="ui placeholder segment"><p>这个时间范围内没有可见的治理事件。</p></div>{{end}}{{end}}
+		</div>
+		{{if .NextURL}}<a class="ui button tw-mt-3" href="{{.NextURL}}">更早的事件</a>{{end}}
+		<h3 class="ui dividing header">我的导出任务</h3>
+		<div class="flex-list">
+			{{range .Exports}}
+			<div class="flex-item tw-flex-wrap">
+				<div class="flex-item-main tw-min-w-0"><strong>{{index $.ExportStates .State}}</strong> · {{.Format}} · {{.Rows}} 条<div>{{DateUtils.FullTime .CreatedAt}} · {{index $.ScopeNames .Filter.ScopeType}}</div><div class="tw-break-all">{{.ID}}</div></div>
+				{{if eq .State "ready"}}<a class="ui button" href="{{AppSubUrl}}/governance/audit/exports/{{.ID}}/download">下载证据</a>{{end}}
+			</div>
+			{{else}}<p>暂无导出任务。</p>{{end}}
+		</div>
+	</div>
+</div>
+{{template "base/footer" .}}

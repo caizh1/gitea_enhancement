@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -79,6 +80,11 @@ type Organization user_model.User
 // OrgFromUser converts user to organization
 func OrgFromUser(user *user_model.User) *Organization {
 	return (*Organization)(user)
+}
+
+// FullPath returns the public namespace path of the organization.
+func (org *Organization) FullPath() string {
+	return org.AsUser().FullPath()
 }
 
 // TableName represents the real table name of Organization
@@ -198,6 +204,13 @@ func (opts FindOrgMembersOpts) PublicOnly() bool {
 	return opts.Doer == nil || !(opts.IsDoerMember || opts.Doer.IsAdmin)
 }
 
+func (opts FindOrgMembersOpts) auditorReader(ctx context.Context) (bool, error) {
+	if opts.Doer == nil || !opts.Doer.IsAuditor {
+		return false, nil
+	}
+	return user_model.IsActiveAuditor(ctx, opts.Doer.ID)
+}
+
 // applyKeywordFilter adds keyword search conditions to session
 func (opts FindOrgMembersOpts) applyKeywordFilter(sess db.Session) bool {
 	if opts.Keyword == "" {
@@ -244,10 +257,14 @@ func (opts FindOrgMembersOpts) applyTeamMatesOnlyFilter(sess db.Session) {
 
 // CountOrgMembers counts the organization's members
 func CountOrgMembers(ctx context.Context, opts *FindOrgMembersOpts) (int64, error) {
+	auditor, err := opts.auditorReader(ctx)
+	if err != nil {
+		return 0, err
+	}
 	sess := db.GetEngine(ctx).Where("org_id=?", opts.OrgID)
-	if opts.PublicOnly() {
+	if opts.PublicOnly() && !auditor {
 		sess = sess.And("is_public = ?", true)
-	} else {
+	} else if !auditor {
 		opts.applyTeamMatesOnlyFilter(sess)
 	}
 	_ = opts.applyKeywordFilter(sess)
@@ -294,6 +311,17 @@ func (org *Organization) CustomAvatarRelativePath() string {
 
 // UnitPermission returns unit permission
 func (org *Organization) UnitPermission(ctx context.Context, doer *user_model.User, unitType unit.Type) perm.AccessMode {
+	minimum := perm.AccessModeNone
+	if doer != nil && doer.IsAuditor {
+		auditor, err := user_model.IsActiveAuditor(ctx, doer.ID)
+		if err != nil {
+			log.Error("读取审计员权限：%v", err)
+			return perm.AccessModeNone
+		}
+		if auditor {
+			minimum = perm.AccessModeRead
+		}
+	}
 	if doer != nil {
 		teams, err := GetUserOrgTeams(ctx, org.ID, doer.ID)
 		if err != nil {
@@ -307,20 +335,27 @@ func (org *Organization) UnitPermission(ctx context.Context, doer *user_model.Us
 		}
 
 		if len(teams) > 0 {
-			return teams.UnitMaxAccess(unitType)
+			return max(minimum, teams.UnitMaxAccess(unitType))
 		}
 	}
 
 	if ownerVisibilitySatisfiesDoer(org.AsUser(), doer) {
 		return perm.AccessModeRead
 	}
-
-	return perm.AccessModeNone
+	return minimum
 }
 
 // CreateOrganization creates record of a new organization.
-func CreateOrganization(ctx context.Context, org *Organization, owner *user_model.User) (err error) {
-	if !owner.CanCreateOrganization() {
+func CreateOrganization(ctx context.Context, org *Organization, owner *user_model.User, namespace ...*governance_model.Namespace) (err error) {
+	if len(namespace) > 0 && namespace[0] != nil && namespace[0].ParentID > 0 {
+		abilities, err := GovernanceGroupAbilities(ctx, namespace[0].ParentID, owner.ID)
+		if err != nil {
+			return err
+		}
+		if !owner.IsAdmin && !abilities[governance_model.CreateGroup] {
+			return ErrUserNotAllowedCreateOrg{}
+		}
+	} else if !owner.CanCreateOrganization() {
 		return ErrUserNotAllowedCreateOrg{}
 	}
 
@@ -410,6 +445,26 @@ func CreateOrganization(ctx context.Context, org *Organization, owner *user_mode
 		}); err != nil {
 			return fmt.Errorf("insert team-user relation: %w", err)
 		}
+		n := &governance_model.Namespace{ID: org.ID, Slug: org.Name, Kind: "group", Visibility: int(org.Visibility), NativeOwnerTeamID: t.ID}
+		if len(namespace) > 0 && namespace[0] != nil {
+			n = namespace[0]
+			n.ID, n.Kind, n.NativeOwnerTeamID = org.ID, "group", t.ID
+			err = governance_model.InsertNamespace(ctx, n)
+		} else {
+			err = governance_model.RegisterNativeNamespace(ctx, n)
+		}
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(org.Name, n.FullPath) {
+			if err := governance_model.ReserveNativeAlias(ctx, org.Name, "group", org.ID); err != nil {
+				return err
+			}
+		}
+		org.NamespacePath = n.FullPath
+		if _, err = db.GetEngine(ctx).ID(org.ID).NoAutoTime().Cols("namespace_path").Update(org); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -473,6 +528,16 @@ func ownerVisibilitySatisfiesDoer(orgOrUser, user *user_model.User) bool {
 
 // HasOrgOrUserVisible tells if the given user can see the given org or user
 func HasOrgOrUserVisible(ctx context.Context, owner, doer *user_model.User) bool {
+	if owner.IsOrganization() && doer != nil && doer.IsAuditor {
+		auditor, err := user_model.IsActiveAuditor(ctx, doer.ID)
+		if err != nil {
+			log.Error("读取审计员权限：%v", err)
+			return false
+		}
+		if auditor {
+			return true
+		}
+	}
 	return ownerVisibilitySatisfiesDoer(owner, doer) ||
 		(doer != nil && OrgFromUser(owner).HasMemberWithUserID(ctx, doer.ID))
 }
@@ -493,10 +558,14 @@ func HasOrgsVisible(ctx context.Context, orgs []*Organization, user *user_model.
 
 // GetOrgUsersByOrgID returns all organization-user relations by organization ID.
 func GetOrgUsersByOrgID(ctx context.Context, opts *FindOrgMembersOpts) ([]*OrgUser, error) {
+	auditor, err := opts.auditorReader(ctx)
+	if err != nil {
+		return nil, err
+	}
 	sess := db.GetEngine(ctx).Where("org_id=?", opts.OrgID)
-	if opts.PublicOnly() {
+	if opts.PublicOnly() && !auditor {
 		sess = sess.And("is_public = ?", true)
-	} else {
+	} else if !auditor {
 		opts.applyTeamMatesOnlyFilter(sess)
 	}
 	if opts.applyKeywordFilter(sess) {

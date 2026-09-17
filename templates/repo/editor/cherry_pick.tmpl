@@ -15,7 +15,7 @@
 					{{else}}
 						{{ctx.Locale.Tr "repo.editor.cherry_pick" $shalink}}
 					{{end}}
-					<a class="section" href="{{$.RepoLink}}">{{.Repository.FullName}}</a>
+					<a class="section" href="{{$.RepoLink}}">{{.Repository.FullPath}}</a>
 					<div class="breadcrumb-divider">:</div>
 					<a class="section" href="{{$.BranchLink}}">{{.BranchName}}</a>
 					<span>{{ctx.Locale.Tr "repo.editor.or"}} <a href="{{$shaurl}}">{{ctx.Locale.Tr "repo.editor.cancel_lower"}}</a></span>

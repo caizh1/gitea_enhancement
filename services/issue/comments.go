@@ -12,6 +12,7 @@ import (
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/json"
@@ -60,6 +61,13 @@ func CreateRefComment(ctx context.Context, doer *user_model.User, repo *repo_mod
 
 // CreateIssueComment creates a plain issue comment.
 func CreateIssueComment(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, issue *issues_model.Issue, content string, attachments []string) (*issues_model.Comment, error) {
+	unitType := unit.TypeIssues
+	if issue.IsPull {
+		unitType = unit.TypePullRequests
+	}
+	if err := access_model.CheckAuditorParticipation(ctx, repo.ID, doer.ID, unitType); err != nil {
+		return nil, err
+	}
 	if user_model.IsUserBlockedBy(ctx, doer, issue.PosterID, repo.OwnerID) {
 		if isAdmin, _ := access_model.IsUserRepoAdmin(ctx, repo, doer); !isAdmin {
 			return nil, user_model.ErrBlockedUser

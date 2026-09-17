@@ -25,6 +25,7 @@ type CreateRepoForm struct {
 	UID           int64  `binding:"Required"`
 	RepoName      string `binding:"Required;AlphaDashDot;MaxSize(100)"`
 	Private       bool
+	Visibility    int
 	Description   string `binding:"MaxSize(2048)"`
 	DefaultBranch string `binding:"GitRefName;MaxSize(100)"`
 	AutoInit      bool
@@ -168,6 +169,7 @@ func (f *RepoSettingForm) Validate(req *http.Request, errs binding.Errors) bindi
 
 // ProtectBranchForm form for changing protected branch settings
 type ProtectBranchForm struct {
+	ApprovalConfiguration         string
 	RuleName                      string `binding:"Required"`
 	RuleID                        int64
 	EnablePush                    string
@@ -199,6 +201,7 @@ type ProtectBranchForm struct {
 	ProtectedFilePatterns         string
 	UnprotectedFilePatterns       string
 	BlockAdminMergeOverride       bool
+	RequireGovernanceApproval     bool
 }
 
 // Validate validates the fields
@@ -594,10 +597,11 @@ func (f *CodeCommentForm) Validate(req *http.Request, errs binding.Errors) bindi
 
 // SubmitReviewForm for submitting a finished code review
 type SubmitReviewForm struct {
-	Content  string
-	Type     string
-	CommitID string
-	Files    []string
+	ApprovalPassword string
+	Content          string
+	Type             string
+	CommitID         string
+	Files            []string
 }
 
 // Validate validates the fields

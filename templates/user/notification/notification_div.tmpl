@@ -33,7 +33,7 @@
 					</div>
 					<a class="notifications-link silenced tw-flex-1" href="{{$one.Link ctx}}">
 						<div class="flex-text-block tw-text-[0.95em]">
-							{{$one.Repository.FullName}} {{if $one.Issue}}<span class="tw-text-text-light-3">#{{$one.Issue.Index}}</span>{{end}}
+							{{$one.Repository.FullPath}} {{if $one.Issue}}<span class="tw-text-text-light-3">#{{$one.Issue.Index}}</span>{{end}}
 							{{if eq $one.Status $statusPinned}}
 								{{svg "octicon-pin" 13 "tw-text-blue"}}
 							{{end}}
@@ -42,7 +42,7 @@
 							{{if $one.Issue}}
 								{{$one.Issue.Title | ctx.RenderUtils.RenderIssueSimpleTitle}}
 							{{else}}
-								{{$one.Repository.FullName}}
+								{{$one.Repository.FullPath}}
 							{{end}}
 						</div>
 					</a>

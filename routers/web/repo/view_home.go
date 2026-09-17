@@ -28,6 +28,7 @@ import (
 	"gitea.dev/modules/util"
 	"gitea.dev/routers/web/feed"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -409,7 +410,7 @@ func Home(ctx *context.Context) {
 		return
 	}
 
-	title := ctx.Repo.Repository.Owner.Name + "/" + ctx.Repo.Repository.Name
+	title := ctx.Repo.Repository.FullPath()
 	if ctx.Repo.Repository.Description != "" {
 		title += ": " + ctx.Repo.Repository.Description
 	}
@@ -420,6 +421,17 @@ func Home(ctx *context.Context) {
 		// empty or broken repositories need to be handled differently
 		handleRepoEmptyOrBroken(ctx)
 		return
+	}
+
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginCodeAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), ctx.Repo.Repository, ctx.Repo.TreePath, ctx.Repo.Commit.ID.String())
+		if err != nil {
+			ctx.ServerError("代码访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 
 	prepareHomeTreeSideBarSwitch(ctx)

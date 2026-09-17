@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -398,7 +399,7 @@ func setPackageTag(ctx std_ctx.Context, tag string, pv *packages_model.PackageVe
 		return errInvalidTagName
 	}
 
-	return db.WithTx(ctx, func(ctx std_ctx.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx std_ctx.Context) error {
 		pvs, _, err := packages_model.SearchVersions(ctx, &packages_model.PackageSearchOptions{
 			PackageID: pv.PackageID,
 			Properties: map[string]string{
@@ -431,8 +432,9 @@ func setPackageTag(ctx std_ctx.Context, tag string, pv *packages_model.PackageVe
 			if err != nil {
 				return err
 			}
+			return packages_model.AppendVersionTagAudit(ctx, pv, tag, "set")
 		}
-		return nil
+		return packages_model.AppendVersionTagAudit(ctx, pv, tag, "deleted")
 	})
 }
 

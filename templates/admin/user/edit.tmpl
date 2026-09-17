@@ -8,7 +8,8 @@
 				{{template "base/disable_form_autofill"}}
 				<div class="field {{if .Err_UserName}}error{{end}}">
 					<label for="user_name">{{ctx.Locale.Tr "username"}}</label>
-					<input id="user_name" name="user_name" value="{{.User.Name}}" maxlength="40">
+					<input id="user_name" name="user_name" value="{{.User.Name}}" readonly>
+					<p class="help">账号改名请使用下方独立表单。</p>
 				</div>
 				<!-- Types and name -->
 				<div class="inline required field {{if .Err_LoginType}}error{{end}}">
@@ -123,6 +124,12 @@
 				</div>
 				<div class="inline field">
 					<div class="ui checkbox">
+						<label><strong>全站审计员</strong>：读取所有群组、项目和审计记录；已有资源授权独立生效。仅需局部审计时请使用自定义角色。</label>
+						<input name="auditor" type="checkbox" {{if .User.IsAuditor}}checked{{end}}>
+					</div>
+				</div>
+				<div class="inline field">
+					<div class="ui checkbox">
 						<label><strong>{{ctx.Locale.Tr "admin.users.is_restricted"}}</strong></label>
 						<input name="restricted" type="checkbox" {{if .User.IsRestricted}}checked{{end}}>
 					</div>
@@ -167,6 +174,14 @@
 			</form>
 		</div>
 
+		<h4 class="ui top attached header">账号改名</h4>
+		<div class="ui attached segment">
+			<p>只修改账号名称和相关路径。密码、权限、邮箱等账户设置请在上方单独保存。</p>
+			<form class="ui form" action="./rename" method="post">
+				<div class="required field"><label for="rename-user-name">新账号名称</label><input id="rename-user-name" name="user_name" value="{{.User.Name}}" maxlength="40" required></div>
+				<button class="ui button">只保存账号名称</button>
+			</form>
+		</div>
 		<h4 class="ui top attached header">
 			{{ctx.Locale.Tr "settings.avatar"}}
 		</h4>

@@ -10,12 +10,14 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/glob"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/timeutil"
@@ -28,6 +30,7 @@ var ErrBranchIsProtected = util.ErrorWrap(util.ErrPermissionDenied, "branch is p
 
 // ProtectedBranch struct
 type ProtectedBranch struct {
+	RequireGovernanceApproval     bool                   `xorm:"NOT NULL DEFAULT false"`
 	ID                            int64                  `xorm:"pk autoincr"`
 	RepoID                        int64                  `xorm:"UNIQUE(s)"`
 	Repo                          *repo_model.Repository `xorm:"-"`
@@ -382,7 +385,59 @@ type WhitelistOptions struct {
 // If ID is 0, it creates a new record. Otherwise, updates existing record.
 // This function also performs check if whitelist user and team's IDs have been changed
 // to avoid unnecessary whitelist delete and regenerate.
-func UpdateProtectBranch(ctx context.Context, repo *repo_model.Repository, protectBranch *ProtectedBranch, opts WhitelistOptions) (err error) {
+func UpdateProtectBranch(ctx context.Context, repo *repo_model.Repository, protectBranch *ProtectedBranch, opts WhitelistOptions) error {
+	candidate := *protectBranch
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		if protectBranch.RepoID != repo.ID {
+			return governance_model.ErrInvalid
+		}
+		currentRepo, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if err := requireProtectionManager(ctx, currentRepo); err != nil {
+			return err
+		}
+		var before *ProtectedBranch
+		if protectBranch.ID != 0 {
+			before, err = GetProtectedBranchRuleByID(ctx, repo.ID, protectBranch.ID)
+			if err != nil {
+				return err
+			}
+			if before == nil {
+				return governance_model.ErrNotFound
+			}
+		}
+		if err := updateProtectBranch(ctx, currentRepo, &candidate, opts); err != nil {
+			return err
+		}
+		if err := governance_model.SyncNativeBranchApproval(ctx, &governance_model.NativeBranchApproval{
+			ID: candidate.ID, RepoID: candidate.RepoID, RuleName: candidate.RuleName, RequiredApprovals: candidate.RequiredApprovals,
+			EnableApprovalsWhitelist: candidate.EnableApprovalsWhitelist, ApprovalsWhitelistUserIDs: candidate.ApprovalsWhitelistUserIDs,
+			ApprovalsWhitelistTeamIDs: candidate.ApprovalsWhitelistTeamIDs, IgnoreStaleApprovals: candidate.IgnoreStaleApprovals,
+			DismissStaleApprovals: candidate.DismissStaleApprovals,
+		}); err != nil {
+			return err
+		}
+		return appendProtectionAudit(ctx, currentRepo, before, &candidate)
+	})
+	if err == nil {
+		*protectBranch = candidate
+	}
+	return err
+}
+
+func updateProtectBranch(ctx context.Context, repo *repo_model.Repository, protectBranch *ProtectedBranch, opts WhitelistOptions) (err error) {
+	if protectBranch.RequireGovernanceApproval {
+		installed, err := gitrepo.ReferenceTransactionHookInstalled(repo)
+		if err != nil {
+			return err
+		}
+		if !installed {
+			return fmt.Errorf("%w：必须先接入原生引用事务入口，才能启用审批后写入", governance_model.ErrConflict)
+		}
+	}
+
 	err = repo.MustNotBeArchived()
 	if err != nil {
 		return err
@@ -483,14 +538,36 @@ func UpdateProtectBranch(ctx context.Context, repo *repo_model.Repository, prote
 
 func UpdateProtectBranchPriorities(ctx context.Context, repo *repo_model.Repository, ids []int64) error {
 	prio := int64(1)
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		currentRepo, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if err := requireProtectionManager(ctx, currentRepo); err != nil {
+			return err
+		}
+		if err := currentRepo.MustNotBeArchived(); err != nil {
+			return err
+		}
 		for _, id := range ids {
+			before, err := GetProtectedBranchRuleByID(ctx, repo.ID, id)
+			if err != nil {
+				return err
+			}
+			if before == nil {
+				return governance_model.ErrNotFound
+			}
 			if _, err := db.GetEngine(ctx).
 				ID(id).Where("repo_id = ?", repo.ID).
 				Cols("priority").
 				Update(&ProtectedBranch{
 					Priority: prio,
 				}); err != nil {
+				return err
+			}
+			after := *before
+			after.Priority = prio
+			if err := appendProtectionAudit(ctx, currentRepo, before, &after); err != nil {
 				return err
 			}
 			prio++
@@ -575,7 +652,33 @@ func updateTeamWhitelist(ctx context.Context, repo *repo_model.Repository, curre
 }
 
 // DeleteProtectedBranch removes ProtectedBranch relation between the user and repository.
-func DeleteProtectedBranch(ctx context.Context, repo *repo_model.Repository, id int64) (err error) {
+func DeleteProtectedBranch(ctx context.Context, repo *repo_model.Repository, id int64) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		currentRepo, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if err := requireProtectionManager(ctx, currentRepo); err != nil {
+			return err
+		}
+		before, err := GetProtectedBranchRuleByID(ctx, repo.ID, id)
+		if err != nil {
+			return err
+		}
+		if before == nil {
+			return governance_model.ErrNotFound
+		}
+		if err := deleteProtectedBranch(ctx, currentRepo, id); err != nil {
+			return err
+		}
+		if err := governance_model.DetachProtectionApprovalRules(ctx, repo.ID, id); err != nil {
+			return err
+		}
+		return appendProtectionAudit(ctx, currentRepo, before, nil)
+	})
+}
+
+func deleteProtectedBranch(ctx context.Context, repo *repo_model.Repository, id int64) (err error) {
 	err = repo.MustNotBeArchived()
 	if err != nil {
 		return err
@@ -597,14 +700,59 @@ func DeleteProtectedBranch(ctx context.Context, repo *repo_model.Repository, id 
 
 // removeIDsFromProtectedBranch is a helper function to remove IDs from protected branch options
 func removeIDsFromProtectedBranch(ctx context.Context, p *ProtectedBranch, userID, teamID int64, columnNames []string) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", p.RepoID)}, func(ctx context.Context) error {
+		current, err := GetProtectedBranchRuleByID(ctx, p.RepoID, p.ID)
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			return governance_model.ErrNotFound
+		}
+		before := *current
+		// 删除名单项会原地移动切片；证据快照必须持有独立副本。
+		before.WhitelistUserIDs = slices.Clone(current.WhitelistUserIDs)
+		before.ForcePushAllowlistUserIDs = slices.Clone(current.ForcePushAllowlistUserIDs)
+		before.ApprovalsWhitelistUserIDs = slices.Clone(current.ApprovalsWhitelistUserIDs)
+		before.MergeWhitelistUserIDs = slices.Clone(current.MergeWhitelistUserIDs)
+		before.BypassAllowlistUserIDs = slices.Clone(current.BypassAllowlistUserIDs)
+		before.WhitelistTeamIDs = slices.Clone(current.WhitelistTeamIDs)
+		before.ForcePushAllowlistTeamIDs = slices.Clone(current.ForcePushAllowlistTeamIDs)
+		before.ApprovalsWhitelistTeamIDs = slices.Clone(current.ApprovalsWhitelistTeamIDs)
+		before.MergeWhitelistTeamIDs = slices.Clone(current.MergeWhitelistTeamIDs)
+		before.BypassAllowlistTeamIDs = slices.Clone(current.BypassAllowlistTeamIDs)
+		if err := removeProtectedBranchIDs(ctx, current, userID, teamID, columnNames); err != nil {
+			return err
+		}
+		repo, err := repo_model.GetRepositoryByID(ctx, p.RepoID)
+		if err != nil {
+			return err
+		}
+		if err := appendProtectionAudit(ctx, repo, &before, current); err != nil {
+			return err
+		}
+		var projection governance_model.NativeBranchApproval
+		if _, err := db.GetEngine(ctx).ID(current.ID).Get(&projection); err != nil {
+			return err
+		}
+		if err := governance_model.SyncNativeBranchApproval(ctx, &projection); err != nil {
+			return err
+		}
+		*p = *current
+		return nil
+	})
+}
+
+func removeProtectedBranchIDs(ctx context.Context, p *ProtectedBranch, userID, teamID int64, columnNames []string) error {
 	lenUserIDs, lenForcePushIDs, lenApprovalIDs, lenMergeIDs := len(p.WhitelistUserIDs), len(p.ForcePushAllowlistUserIDs), len(p.ApprovalsWhitelistUserIDs), len(p.MergeWhitelistUserIDs)
 	lenTeamIDs, lenForcePushTeamIDs, lenApprovalTeamIDs, lenMergeTeamIDs := len(p.WhitelistTeamIDs), len(p.ForcePushAllowlistTeamIDs), len(p.ApprovalsWhitelistTeamIDs), len(p.MergeWhitelistTeamIDs)
+	lenBypassUsers, lenBypassTeams := len(p.BypassAllowlistUserIDs), len(p.BypassAllowlistTeamIDs)
 
 	if userID > 0 {
 		p.WhitelistUserIDs = util.SliceRemoveAll(p.WhitelistUserIDs, userID)
 		p.ForcePushAllowlistUserIDs = util.SliceRemoveAll(p.ForcePushAllowlistUserIDs, userID)
 		p.ApprovalsWhitelistUserIDs = util.SliceRemoveAll(p.ApprovalsWhitelistUserIDs, userID)
 		p.MergeWhitelistUserIDs = util.SliceRemoveAll(p.MergeWhitelistUserIDs, userID)
+		p.BypassAllowlistUserIDs = util.SliceRemoveAll(p.BypassAllowlistUserIDs, userID)
 	}
 
 	if teamID > 0 {
@@ -612,9 +760,10 @@ func removeIDsFromProtectedBranch(ctx context.Context, p *ProtectedBranch, userI
 		p.ForcePushAllowlistTeamIDs = util.SliceRemoveAll(p.ForcePushAllowlistTeamIDs, teamID)
 		p.ApprovalsWhitelistTeamIDs = util.SliceRemoveAll(p.ApprovalsWhitelistTeamIDs, teamID)
 		p.MergeWhitelistTeamIDs = util.SliceRemoveAll(p.MergeWhitelistTeamIDs, teamID)
+		p.BypassAllowlistTeamIDs = util.SliceRemoveAll(p.BypassAllowlistTeamIDs, teamID)
 	}
 
-	if (lenUserIDs != len(p.WhitelistUserIDs) ||
+	if lenBypassUsers != len(p.BypassAllowlistUserIDs) || lenBypassTeams != len(p.BypassAllowlistTeamIDs) || (lenUserIDs != len(p.WhitelistUserIDs) ||
 		lenForcePushIDs != len(p.ForcePushAllowlistUserIDs) ||
 		lenApprovalIDs != len(p.ApprovalsWhitelistUserIDs) ||
 		lenMergeIDs != len(p.MergeWhitelistUserIDs)) ||
@@ -636,6 +785,7 @@ func RemoveUserIDFromProtectedBranch(ctx context.Context, p *ProtectedBranch, us
 		"force_push_allowlist_user_i_ds",
 		"merge_whitelist_user_i_ds",
 		"approvals_whitelist_user_i_ds",
+		"bypass_allowlist_user_i_ds",
 	}
 	return removeIDsFromProtectedBranch(ctx, p, userID, 0, columnNames)
 }
@@ -647,6 +797,7 @@ func RemoveTeamIDFromProtectedBranch(ctx context.Context, p *ProtectedBranch, te
 		"force_push_allowlist_team_i_ds",
 		"merge_whitelist_team_i_ds",
 		"approvals_whitelist_team_i_ds",
+		"bypass_allowlist_team_i_ds",
 	}
 	return removeIDsFromProtectedBranch(ctx, p, 0, teamID, columnNames)
 }

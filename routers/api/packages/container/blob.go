@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	container_model "gitea.dev/models/packages/container"
 	"gitea.dev/modules/globallock"
@@ -77,7 +78,7 @@ func saveAsPackageBlobInternal(ctx context.Context, hsr packages_module.HashedSi
 	})
 	if err != nil {
 		if !exists && pb != nil { // pb can be nil if GetOrInsertBlob failed
-			if err := contentStore.Delete(packages_module.BlobHash256Key(pb.HashSHA256)); err != nil {
+			if err := packages_service.RemoveUnreferencedBlobContent(ctx, pb.HashSHA256); err != nil {
 				log.Error("Error deleting package blob from content store: %v", err)
 			}
 		}
@@ -180,13 +181,12 @@ func createFileForBlob(ctx context.Context, pv *packages_model.PackageVersion, p
 }
 
 func deleteBlob(ctx context.Context, ownerID int64, image string, digest digest.Digest) error {
-	releaser, err := globallock.Lock(ctx, containerGlobalLockKey(ownerID, image, "blob"))
-	if err != nil {
-		return err
-	}
-	defer releaser()
-
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		releaser, err := globallock.Lock(ctx, containerGlobalLockKey(ownerID, image, "blob"))
+		if err != nil {
+			return err
+		}
+		defer releaser()
 		pfds, err := container_model.GetContainerBlobs(ctx, &container_model.BlobSearchOptions{
 			OwnerID: ownerID,
 			Image:   image,

@@ -1,0 +1,10 @@
+{{template "repo/settings/layout_head" (dict "pageClass" "repository settings approvals")}}
+<div class="repo-setting-content">
+ <h2 class="ui dividing header">拉取请求设置</h2>
+ {{if not .BranchApprovals.ReferenceEnforcementReady}}<div class="ui warning message">引用事务入口尚未接入，必需审批在最终合并前仍需完成接入。{{if .BranchApprovals.CanManage}}<form method="post">{{.CsrfTokenHtml}}<button class="ui small button" name="action" value="install_reference_hook">接入并验证</button></form>{{end}}</div>{{end}}
+ <form class="ui form" method="post">{{.CsrfTokenHtml}}
+  {{template "repo/settings/approval_editor" .}}
+  {{if .BranchApprovals.CanManage}}<div class="tw-flex tw-gap-2 tw-mt-4"><a class="ui button" href="{{.RepoLink}}/settings/branches">取消</a><button type="submit" class="ui primary button">保存审批设置</button></div>{{end}}
+ </form>
+</div>
+{{template "repo/settings/layout_footer" .}}

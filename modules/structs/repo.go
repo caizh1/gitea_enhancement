@@ -57,6 +57,8 @@ type ExternalWiki struct {
 
 // Repository represents a repository
 type Repository struct {
+	// 完整公开命名空间路径。
+	FullPath    string `json:"full_path"`
 	ID          int64  `json:"id"`
 	Owner       *User  `json:"owner"`
 	Name        string `json:"name"`
@@ -147,6 +149,8 @@ type CreateRepoOption struct {
 	Description string `json:"description" binding:"MaxSize(2048)"`
 	// Whether the repository is private
 	Private bool `json:"private"`
+	// Whether the repository is visible to every signed-in user but hidden from anonymous users.
+	Internal bool `json:"internal"`
 	// Label-Set to use
 	IssueLabels string `json:"issue_labels" binding:"MaxSize(255)"`
 	// Whether the repository should be auto-initialized?
@@ -182,6 +186,8 @@ type EditRepoOption struct {
 	// Note: you will get a 422 error if the organization restricts changing repository visibility to organization
 	// owners and a non-owner tries to change the value of private.
 	Private *bool `json:"private,omitempty"`
+	// either `true` to make the repository internal or `false` to leave internal visibility.
+	Internal *bool `json:"internal,omitempty"`
 	// either `true` to make this repository a template or `false` to make it a normal repository
 	Template *bool `json:"template,omitempty"`
 	// either `true` to enable code for this repository or `false` to disable it.

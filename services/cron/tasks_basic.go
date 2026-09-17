@@ -167,6 +167,7 @@ func registerSyncRepoLicenses() {
 }
 
 func initBasicTasks() {
+	registerAuditExports()
 	if setting.Mirror.Enabled {
 		registerUpdateMirrorTask()
 	}

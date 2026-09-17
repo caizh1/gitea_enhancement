@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 
@@ -19,12 +20,12 @@ func TestChangePasswordCommand(t *testing.T) {
 	ctx := t.Context()
 
 	defer func() {
-		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}))
+		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}, &user_model.EmailAddress{}, &governance_model.Namespace{}, &governance_model.ResourcePath{}))
 	}()
 
 	t.Run("change password successfully", func(t *testing.T) {
 		// defer func() {
-		// 	require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}))
+		// 	require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}, &governance_model.Namespace{}, &governance_model.ResourcePath{}))
 		// }()
 		// Prepare test user
 		unittest.AssertNotExistsBean(t, &user_model.User{LowerName: "testuser"})

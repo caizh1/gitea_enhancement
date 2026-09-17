@@ -11,6 +11,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -56,6 +57,7 @@ type ForkRepoOptions struct {
 
 // ForkRepository forks a repository
 func ForkRepository(ctx context.Context, doer, owner *user_model.User, opts ForkRepoOptions) (*repo_model.Repository, error) {
+	ctx = withRepositoryCreation(ctx, "fork", map[string]any{"source_repository_id": opts.BaseRepo.ID, "single_branch": opts.SingleBranch != ""})
 	if err := opts.BaseRepo.LoadOwner(ctx); err != nil {
 		return nil, err
 	}
@@ -118,6 +120,8 @@ func ForkRepository(ctx context.Context, doer, owner *user_model.User, opts Fork
 	if err != nil {
 		return nil, err
 	}
+	stopCreationHeartbeat := startRepositoryCreationHeartbeat(repo.ID)
+	defer stopCreationHeartbeat()
 
 	// last - clean up if something goes wrong
 	// WARNING: Don't override all later err with local variables
@@ -198,10 +202,23 @@ func ForkRepository(ctx context.Context, doer, owner *user_model.User, opts Fork
 		return nil, err
 	}
 
+	// 初始 Git 内容完成后再安装，避免初始化写入被当作在线治理操作。
+	if err = gitrepo.InstallReferenceTransactionHook(ctx, repo); err != nil {
+		return nil, fmt.Errorf("安装原生引用事务入口：%w", err)
+	}
+	if err = markRepositoryCreationStorageComplete(ctx, repo.ID); err != nil {
+		return nil, err
+	}
+
 	// 8 - update repository status to be ready
 	repo.Status = repo_model.RepositoryReady
-	if err = repo_model.UpdateRepositoryColsWithAutoTime(ctx, repo, "status"); err != nil {
-		return nil, fmt.Errorf("UpdateRepositoryCols: %w", err)
+	if err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := repo_model.UpdateRepositoryColsWithAutoTime(ctx, repo, "status"); err != nil {
+			return fmt.Errorf("UpdateRepositoryCols: %w", err)
+		}
+		return completeRepositoryCreation(ctx, repo)
+	}); err != nil {
+		return nil, err
 	}
 
 	notify_service.ForkRepository(ctx, doer, opts.BaseRepo, repo)

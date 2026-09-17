@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -15,6 +16,7 @@ import (
 	"gitea.dev/modules/util"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLabel_CalOpenIssues(t *testing.T) {
@@ -22,6 +24,23 @@ func TestLabel_CalOpenIssues(t *testing.T) {
 	label := unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 1})
 	label.CalOpenIssues()
 	assert.Equal(t, 2, label.NumOpenIssues)
+}
+
+func TestRepositoryLabelAudit(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	ctx := governance_model.WithAuditActor(t.Context(), governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"})
+	l := &issues_model.Label{RepoID: 2, Name: "公开标签名", Color: "123456"}
+	require.NoError(t, issues_model.NewLabel(ctx, l))
+	l.Name = "修改后的公开标签名"
+	require.NoError(t, issues_model.UpdateLabel(ctx, l))
+	require.NoError(t, issues_model.DeleteLabel(ctx, l.RepoID, l.ID))
+
+	var events []governance_model.AuditEvent
+	require.NoError(t, db.GetEngine(ctx).In("type", []string{"repository.label_created", "repository.label_updated", "repository.label_deleted"}).Where("object_id = ?", l.ID).OrderBy("id").Find(&events))
+	require.Len(t, events, 3)
+	require.Contains(t, string(events[0].Details), "公开标签名")
+	require.Contains(t, string(events[1].Details), "修改后的公开标签名")
 }
 
 func TestLabel_LoadSelectedLabelsAfterClick(t *testing.T) {
@@ -97,6 +116,7 @@ func TestSortLabelsForDisplay(t *testing.T) {
 
 func TestNewLabels(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	labels := []*issues_model.Label{
 		{RepoID: 2, Name: "labelName2", Color: "#123456"},
 		{RepoID: 3, Name: "labelName3", Color: "#123"},
@@ -295,6 +315,7 @@ func TestGetLabelsByIssueID(t *testing.T) {
 
 func TestUpdateLabel(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	label := unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 1})
 	// make sure update won't overwrite it
 	update := &issues_model.Label{
@@ -319,6 +340,7 @@ func TestUpdateLabel(t *testing.T) {
 
 func TestDeleteLabel(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	label := unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 1})
 	assert.NoError(t, issues_model.DeleteLabel(t.Context(), label.RepoID, label.ID))
 	unittest.AssertNotExistsBean(t, &issues_model.Label{ID: label.ID, RepoID: label.RepoID})

@@ -31,6 +31,10 @@ type Branch struct {
 
 // BranchProtection represents a branch protection for a repository
 type BranchProtection struct {
+	// 原子审批配置，结构与仓库审批批量接口一致；省略时保留现有规则。
+	ApprovalConfiguration BranchApprovalPayload `json:"approval_configuration,omitempty"`
+	// 启用后，目标分支仅接受原生治理最终授权的合并写入。
+	RequireGovernanceApproval bool `json:"require_governance_approval"`
 	// Deprecated: true
 	BranchName string `json:"branch_name"`
 	// RuleName is the name of the branch protection rule
@@ -76,6 +80,10 @@ type BranchProtection struct {
 
 // CreateBranchProtectionOption options for creating a branch protection
 type CreateBranchProtectionOption struct {
+	// 原子审批配置，结构与仓库审批批量接口一致；省略时保留现有规则。
+	ApprovalConfiguration BranchApprovalPayload `json:"approval_configuration,omitempty"`
+	// 启用后，目标分支仅接受原生治理最终授权的合并写入。
+	RequireGovernanceApproval bool `json:"require_governance_approval"`
 	// Deprecated: true
 	BranchName                    string   `json:"branch_name"`
 	RuleName                      string   `json:"rule_name"`
@@ -115,6 +123,10 @@ type CreateBranchProtectionOption struct {
 
 // EditBranchProtectionOption options for editing a branch protection
 type EditBranchProtectionOption struct {
+	// 原子审批配置，结构与仓库审批批量接口一致；省略时保留现有规则。
+	ApprovalConfiguration BranchApprovalPayload `json:"approval_configuration,omitempty"`
+	// 启用后，目标分支仅接受原生治理最终授权的合并写入。
+	RequireGovernanceApproval     *bool    `json:"require_governance_approval"`
 	Priority                      *int64   `json:"priority"`
 	EnablePush                    *bool    `json:"enable_push"`
 	EnablePushWhitelist           *bool    `json:"enable_push_whitelist"`
@@ -161,4 +173,20 @@ type MergeUpstreamRequest struct {
 
 type MergeUpstreamResponse struct {
 	MergeStyle string `json:"merge_type"`
+}
+
+// BranchApprovalPayload 是统一审批配置的 JSON 对象；具体字段见 BranchApprovalUpdate 与 BranchApprovalConfiguration。
+// swagger:type object
+type BranchApprovalPayload []byte
+
+func (p BranchApprovalPayload) MarshalJSON() ([]byte, error) {
+	if len(p) == 0 {
+		return []byte("null"), nil
+	}
+	return p, nil
+}
+
+func (p *BranchApprovalPayload) UnmarshalJSON(data []byte) error {
+	*p = append((*p)[:0], data...)
+	return nil
 }

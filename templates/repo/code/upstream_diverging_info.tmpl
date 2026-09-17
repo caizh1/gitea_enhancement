@@ -2,8 +2,8 @@
 <div class="ui message flex-text-block">
 	<div class="tw-flex-1">
 		{{$upstreamLink := printf "%s/src/branch/%s" .Repository.BaseRepo.Link (.UpstreamDivergingInfo.BaseBranchName|PathEscapeSegments)}}
-		{{$upstreamRepoBranchDisplay := HTMLFormat "%s:%s" .Repository.BaseRepo.FullName .UpstreamDivergingInfo.BaseBranchName}}
-		{{$thisRepoBranchDisplay := HTMLFormat "%s:%s" .Repository.FullName .BranchName}}
+		{{$upstreamRepoBranchDisplay := HTMLFormat "%s:%s" .Repository.BaseRepo.FullPath .UpstreamDivergingInfo.BaseBranchName}}
+		{{$thisRepoBranchDisplay := HTMLFormat "%s:%s" .Repository.FullPath .BranchName}}
 		{{$upstreamHtml := HTMLFormat `<a href="%s">%s</a>` $upstreamLink $upstreamRepoBranchDisplay}}
 		{{if .UpstreamDivergingInfo.HeadBranchCommitsBehind}}
 			{{ctx.Locale.TrN .UpstreamDivergingInfo.HeadBranchCommitsBehind "repo.pulls.upstream_diverging_prompt_behind_1" "repo.pulls.upstream_diverging_prompt_behind_n" .UpstreamDivergingInfo.HeadBranchCommitsBehind $upstreamHtml}}

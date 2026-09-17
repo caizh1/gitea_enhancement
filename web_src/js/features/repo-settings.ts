@@ -1,3 +1,4 @@
+import {initBranchApprovals} from './branch-approvals.ts';
 import {createCodeEditor} from '../modules/codeeditor/main.ts';
 import {onInputDebounce, queryElems, toggleElem} from '../utils/dom.ts';
 import {POST} from '../modules/fetch.ts';
@@ -108,6 +109,7 @@ function initRepoSettingsBranches() {
       toggleElem(el, matched);
     }
   };
+  if (!document.querySelector('#status_check_contexts')) return;
   markMatchedStatusChecks();
   document.querySelector('#status_check_contexts')!.addEventListener('input', onInputDebounce(markMatchedStatusChecks));
 }
@@ -138,6 +140,7 @@ function initRepoSettingsOptions() {
 
 export function initRepoSettings() {
   if (!document.querySelector('.page-content.repository.settings')) return;
+  initBranchApprovals();
   initRepoSettingsOptions();
   initRepoSettingsBranches();
   initRepoSettingsCollaboration();

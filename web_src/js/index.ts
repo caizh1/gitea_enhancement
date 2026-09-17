@@ -1,6 +1,8 @@
 import '../fomantic/build/fomantic.js';
 import '../css/index.css';
 
+import {initGovernanceInvitations} from './features/governance-invitations.ts';
+import {initGovernanceNavigation} from './features/governance-navigation.ts';
 import {initDashboardRepoList} from './features/dashboard.ts';
 import {initGlobalCopyToClipboardListener} from './modules/clipboard.ts';
 import {initCopyContent} from './features/copycontent.ts';
@@ -148,6 +150,8 @@ const initPerformanceTracer = callInitFunctions([
   initAvatarStackPopup,
   initCaptcha,
 
+  initGovernanceInvitations,
+  initGovernanceNavigation,
   initUserCheckAppUrl,
   initUserExternalLogins,
   initUserAuthWebAuthn,

@@ -115,6 +115,8 @@
 						{{svg "octicon-bell"}}
 						{{ctx.Locale.Tr "notification.subscriptions"}}
 					</a>
+					<a class="item" href="{{AppSubUrl}}/governance/access-requests">{{svg "octicon-person"}} 我的访问申请</a>
+					{{if .SignedUser.IsAuditor}}<a class="item" href="{{AppSubUrl}}/governance/audit?scope_type=instance">{{svg "octicon-eye"}} 全站只读审计</a>{{end}}
 					<a class="{{if .PageIsUserSettings}}active {{end}}item" href="{{AppSubUrl}}/user/settings">
 						{{svg "octicon-tools"}}
 						{{ctx.Locale.Tr "your_settings"}}

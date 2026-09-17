@@ -34,6 +34,23 @@ func TestGetAccessMode(t *testing.T) {
 	}
 }
 
+func TestSSHRemoteAddress(t *testing.T) {
+	for _, tc := range []struct{ connection, address string }{
+		{"192.0.2.10 42500 192.0.2.20 22", "192.0.2.10:42500"},
+		{"2001:db8::1 42500 2001:db8::2 22", "[2001:db8::1]:42500"},
+		{"", ""},
+		{"192.0.2.10 42500", ""},
+		{"客户端自报主机 42500 192.0.2.20 22", ""},
+		{"192.0.2.10 0 192.0.2.20 22", ""},
+		{"192.0.2.10 65536 192.0.2.20 22", ""},
+		{"192.0.2.10 invalid 192.0.2.20 22", ""},
+	} {
+		t.Run(tc.connection, func(t *testing.T) {
+			assert.Equal(t, tc.address, sshRemoteAddress(tc.connection))
+		})
+	}
+}
+
 // TestGetAccessModeUnknownVerb locks in the invariant that getAccessMode reports
 // ok=false for unrecognised verbs and LFS sub-verbs, so runServ rejects them. An
 // unknown verb has no valid access mode; if it were treated as AccessModeNone (0)

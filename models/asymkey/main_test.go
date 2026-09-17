@@ -12,6 +12,7 @@ import (
 func TestMain(m *testing.M) {
 	unittest.MainTest(m, &unittest.TestOptions{
 		FixtureFiles: []string{
+			"governance_write_lock.yml",
 			"gpg_key.yml",
 			"public_key.yml",
 			"deploy_key.yml",

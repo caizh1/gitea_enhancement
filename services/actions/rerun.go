@@ -10,6 +10,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -217,7 +218,7 @@ func execRerunPlan(ctx context.Context, plan *rerunPlan) (*actions_model.ActionR
 	var cancelledConcurrencyJobs []*actions_model.ActionRunJob
 	var hasWaitingCallerJobs bool
 
-	err = db.WithTx(ctx, func(ctx context.Context) error {
+	err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		newAttemptStatus, jobsToCancel, err := PrepareToStartRunWithConcurrency(ctx, newAttempt)
 		if err != nil {
 			return err
@@ -344,8 +345,7 @@ func execRerunPlan(ctx context.Context, plan *rerunPlan) (*actions_model.ActionR
 				return err
 			}
 		}
-
-		return nil
+		return actions_model.AppendRunAudit(ctx, plan.run, "actions.run_rerun")
 	})
 	if err != nil {
 		return nil, err

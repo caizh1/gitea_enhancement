@@ -47,6 +47,7 @@
 			</form>
 		</div>
 
+		{{if not .GovernanceManageProjectOnly}}
 		{{/* These variables exist to make the logic in the Settings window easier to comprehend and are not used later on. */}}
 		{{$newMirrorsPartiallyEnabled := or (not .DisableNewPullMirrors) (not .DisableNewPushMirrors)}}
 		{{/* .Repository.IsMirror is not always reliable if the repository is not actively acting as a mirror because of errors. */}}
@@ -790,19 +791,11 @@
 					<div class="item tw-items-center">
 						<div class="item-main">
 							<div class="item-title">{{ctx.Locale.Tr "repo.visibility"}}</div>
-							{{if .Repository.IsPrivate}}
-								<div class="item-body">{{ctx.Locale.Tr "repo.settings.visibility.public.text"}}</div>
-							{{else}}
-								<div class="item-body">{{ctx.Locale.Tr "repo.settings.visibility.private.text"}}</div>
-							{{end}}
+							<div class="item-body">当前：{{if .Repository.IsInternal}}内部（仅登录用户）{{else if .Repository.IsPrivate}}私有{{else}}公开{{end}}。可独立选择可见性，但不能比父群组更开放。</div>
 						</div>
 						<div class="item-trailing">
 							<button class="ui basic red show-modal button" data-modal="#visibility-repo-modal">
-								{{if .Repository.IsPrivate}}
-									{{ctx.Locale.Tr "repo.settings.visibility.public.button"}}
-								{{else}}
-									{{ctx.Locale.Tr "repo.settings.visibility.private.button"}}
-								{{end}}
+								修改可见性
 							</button>
 						</div>
 					</div>
@@ -838,6 +831,26 @@
 							{{else}}
 								{{ctx.Locale.Tr "repo.settings.transfer_desc"}}
 							{{end}}
+							{{with .TransferImpact}}
+								<div class="ui warning message tw-mt-3">
+									<div class="header">转移影响预览：{{.OldPath}} → {{.NewPath}}</div>
+									<p>移除继承路径：{{range .RemovedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}；新增继承路径：{{range .AddedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}。</p>
+									<p>成员来源 −{{.RemovedMembershipSources}} / +{{.AddedMembershipSources}}，共享来源 −{{.RemovedShareSources}} / +{{.AddedShareSources}}，审批规则 −{{.RemovedApprovalRules}} / +{{.AddedApprovalRules}}，审批设置 −{{.RemovedApprovalSettings}} / +{{.AddedApprovalSettings}}，审计外送 −{{.RemovedAuditStreams}} / +{{.AddedAuditStreams}}。</p>
+									<p>项目直接共享 {{.DirectSharesRetained}} 条、直接审批规则 {{.DirectApprovalRules}} 条会保留；旧地址将保留受权限控制的兼容别名。</p>
+									<form class="ui form form-fetch-action" action="{{$.Link}}" method="post">
+										<input type="hidden" name="action" value="transfer">
+										<input type="hidden" name="repo_name" value="{{$.Repository.Name}}">
+										<input type="hidden" name="source_owner_id" value="{{.SourceOwnerID}}">
+										<input type="hidden" name="target_owner_id" value="{{.TargetOwnerID}}">
+										<input type="hidden" name="source_status" value="{{.SourceStatus}}">
+										<input type="hidden" name="source_name" value="{{.SourceName}}">
+										<input type="hidden" name="target_owner_name" value="{{.TargetOwnerName}}">
+										<input type="hidden" name="impact_fingerprint" value="{{.ImpactFingerprint}}">
+										<button class="ui red button" type="submit">确认以上影响并转移</button>
+									</form>
+								</div>
+							{{end}}
+							{{with .TransferPreviewError}}<div class="ui negative message tw-mt-3">{{.}}</div>{{end}}
 						</div>
 					</div>
 					<div class="item-trailing">
@@ -865,10 +878,10 @@
 				<div class="item">
 					<div class="item-main">
 						<div class="item-title">{{ctx.Locale.Tr "repo.settings.delete"}}</div>
-						<div class="item-body">{{ctx.Locale.Tr "repo.settings.delete_desc"}}</div>
+						<div class="item-body">进入保留期后可恢复，也可确认永久删除。</div>
 					</div>
 					<div class="item-trailing">
-						<button class="ui basic red show-modal button" data-modal="#delete-repo-modal">{{ctx.Locale.Tr "repo.settings.delete"}}</button>
+						<a class="ui basic red button" href="{{AppSubUrl}}/governance/repositories/{{.Repository.ID}}/deletion">删除与恢复</a>
 					</div>
 				</div>
 				{{if not .Repository.IsMirror}}
@@ -946,14 +959,14 @@
 				{{ctx.Locale.Tr "repo.settings.transfer_notices_4"}}
 			</div>
 			<form class="ui form form-fetch-action" action="{{.Link}}" method="post">
-				<input type="hidden" name="action" value="transfer">
+				<input type="hidden" name="action" value="transfer_preview">
 				{{template "repo/settings/repo_name_confirm_fields" (dict "RepoName" .Repository.Name)}}
 				<div class="required field">
 					<label for="new_owner_name">{{ctx.Locale.Tr "repo.settings.transfer_owner"}}</label>
 					<input id="new_owner_name" name="new_owner_name" required>
 				</div>
 
-				{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.transfer_perform"))}}
+				{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" "预览转移影响")}}
 			</form>
 		</div>
 	</div>
@@ -965,7 +978,7 @@
 		<div class="content">
 			<div class="ui warning message">
 				{{ctx.Locale.Tr "repo.settings.delete_notices_1"}}<br>
-				{{ctx.Locale.Tr "repo.settings.delete_notices_2" .Repository.FullName}}
+				{{ctx.Locale.Tr "repo.settings.delete_notices_2" .Repository.FullPath}}
 				{{if .Repository.NumForks}}<br>
 				{{ctx.Locale.Tr "repo.settings.delete_notices_fork_1"}}
 				{{end}}
@@ -984,35 +997,15 @@
 				{{ctx.Locale.Tr "repo.visibility"}}
 			</div>
 			<div class="content">
-				{{if .Repository.IsPrivate}}
-					<p>{{ctx.Locale.Tr "repo.settings.visibility.public.bullet_title"}}</p>
-					<ul>
-						<li>{{ctx.Locale.Tr "repo.settings.visibility.public.bullet_one"}}</li>
-					</ul>
-				{{else}}
-					<p>{{ctx.Locale.Tr "repo.settings.visibility.private.bullet_title"}}</p>
-					<ul>
-						<li>{{ctx.Locale.Tr "repo.settings.visibility.private.bullet_one"}}</li>
-						<li>
-							{{ctx.Locale.Tr "repo.settings.visibility.private.bullet_two"}}
-						</li>
-						{{if or .Repository.NumStars .Repository.NumWatches .Repository.NumForks}}
-						<ul class="tw-my-0 tw-pl-4">
-							{{if .Repository.NumStars}}<li>{{ctx.Locale.Tr "repo.settings.visibility.private.stats_stars" .Repository.NumStars}}</li>{{end}}
-							{{if .Repository.NumWatches}}<li>{{ctx.Locale.Tr "repo.settings.visibility.private.stats_watchers" .Repository.NumWatches}}</li>{{end}}
-							{{if .Repository.NumForks}}<li>{{ctx.Locale.Tr "repo.settings.visibility.private.stats_forks" .Repository.NumForks}}</li>{{end}}
-						</ul>
-						{{end}}
-					</ul>
-				{{end}}
+				<p>公开允许匿名访问；内部仅允许已登录用户访问；私有仅允许获得项目权限的用户访问。父群组更严格时会自动采用父级限制。</p>
 				<form class="ui form tw-mt-5 form-fetch-action" action="{{.Link}}" method="post">
 					<input type="hidden" name="action" value="visibility">
-					<input type="hidden" name="private" value="{{not .Repository.IsPrivate}}">
+					<div class="required field"><label for="repo_visibility">目标可见性</label><select id="repo_visibility" name="visibility" class="ui dropdown"><option value="0">公开</option><option value="1">内部（仅登录用户）</option><option value="2">私有</option></select></div>
 					{{if not .Repository.IsPrivate}}
 						<div class="field">
 							<label>
 								{{ctx.Locale.Tr "repo.settings.enter_repo_full_name_to_confirm"}}
-								<span class="tw-text-red">{{.Repository.FullName}}</span>
+								<span class="tw-text-red">{{.Repository.FullPath}}</span>
 							</label>
 						</div>
 						<div class="required field">
@@ -1020,7 +1013,7 @@
 							<input name="confirm_repo_name" required maxlength="200">
 						</div>
 					{{end}}
-					{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (Iif .Repository.IsPrivate (ctx.Locale.Tr "repo.settings.visibility.public.button") (ctx.Locale.Tr "repo.settings.visibility.private.button")))}}
+					{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" "保存可见性")}}
 				</form>
 			</div>
 		</div>
@@ -1070,6 +1063,7 @@
 			</form>
 		</div>
 	{{end}}
-{{end}}
+	{{end}}
+	{{end}}
 
 {{template "repo/settings/push_mirror_sync_modal" .}}

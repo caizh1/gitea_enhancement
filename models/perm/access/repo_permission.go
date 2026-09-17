@@ -13,6 +13,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	perm_model "gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
@@ -26,13 +27,41 @@ import (
 
 // Permission contains all the permissions related variables to a repository for a user
 type Permission struct {
-	AccessMode perm_model.AccessMode
+	AccessMode        perm_model.AccessMode
+	withoutAuditor    *Permission
+	withoutGovernance *Permission
 
 	units     []*repo_model.RepoUnit
 	unitsMode map[unit.Type]perm_model.AccessMode
 
 	everyoneAccessMode  map[unit.Type]perm_model.AccessMode // the unit's minimal access mode for every signed-in user
 	anonymousAccessMode map[unit.Type]perm_model.AccessMode // the unit's minimal access mode for anonymous (non-signed-in) user
+}
+
+// ForMutation 排除全站只读身份，只保留实际资源授权。
+func (p Permission) ForMutation() Permission {
+	if p.withoutAuditor != nil {
+		return *p.withoutAuditor
+	}
+	return p
+}
+
+func (p Permission) HasAuditorRead() bool { return p.withoutAuditor != nil }
+
+// WithoutGovernance 返回原生仓库与团队权限，供必须区分独立治理能力的写入口使用。
+func (p Permission) WithoutGovernance() Permission {
+	if p.withoutGovernance != nil {
+		return *p.withoutGovernance
+	}
+	return p
+}
+
+func (p Permission) CanParticipateInIssuesOrPulls(isPull bool) bool {
+	if !p.HasAuditorRead() {
+		return true
+	}
+	original := p.ForMutation()
+	return original.CanReadIssuesOrPulls(isPull)
 }
 
 // IsOwner returns true if current user is the owner of repository.
@@ -394,8 +423,32 @@ func GetDoerRepoPermission(ctx context.Context, repo *repo_model.Repository, use
 // In most request paths, callers should use GetDoerRepoPermission instead.
 // Unlike GetDoerRepoPermission, this helper does not resolve Actions task users.
 func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repository, user *user_model.User) (perm Permission, err error) {
+	auditor := false
+	if user != nil && user.IsAuditor {
+		auditor, err = user_model.IsActiveAuditor(ctx, user.ID)
+		if err != nil {
+			return perm, err
+		}
+	}
+	governanceAbilities, err := repositoryGovernanceAbilities(ctx, repo, user)
+	if err != nil {
+		return perm, err
+	}
 	defer func() {
 		if err == nil {
+			native := perm
+			native.unitsMode = maps.Clone(perm.unitsMode)
+			finalProcessRepoUnitPermission(user, &native)
+			perm.includeGovernance(governanceAbilities)
+			perm.withoutGovernance = &native
+			if auditor {
+				original := perm
+				original.unitsMode = maps.Clone(perm.unitsMode)
+				perm.withoutAuditor = &original
+				readOnly := governance_model.Abilities{}
+				governance_model.IncludeAuditorAbilities(readOnly)
+				perm.includeGovernance(readOnly)
+			}
 			finalProcessRepoUnitPermission(user, &perm)
 		}
 		log.Trace("Permission Loaded for user %-v in repo %-v, permissions: %-+v", user, repo, perm)
@@ -427,7 +480,7 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 	// Prevent strangers from checking out public repo of private organization/users
 	// Allow user if they are a collaborator of a repo within a private user or a private organization but not a member of the organization itself
 	// TODO: rename it to "IsOwnerVisibleToDoer"
-	if !organization.HasOrgOrUserVisible(ctx, repo.Owner, user) && !isCollaborator {
+	if !auditor && !organization.HasOrgOrUserVisible(ctx, repo.Owner, user) && !isCollaborator && len(governanceAbilities) == 0 {
 		perm.AccessMode = perm_model.AccessModeNone
 		return perm, nil
 	}
@@ -445,7 +498,11 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 	}
 
 	// plain user TODO: this check should be replaced, only need to check collaborator access mode
-	perm.AccessMode, err = accessLevel(ctx, user, repo)
+	accessRepo := *repo
+	if auditor {
+		accessRepo.IsPrivate = true
+	}
+	perm.AccessMode, err = accessLevel(ctx, user, &accessRepo)
 	if err != nil {
 		return perm, err
 	}
@@ -455,7 +512,8 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 	}
 
 	// now: the owner is visible to doer, if the repo is public, then the min access mode is read
-	minAccessMode := util.Iif(!repo.IsPrivate && !user.IsRestricted, perm_model.AccessModeRead, perm_model.AccessModeNone)
+	internalRead := !auditor && repo.IsInternal() && user.ID > 0 && !user.IsRestricted && !user.IsGiteaActions()
+	minAccessMode := util.Iif(!auditor && ((!repo.IsPrivate && !user.IsRestricted) || internalRead), perm_model.AccessModeRead, perm_model.AccessModeNone)
 	perm.AccessMode = max(perm.AccessMode, minAccessMode)
 
 	// get units mode from teams
@@ -511,7 +569,16 @@ func IsUserRealRepoAdmin(ctx context.Context, repo *repo_model.Repository, user 
 		return false, err
 	}
 
-	return accessMode >= perm_model.AccessModeAdmin, nil
+	if accessMode >= perm_model.AccessModeAdmin {
+		return true, nil
+	}
+	abilities, err := repositoryGovernanceAbilities(ctx, repo, user)
+	if err != nil {
+		return false, err
+	}
+	permission := Permission{}
+	permission.includeGovernance(abilities)
+	return permission.IsAdmin(), nil
 }
 
 // IsUserRepoAdmin return true if user has admin right of a repo
@@ -519,29 +586,8 @@ func IsUserRepoAdmin(ctx context.Context, repo *repo_model.Repository, user *use
 	if user == nil || repo == nil {
 		return false, nil
 	}
-	if user.IsAdmin {
-		return true, nil
-	}
-
-	mode, err := accessLevel(ctx, user, repo)
-	if err != nil {
-		return false, err
-	}
-	if mode >= perm_model.AccessModeAdmin {
-		return true, nil
-	}
-
-	teams, err := organization.GetUserRepoTeams(ctx, repo.OwnerID, user.ID, repo.ID)
-	if err != nil {
-		return false, err
-	}
-
-	for _, team := range teams {
-		if team.HasAdminAccess() {
-			return true, nil
-		}
-	}
-	return false, nil
+	permission, err := GetIndividualUserRepoPermission(ctx, repo, user)
+	return permission.IsAdmin(), err
 }
 
 // AccessLevel returns the Access a user has to a repository. Will return NoneAccess if the

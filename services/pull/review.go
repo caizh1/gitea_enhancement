@@ -8,11 +8,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
@@ -22,6 +26,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/gitdiff"
+	governance_service "gitea.dev/services/governance"
 	notify_service "gitea.dev/services/notify"
 )
 
@@ -114,6 +119,9 @@ func InvalidateCodeComments(ctx context.Context, prs issues_model.PullRequestLis
 
 // CreateCodeComment creates a comment on the code line
 func CreateCodeComment(ctx context.Context, doer *user_model.User, gitRepo *git.Repository, issue *issues_model.Issue, line int64, content, treePath string, pendingReview bool, replyReviewID int64, latestCommitID string, attachments []string) (*issues_model.Comment, error) {
+	if err := access_model.CheckAuditorParticipation(ctx, issue.RepoID, doer.ID, unit.TypePullRequests); err != nil {
+		return nil, err
+	}
 	var (
 		existsReview bool
 		err          error
@@ -308,12 +316,29 @@ func createCodeComment(ctx context.Context, doer *user_model.User, repo *repo_mo
 }
 
 // SubmitReview creates a review out of the existing pending review or creates a new one if no pending review exist
-func SubmitReview(ctx context.Context, doer *user_model.User, gitRepo *git.Repository, issue *issues_model.Issue, reviewType issues_model.ReviewType, content, commitID string, attachmentUUIDs []string) (*issues_model.Review, *issues_model.Comment, error) {
+func SubmitReview(ctx context.Context, doer *user_model.User, gitRepo *git.Repository, issue *issues_model.Issue, reviewType issues_model.ReviewType, content, commitID string, attachmentUUIDs []string, authentication ...governance_service.ReviewAuthentication) (*issues_model.Review, *issues_model.Comment, error) {
+	if err := access_model.CheckAuditorParticipation(ctx, issue.RepoID, doer.ID, unit.TypePullRequests); err != nil {
+		return nil, nil, err
+	}
 	if err := issue.LoadPullRequest(ctx); err != nil {
 		return nil, nil, err
 	}
 
 	pr := issue.PullRequest
+	actor := governance_service.RequestActor(doer, "", "internal")
+	if len(authentication) > 0 {
+		if authentication[0].Actor.EffectiveUserID() != doer.ID {
+			return nil, nil, governance_model.ErrForbidden
+		}
+		actor = authentication[0].Actor
+	}
+	if reviewType == issues_model.ReviewTypeApprove && actor.ID != doer.ID {
+		if err := governance_service.RecordPullApprovalDenial(ctx, actor, pr, commitID, "管理员代办不能替代审批人本人批准"); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("%w：必须由审批人本人批准", governance_model.ErrForbidden)
+	}
+	ctx = governance_model.WithAuditActor(ctx, actor)
 	var stale bool
 	if reviewType != issues_model.ReviewTypeApprove && reviewType != issues_model.ReviewTypeReject {
 		stale = false
@@ -337,7 +362,78 @@ func SubmitReview(ctx context.Context, doer *user_model.User, gitRepo *git.Repos
 		}
 	}
 
-	review, comm, err := issues_model.SubmitReview(ctx, doer, issue, reviewType, content, commitID, stale, attachmentUUIDs)
+	var snapshot *governance_service.PullApprovalSnapshot
+	var err error
+	if reviewType == issues_model.ReviewTypeApprove {
+		snapshot, err = governance_service.CaptureInitialPullApprovalSnapshot(ctx, pr)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	var committerEmails []string
+	if snapshot != nil {
+		committerEmails, err = governance_service.PullSnapshotCommitterEmails(ctx, snapshot)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	var reauthenticated bool
+	if reviewType == issues_model.ReviewTypeApprove && len(authentication) > 0 && authentication[0].Password != "" {
+		if err := governance_service.ReauthenticateApproval(ctx, doer.ID, authentication[0]); err != nil {
+			return nil, nil, err
+		}
+		reauthenticated = true
+		ctx = governance_model.WithReauthenticatedApproval(ctx)
+	}
+	var review *issues_model.Review
+	var comm *issues_model.Comment
+	err = governance_model.WithWrite(ctx, []string{governance_model.Resource("pull", pr.ID), governance_model.Resource("repository", pr.BaseRepoID)}, func(ctx context.Context) error {
+		freshRepository, err := repo_model.GetRepositoryByID(ctx, pr.BaseRepoID)
+		if err != nil {
+			return err
+		}
+		if freshRepository.IsArchived {
+			return fmt.Errorf("%w：归档项目不能提交评审", governance_model.ErrConflict)
+		}
+
+		if err := governance_service.ApplyPullApprovalSnapshot(ctx, snapshot); err != nil {
+			return err
+		}
+		if reviewType == issues_model.ReviewTypeApprove {
+			repo, err := repo_model.GetRepositoryByID(ctx, pr.BaseRepoID)
+			if err != nil {
+				return err
+			}
+			settings, err := governance_model.ResolveApprovalSettings(ctx, repo.ID, repo.OwnerID)
+			if err != nil {
+				return err
+			}
+			freshIssue, err := issues_model.GetIssueByID(ctx, pr.IssueID)
+			if err != nil {
+				return err
+			}
+			if settings.Settings.PreventAuthor && freshIssue.PosterID == doer.ID {
+				return fmt.Errorf("%w：当前设置禁止作者批准自己的合并请求", governance_model.ErrForbidden)
+			}
+			if settings.Settings.PreventCommitter {
+				if snapshot == nil {
+					return fmt.Errorf("%w：检查提交者需要接入可核对的审批差异版本", governance_model.ErrForbidden)
+				}
+				committers, err := governance_service.ApprovalCommitterIDs(ctx, committerEmails)
+				if err != nil {
+					return err
+				}
+				if slices.Contains(committers, doer.ID) {
+					return fmt.Errorf("%w：当前设置禁止参与提交的人员批准此合并请求", governance_model.ErrForbidden)
+				}
+			}
+			if settings.Settings.RequireReauthentication && (!reauthenticated || snapshot == nil) {
+				return fmt.Errorf("%w：批准需要再次认证及已接入的差异版本", governance_model.ErrForbidden)
+			}
+		}
+		review, comm, err = issues_model.SubmitReview(ctx, doer, issue, reviewType, content, commitID, stale, attachmentUUIDs)
+		return err
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -410,6 +506,9 @@ func DismissApprovalReviews(ctx context.Context, doer *user_model.User, pull *is
 
 // DismissReview dismissing stale review by repo admin
 func DismissReview(ctx context.Context, reviewID, repoID int64, message string, doer *user_model.User, isDismiss, dismissPriors bool) (comment *issues_model.Comment, err error) {
+	if governance_model.AuditActor(ctx).Kind == "system" {
+		ctx = governance_model.WithAuditActor(ctx, governance_service.RequestActor(doer, "", "internal"))
+	}
 	review, err := issues_model.GetReviewByID(ctx, reviewID)
 	if err != nil {
 		return nil, err

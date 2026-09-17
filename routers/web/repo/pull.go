@@ -11,6 +11,7 @@ import (
 	"html"
 	"html/template"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	pull_model "gitea.dev/models/pull"
@@ -49,6 +51,7 @@ import (
 	"gitea.dev/services/forms"
 	git_service "gitea.dev/services/git"
 	"gitea.dev/services/gitdiff"
+	governance_service "gitea.dev/services/governance"
 	notify_service "gitea.dev/services/notify"
 	pull_service "gitea.dev/services/pull"
 	repo_service "gitea.dev/services/repository"
@@ -267,7 +270,11 @@ type pullMergeBoxData struct {
 	ShowMergeBox      bool
 	ReloadingInterval int
 
-	TimelineIconClass string
+	TimelineIconClass  string
+	ApprovalState      *governance_service.PullApprovalResult
+	ApprovalStateURL   string
+	ApprovalStateError string
+	approvalBlocked    bool
 
 	ClosedInfoTitle template.HTML
 	ClosedInfoBody  template.HTML
@@ -701,6 +708,37 @@ func viewPullFiles(ctx *context.Context, beforeCommitID, afterCommitID string) {
 		return
 	}
 	pull := issue.PullRequest
+	approvalSettings, err := governance_model.ResolveApprovalSettings(ctx, ctx.Repo.Repository.ID, ctx.Repo.Repository.OwnerID)
+	if err != nil {
+		ctx.ServerError("读取审批设置", err)
+		return
+	}
+	ctx.Data["ApprovalRequiresReauthentication"] = approvalSettings.Settings.RequireReauthentication
+	ctx.Data["ApprovalAllowsAuthor"] = !approvalSettings.Settings.PreventAuthor
+	if approvalSettings.Settings.PreventCommitter && ctx.Doer != nil && !issue.IsClosed {
+		snapshot, err := governance_service.CaptureInitialPullApprovalSnapshot(ctx, pull)
+		if err != nil {
+			ctx.ServerError("读取提交者审批依据", err)
+			return
+		}
+		if snapshot == nil {
+			ctx.Data["ApprovalCommitterBlockReason"] = "检查提交者需要接入可核对的审批差异版本"
+		} else {
+			emails, err := governance_service.PullSnapshotCommitterEmails(ctx, snapshot)
+			if err != nil {
+				ctx.ServerError("读取提交者", err)
+				return
+			}
+			committers, err := governance_service.ApprovalCommitterIDs(ctx, emails)
+			if err != nil {
+				ctx.ServerError("读取提交者账号", err)
+				return
+			}
+			if slices.Contains(committers, ctx.Doer.ID) {
+				ctx.Data["ApprovalCommitterBlockReason"] = "当前设置禁止参与提交的人员批准此合并请求"
+			}
+		}
+	}
 
 	gitRepo := ctx.Repo.GitRepo
 
@@ -1072,7 +1110,7 @@ func MergePullRequest(ctx *context.Context) {
 	}
 
 	// start with merging by checking
-	if err := pull_service.CheckPullMergeable(ctx, ctx.Doer, &ctx.Repo.Permission, pr, mergeCheckType, repo_model.MergeStyle(form.Do), form.ForceMerge); err != nil {
+	if err := pull_service.CheckPullMergeable(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), ctx.Doer, &ctx.Repo.Permission, pr, mergeCheckType, repo_model.MergeStyle(form.Do), form.ForceMerge); err != nil {
 		switch {
 		case errors.Is(err, pull_service.ErrIsClosed):
 			if issue.IsPull {
@@ -1157,7 +1195,7 @@ func MergePullRequest(ctx *context.Context) {
 		}
 	}
 
-	if err := pull_service.Merge(pr, ctx.Doer, repo_model.MergeStyle(form.Do), form.HeadCommitID, message, false); err != nil {
+	if err := pull_service.Merge(pr, ctx.Doer, repo_model.MergeStyle(form.Do), form.HeadCommitID, message, false, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")); err != nil {
 		if pull_service.IsErrInvalidMergeStyle(err) {
 			ctx.JSONError(ctx.Tr("repo.pulls.invalid_merge_option"))
 		} else if pull_service.IsErrMergeConflicts(err) {
@@ -1538,7 +1576,7 @@ func UpdatePullRequestTarget(ctx *context.Context) {
 		return
 	}
 
-	if err := pull_service.ChangeTargetBranch(ctx, pr, ctx.Doer, targetBranch); err != nil {
+	if err := pull_service.ChangeTargetBranch(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), pr, ctx.Doer, targetBranch); err != nil {
 		switch {
 		case git_model.IsErrBranchNotExist(err):
 			errorMessage := ctx.Tr("form.target_branch_not_exist")

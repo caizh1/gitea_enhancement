@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
@@ -21,6 +22,7 @@ import (
 	container_service "gitea.dev/services/packages/container"
 	debian_service "gitea.dev/services/packages/debian"
 	rpm_service "gitea.dev/services/packages/rpm"
+	repo_service "gitea.dev/services/repository"
 )
 
 // CleanupTask executes cleanup rules and cleanup expired package data
@@ -97,7 +99,7 @@ func executeCleanupOneRule(ctx context.Context, pcr *packages_model.PackageClean
 	anyVersionDeleted := false
 	for _, p := range packages {
 		versionDeleted := false
-		err = db.WithTx(ctx, func(ctx context.Context) (err error) {
+		err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) (err error) {
 			versionDeleted, err = executeCleanupOneRulePackage(ctx, pcr, p)
 			return err
 		})
@@ -165,8 +167,8 @@ func ExecuteCleanupRules(ctx context.Context) error {
 }
 
 func CleanupExpiredData(ctx context.Context, olderThan time.Duration) error {
-	pbs := make([]*packages_model.PackageBlob, 0, 100)
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	tasks := make([]int64, 0, 100)
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		if err := container_service.Cleanup(ctx, olderThan); err != nil {
 			return err
 		}
@@ -185,13 +187,23 @@ func CleanupExpiredData(ctx context.Context, olderThan time.Duration) error {
 		}
 
 		// HINT: PACKAGE-DEFER-STORAGE-DELETE: Handle blob deletion for package storage
-		pbs, err = packages_model.FindExpiredUnreferencedBlobs(ctx, olderThan)
+		pbs, err := packages_model.FindExpiredUnreferencedBlobs(ctx, olderThan)
 		if err != nil {
 			return err
 		}
 
 		for _, pb := range pbs {
-			if err := packages_model.DeleteBlobByID(ctx, pb.ID); err != nil {
+			if err := governance_model.WithPackageContentLocks(ctx, []string{pb.HashSHA256}, func(ctx context.Context) error {
+				if err := packages_model.DeleteBlobByID(ctx, pb.ID); err != nil {
+					return err
+				}
+				task := &governance_model.ResourceCleanup{Kind: "package_blob", ResourceID: pb.ID, ObjectPath: pb.HashSHA256, Actor: governance_model.Actor{Kind: "system", Name: "软件包清理任务", Transport: "background"}, Objects: []governance_model.CleanupObject{{Kind: "package_blob", Path: packages_module.KeyToRelativePath(packages_module.BlobHash256Key(pb.HashSHA256))}}}
+				if err := repo_service.QueueResourceCleanup(ctx, task); err != nil {
+					return err
+				}
+				tasks = append(tasks, task.ID)
+				return nil
+			}); err != nil {
 				return err
 			}
 		}
@@ -200,12 +212,12 @@ func CleanupExpiredData(ctx context.Context, olderThan time.Duration) error {
 		return err
 	}
 
-	contentStore := packages_module.NewContentStore()
-	for _, pb := range pbs {
-		if err := contentStore.Delete(packages_module.BlobHash256Key(pb.HashSHA256)); err != nil {
-			log.Error("Error deleting package blob [%v]: %v", pb.ID, err)
+	if !db.InTransaction(ctx) {
+		for _, id := range tasks {
+			if err := repo_service.RunResourceCleanup(ctx, id); err != nil {
+				return err
+			}
 		}
 	}
-
 	return nil
 }

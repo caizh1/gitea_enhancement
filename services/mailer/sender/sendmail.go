@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/log"
@@ -16,7 +17,10 @@ import (
 )
 
 // SendmailSender Sender sendmail mail sender
-type SendmailSender struct{}
+type SendmailSender struct {
+	// 调用者可收紧发送上限；零值保留既有配置。
+	Timeout time.Duration
+}
 
 var _ Sender = &SendmailSender{}
 
@@ -44,7 +48,11 @@ func (s *SendmailSender) Send(from string, to []string, msg io.WriterTo) error {
 
 	desc := fmt.Sprintf("SendMail: %s %v", setting.MailService.SendmailPath, args)
 
-	ctx, _, finished := process.GetManager().AddContextTimeout(graceful.GetManager().HammerContext(), setting.MailService.SendmailTimeout, desc)
+	timeout := setting.MailService.SendmailTimeout
+	if s.Timeout > 0 && (timeout <= 0 || s.Timeout < timeout) {
+		timeout = s.Timeout
+	}
+	ctx, _, finished := process.GetManager().AddContextTimeout(graceful.GetManager().HammerContext(), timeout, desc)
 	defer finished()
 
 	cmd := exec.CommandContext(ctx, setting.MailService.SendmailPath, args...)

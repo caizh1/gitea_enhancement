@@ -1,0 +1,4 @@
+{{template "base/head" .}}
+<div role="main" class="page-content repository issue">{{template "repo/header" .}}
+ <div class="ui container"><a href="{{.PullRequestLink}}">返回拉取请求</a>{{template "shared/approval_rules" .}}</div>
+</div>{{template "base/footer" .}}

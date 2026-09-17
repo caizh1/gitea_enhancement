@@ -46,6 +46,23 @@ func (pv *PackageVersion) IsPrerelease() bool {
 
 // GetOrInsertVersion inserts a version. If the same version exist already ErrDuplicatePackageVersion is returned
 func GetOrInsertVersion(ctx context.Context, pv *PackageVersion) (*PackageVersion, error) {
+	var result *PackageVersion
+	var resultErr error
+	err := withPackageWrite(ctx, pv.PackageID, func(ctx context.Context) error {
+		result, resultErr = getOrInsertVersion(ctx, pv)
+		// 已存在是可处理回执，不能让事务助手回滚外层此前的写入。
+		if resultErr == ErrDuplicatePackageVersion {
+			return nil
+		}
+		return resultErr
+	})
+	if err != nil {
+		return result, err
+	}
+	return result, resultErr
+}
+
+func getOrInsertVersion(ctx context.Context, pv *PackageVersion) (*PackageVersion, error) {
 	e := db.GetEngine(ctx)
 
 	existing := &PackageVersion{}
@@ -68,8 +85,10 @@ func GetOrInsertVersion(ctx context.Context, pv *PackageVersion) (*PackageVersio
 
 // UpdateVersion updates a version
 func UpdateVersion(ctx context.Context, pv *PackageVersion) error {
-	_, err := db.GetEngine(ctx).ID(pv.ID).Update(pv)
-	return err
+	return withPackageVersionWrite(ctx, pv.ID, func(ctx context.Context) error {
+		_, err := db.GetEngine(ctx).ID(pv.ID).Update(pv)
+		return err
+	})
 }
 
 // IncrementDownloadCounter increments the download counter of a version

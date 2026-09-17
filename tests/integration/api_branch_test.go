@@ -14,10 +14,12 @@ import (
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testAPIGetBranch(t *testing.T, branchName string, exists bool) {
@@ -356,6 +358,7 @@ func testAPIRenameBranch(t *testing.T, doerName, ownerName, repoName, from, to s
 
 func TestAPIBranchProtection(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	t.Run("Basic", testAPIBranchProtectionBasic)
 	t.Run("BypassAllowlistValidation", testAPIBranchProtectionBypassAllowlistValidation)
 }

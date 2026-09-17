@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/auth/source/ldap"
 
@@ -220,9 +221,13 @@ func microcmdAuthUpdateLdapSimpleAuth() *cli.Command {
 // newAuthService creates a service with default functions.
 func newAuthService() *authService {
 	return &authService{
-		initDB:            initDB,
-		createAuthSource:  auth.CreateSource,
-		updateAuthSource:  auth.UpdateSource,
+		initDB: initDB,
+		createAuthSource: func(ctx context.Context, source *auth.Source) error {
+			return auth.CreateSource(governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "system", Name: "gitea admin auth", Transport: "cli"}), source)
+		},
+		updateAuthSource: func(ctx context.Context, source *auth.Source) error {
+			return auth.UpdateSource(governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "system", Name: "gitea admin auth", Transport: "cli"}), source)
+		},
 		getAuthSourceByID: auth.GetSourceByID,
 	}
 }

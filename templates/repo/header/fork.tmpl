@@ -12,7 +12,7 @@
 		{{else if $.ShowForkModal}}{{/* see backend comment for this logic */}}
 			href="#" data-modal="#fork-repo-modal"
 		{{else if eq (len $.UserAndOrgForks) 1}}
-			href="{{AppSubUrl}}/{{(index $.UserAndOrgForks 0).FullName}}"
+			href="{{(index $.UserAndOrgForks 0).Link}}"
 		{{else if $canNotForkOwn}}
 			href="#"
 		{{else}}
@@ -34,7 +34,7 @@
 		<div class="ui relaxed list">
 			{{range $.UserAndOrgForks}}
 				<div class="item">
-					<a class="flex-text-block" href="{{.Link}}">{{svg "octicon-repo-forked"}}{{.FullName}}</a>
+					<a class="flex-text-block" href="{{.Link}}">{{svg "octicon-repo-forked"}}{{.FullPath}}</a>
 				</div>
 			{{end}}
 		</div>

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/auth/password"
 	"gitea.dev/modules/log"
@@ -18,6 +19,7 @@ import (
 	"gitea.dev/modules/web"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	"gitea.dev/services/mailer"
 	user_service "gitea.dev/services/user"
 )
@@ -195,7 +197,12 @@ func ResetPasswdPost(ctx *context.Context) {
 		Password:           optional.Some(ctx.FormString("password")),
 		MustChangePassword: optional.Some(false),
 	}
-	if err := user_service.UpdateAuth(ctx, u, opts); err != nil {
+	if regenerateScratchToken {
+		opts.RecoveryCode = optional.Some(ctx.FormString("token"))
+	}
+	// 恢复令牌与第二因素已验证，才将此恢复请求关联到实际账号。
+	actor := governance_service.RequestActor(u, ctx.RemoteAddr(), "web")
+	if err := user_service.UpdateAuth(governance_model.WithAuditActor(ctx, actor), u, opts); err != nil {
 		ctx.Data["IsResetForm"] = true
 		ctx.Data["Err_Password"] = true
 		switch {
@@ -218,17 +225,6 @@ func ResetPasswdPost(ctx *context.Context) {
 	remember := len(ctx.FormString("remember")) != 0
 
 	if regenerateScratchToken {
-		// Invalidate the scratch token.
-		_, err := twofa.GenerateScratchToken()
-		if err != nil {
-			ctx.ServerError("UserSignIn", err)
-			return
-		}
-		if err = auth.UpdateTwoFactor(ctx, twofa); err != nil {
-			ctx.ServerError("UserSignIn", err)
-			return
-		}
-
 		handleSignInFull(ctx, u, remember)
 		if ctx.Written() {
 			return

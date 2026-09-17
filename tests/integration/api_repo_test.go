@@ -15,6 +15,7 @@ import (
 	unit_model "gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
@@ -378,7 +379,15 @@ func TestAPIRepoMigrate(t *testing.T) {
 					RepoOwnerID: testCase.ownerID,
 					RepoName:    testCase.repoName,
 				}).AddTokenAuth(token)
-				MakeRequest(t, req, testCase.expectedStatus)
+				response := MakeRequest(t, req, testCase.expectedStatus)
+				if testCase.expectedStatus == http.StatusCreated {
+					created := DecodeJSON(t, response, &api.Repository{})
+					repo, err := repo_model.GetRepositoryByID(t.Context(), created.ID)
+					require.NoError(t, err)
+					installed, err := gitrepo.ReferenceTransactionHookInstalled(repo)
+					require.NoError(t, err)
+					require.True(t, installed, "迁移结束应接入引用事务入口")
+				}
 			}
 		})
 

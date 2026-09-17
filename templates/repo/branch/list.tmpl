@@ -148,7 +148,7 @@
 									</a>
 									{{end}}
 								{{else}}
-									<a href="{{.LatestPullRequest.Issue.Link}}" class="tw-align-middle ref-issue">{{if not .LatestPullRequest.IsSameRepo}}{{.LatestPullRequest.BaseRepo.FullName}}{{end}}#{{.LatestPullRequest.Issue.Index}}</a>
+									<a href="{{.LatestPullRequest.Issue.Link}}" class="tw-align-middle ref-issue">{{if not .LatestPullRequest.IsSameRepo}}{{.LatestPullRequest.BaseRepo.FullPath}}{{end}}#{{.LatestPullRequest.Issue.Index}}</a>
 									{{if .LatestPullRequest.HasMerged}}
 										<a href="{{.LatestPullRequest.Issue.Link}}" class="ui purple large label">{{svg "octicon-git-merge" 16 "tw-mr-1"}}{{ctx.Locale.Tr "repo.pulls.merged"}}</a>
 									{{else if .LatestPullRequest.Issue.IsClosed}}

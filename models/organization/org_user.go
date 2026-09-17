@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
@@ -58,6 +59,9 @@ func GetOrganizationCount(ctx context.Context, u *user_model.User) (int64, error
 
 // IsOrganizationOwner returns true if given user is in the owner team.
 func IsOrganizationOwner(ctx context.Context, orgID, uid int64) (bool, error) {
+	if owner, err := hasGovernanceOwner(ctx, orgID, uid); owner || err != nil {
+		return owner, err
+	}
 	ownerTeam, err := GetOwnerTeam(ctx, orgID)
 	if err != nil {
 		if IsErrTeamNotExist(err) {
@@ -85,6 +89,13 @@ func IsOrganizationAdmin(ctx context.Context, orgID, uid int64) (bool, error) {
 
 // IsOrganizationMember returns true if given user is member of organization.
 func IsOrganizationMember(ctx context.Context, orgID, uid int64) (bool, error) {
+	abilities, err := GovernanceGroupAbilities(ctx, orgID, uid)
+	if err != nil {
+		return false, err
+	}
+	if abilities[governance_model.ReadGroup] {
+		return true, nil
+	}
 	return db.GetEngine(ctx).
 		Where("uid=?", uid).
 		And("org_id=?", orgID).
@@ -104,6 +115,13 @@ func IsPublicMembership(ctx context.Context, orgID, uid int64) (bool, error) {
 
 // CanCreateOrgRepo returns true if user can create repo in organization
 func CanCreateOrgRepo(ctx context.Context, orgID, uid int64) (bool, error) {
+	abilities, err := GovernanceGroupAbilities(ctx, orgID, uid)
+	if err != nil {
+		return false, err
+	}
+	if abilities[governance_model.CreateProject] {
+		return true, nil
+	}
 	return db.GetEngine(ctx).
 		Where(builder.Eq{"team.can_create_org_repo": true}.Or(builder.Eq{"team.authorize": perm.AccessModeOwner})).
 		Join("INNER", "team_user", "team_user.team_id = team.id").

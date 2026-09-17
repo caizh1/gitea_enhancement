@@ -73,9 +73,15 @@ func (source *Source) Authenticate(ctx context.Context, user *user_model.User, u
 	}
 
 	if user != nil {
-		if isAttributeSSHPublicKeySet && asymkey_model.SynchronizePublicKeys(ctx, user, source.AuthSource, sr.SSHPublicKey, source.SSHKeysAreVerified) {
-			if err := asymkey_service.RewriteAllPublicKeys(ctx); err != nil {
+		if isAttributeSSHPublicKeySet {
+			changed, err := asymkey_model.SynchronizePublicKeys(ctx, user, source.AuthSource, sr.SSHPublicKey, source.SSHKeysAreVerified)
+			if err != nil {
 				return user, err
+			}
+			if changed {
+				if err := asymkey_service.SyncSSHKeyFiles(ctx); err != nil {
+					return user, err
+				}
 			}
 		}
 	} else {
@@ -99,9 +105,15 @@ func (source *Source) Authenticate(ctx context.Context, user *user_model.User, u
 			return user, err
 		}
 
-		if isAttributeSSHPublicKeySet && asymkey_model.AddPublicKeysBySource(ctx, user, source.AuthSource, sr.SSHPublicKey, source.SSHKeysAreVerified) {
-			if err := asymkey_service.RewriteAllPublicKeys(ctx); err != nil {
+		if isAttributeSSHPublicKeySet {
+			changed, err := asymkey_model.AddPublicKeysBySource(ctx, user, source.AuthSource, sr.SSHPublicKey, source.SSHKeysAreVerified)
+			if err != nil {
 				return user, err
+			}
+			if changed {
+				if err := asymkey_service.SyncSSHKeyFiles(ctx); err != nil {
+					return user, err
+				}
 			}
 		}
 		if source.AttributeAvatar != "" {

@@ -13,10 +13,13 @@ import (
 	"time"
 
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/git"
 	api "gitea.dev/modules/structs"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func doCheckRepositoryEmptyStatus(ctx APITestContext, isEmpty bool) func(*testing.T) {
@@ -74,6 +77,34 @@ func testPushDeployKeyOnEmptyRepo(t *testing.T, u *url.URL) {
 		t.Run("SSHPushTestRepository", doGitPushTestRepository(dstPath, "origin", "master"))
 
 		t.Run("CheckIsNotEmpty", doCheckRepositoryEmptyStatus(ctx, false))
+		t.Run("部署密钥真实身份审计", doAPIGetRepository(ctx, func(t *testing.T, repo api.Repository) {
+			var operations []governance_model.ReferenceTransaction
+			require.NoError(t, db.GetEngine(t.Context()).Where("repo_id = ? AND state = ?", repo.ID, "committed").Find(&operations))
+			require.NotEmpty(t, operations)
+			for _, operation := range operations {
+				require.Equal(t, "deploy_key", operation.Actor.Kind)
+				require.Zero(t, operation.Actor.ID, "部署密钥不能冒充仓库所有者")
+				require.Positive(t, operation.Actor.CredentialID)
+				require.Equal(t, keyname, operation.Actor.Name)
+			}
+		}))
+
+		t.Run("部署密钥拒绝推送审计", doAPIGetRepository(ctx, func(t *testing.T, repo api.Repository) {
+			MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/"+ctx.Reponame+"/branch_protections", api.CreateBranchProtectionOption{RuleName: "master", EnablePush: true, RequireGovernanceApproval: true}).AddTokenAuth(ctx.Token), http.StatusCreated)
+			doGitCheckoutWriteFileCommit(localGitAddCommitOptions{LocalRepoPath: dstPath, CheckoutBranch: "master", TreeFilePath: "部署审计.txt", TreeFileContent: "不允许直接进入保护分支\n"})(t)
+			doGitPushTestRepositoryFail(dstPath, "origin", "master")(t)
+			var events []governance_model.AuditEvent
+			require.NoError(t, db.GetEngine(t.Context()).Where("scope_type = ? AND scope_id = ? AND type = ?", "repository", repo.ID, "git.push_denied").Find(&events))
+			require.NotEmpty(t, events)
+			for _, event := range events {
+				require.Equal(t, "deploy_key", event.Actor.Kind)
+				require.Zero(t, event.Actor.ID)
+				require.Positive(t, event.Actor.CredentialID)
+				count, err := db.GetEngine(t.Context()).Where("event_sequence = ? AND scope_type = ? AND scope_id = ?", event.ID, "user", repo.Owner.ID).Count(new(governance_model.AuditScope))
+				require.NoError(t, err)
+				require.Zero(t, count, "不能把密钥操作归入所有者个人操作范围")
+			}
+		}))
 
 		t.Run("DeleteRepository", doAPIDeleteRepository(ctxWithDeleteRepo))
 	})

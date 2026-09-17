@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	"gitea.dev/modules/json"
 	packages_module "gitea.dev/modules/packages"
@@ -264,7 +264,7 @@ func DeletePackageFile(webctx *context.Context) {
 
 	var pd *packages_model.PackageDescriptor
 
-	err := db.WithTx(webctx, func(ctx stdctx.Context) error {
+	err := governance_model.WithWrite(webctx, nil, func(ctx stdctx.Context) error {
 		pv, err := packages_model.GetVersionByNameAndVersion(ctx,
 			webctx.Package.Owner.ID,
 			packages_model.TypeRpm,

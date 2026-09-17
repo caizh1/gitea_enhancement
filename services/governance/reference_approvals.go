@@ -1,0 +1,226 @@
+// Copyright 2026 Gitea.
+// Copyright 2026 企业治理贡献者。
+// SPDX-License-Identifier: MIT
+
+package governance
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+
+	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
+	issues_model "gitea.dev/models/issues"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/gitrepo"
+
+	"xorm.io/builder"
+)
+
+// PrepareGitReferenceTransaction 在短数据库事务外读取 Git；修订号变化时拒绝过期快照。
+func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_model.ReferenceTransaction) error {
+	if operation == nil || operation.RepoID <= 0 || len(operation.PullChanges) != 0 {
+		return governance_model.ErrInvalid
+	}
+	ctx, err := ReferenceMergeAuthorizationContext(ctx, operation)
+	if err != nil {
+		return err
+	}
+	if operation.MergeAuthorizationID != "" {
+		operation.Actor = governance_model.AuditActor(ctx)
+	}
+	changes := make(map[string]governance_model.ReferenceChange, len(operation.Changes))
+	for _, change := range operation.Changes {
+		changes[change.Ref] = change
+	}
+	var pulls []*issues_model.PullRequest
+	revisions := make(map[int64]int64)
+	if err := governance_model.WithStableRead(ctx, func(ctx context.Context) error {
+		var err error
+		pulls, err = referenceAffectedPulls(ctx, operation.RepoID, changes)
+		if err != nil {
+			return err
+		}
+		revisions[operation.RepoID] = 0
+		for _, pr := range pulls {
+			revisions[pr.BaseRepoID], revisions[pr.HeadRepoID] = 0, 0
+		}
+		for id := range revisions {
+			revisions[id], err = governance_model.ReadReferenceRevision(ctx, id)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	repositories := make(map[int64]*repo_model.Repository)
+	loadRepo := func(id int64) (*repo_model.Repository, error) {
+		if repository := repositories[id]; repository != nil {
+			return repository, nil
+		}
+		repository, err := repo_model.GetRepositoryByID(ctx, id)
+		if err == nil {
+			repositories[id] = repository
+		}
+		return repository, err
+	}
+	var dependencies []string
+	for _, pr := range pulls {
+		base, err := loadRepo(pr.BaseRepoID)
+		if err != nil {
+			return err
+		}
+		head, err := loadRepo(pr.HeadRepoID)
+		if err != nil {
+			return err
+		}
+		read := func(repo *repo_model.Repository, branch string) (string, string, error) {
+			ref := "refs/heads/" + branch
+			if change, exists := changes[ref]; exists && repo.ID == operation.RepoID {
+				return change.Old, change.New, nil
+			}
+			gitRepo, err := gitrepo.OpenRepository(ctx, repo)
+			if err != nil {
+				return "", "", err
+			}
+			defer gitRepo.Close()
+			value, err := gitRepo.GetRefCommitID(ref)
+			if git.IsErrNotExist(err) {
+				return "", "", nil
+			}
+			return value, value, err
+		}
+		baseBefore, baseAfter, err := read(base, pr.BaseBranch)
+		if err != nil {
+			return err
+		}
+		headBefore, headAfter, err := read(head, pr.HeadBranch)
+		if err != nil {
+			return err
+		}
+		version := func(baseID, headID string) (governance_model.PullVersion, error) {
+			var patch string
+			if strings.Trim(baseID, "0") == "" || strings.Trim(headID, "0") == "" {
+				// 删除或尚未创建的分支不能保留旧批准，重新出现时也必须推进版本。
+				sum := sha256.Sum256([]byte("审批分支不可用:" + baseID + ":" + headID))
+				patch = hex.EncodeToString(sum[:])
+				if headID == "" {
+					headID = strings.Repeat("0", 40)
+				}
+			} else {
+				var err error
+				patch, err = gitrepo.ApprovalPatchID(ctx, base, head, baseID, headID, nil)
+				if err != nil {
+					return governance_model.PullVersion{}, err
+				}
+			}
+			return governance_model.PullVersion{PullID: pr.ID, Head: headID, BaseBranch: pr.BaseBranch, PatchID: patch}, nil
+		}
+		before, err := version(baseBefore, headBefore)
+		if err != nil {
+			return err
+		}
+		after, err := version(baseAfter, headAfter)
+		if err != nil {
+			return err
+		}
+		operation.PullChanges = append(operation.PullChanges, governance_model.ReferencePullChange{Before: before, After: after})
+		dependencies = append(dependencies, governance_model.Resource("repository", base.ID), governance_model.Resource("repository", head.ID))
+	}
+	return governance_model.PrepareReferenceTransaction(ctx, operation, dependencies, func(ctx context.Context) error {
+		repository, err := repo_model.GetRepositoryByID(ctx, operation.RepoID)
+		if err != nil {
+			return err
+		}
+		if repository.IsArchived {
+			return fmt.Errorf("%w：项目已归档，不能准备新的引用写入", governance_model.ErrForbidden)
+		}
+
+		if err := validateReferencePullSnapshot(ctx, operation.RepoID, changes, pulls, revisions); err != nil {
+			return err
+		}
+		for i, pr := range pulls {
+			base, err := repo_model.GetRepositoryByID(ctx, pr.BaseRepoID)
+			if err != nil {
+				return err
+			}
+			settings, err := governance_model.ResolveApprovalSettings(ctx, base.ID, base.OwnerID)
+			if err != nil {
+				return err
+			}
+			operation.PullChanges[i].ResetOnChange = settings.Settings.ResetOnChange
+			operation.PullChanges[i].AuditScope, err = pullVersionAuditScope(ctx, base)
+			if err != nil {
+				return err
+			}
+		}
+		for _, change := range operation.Changes {
+			if !strings.HasPrefix(change.Ref, "refs/heads/") {
+				continue
+			}
+			protection, err := git_model.GetFirstMatchProtectedBranchRule(ctx, operation.RepoID, strings.TrimPrefix(change.Ref, "refs/heads/"))
+			if err != nil {
+				return err
+			}
+			if protection != nil && protection.RequireGovernanceApproval && operation.MergeAuthorizationID == "" {
+				return fmt.Errorf("%w：目标分支只接受通过最终审批授权的合并", governance_model.ErrForbidden)
+			}
+		}
+		return nil
+	})
+}
+
+// referenceAffectedPulls 在计算差异前和最终事务内使用同一个筛选条件，不能漏掉新建或改目标的 PR。
+func referenceAffectedPulls(ctx context.Context, repoID int64, changes map[string]governance_model.ReferenceChange) ([]*issues_model.PullRequest, error) {
+	var pulls []*issues_model.PullRequest
+	if err := db.GetEngine(ctx).Where("has_merged = ?", false).And(builder.Or(builder.Eq{"head_repo_id": repoID}, builder.Eq{"base_repo_id": repoID})).Find(&pulls); err != nil {
+		return nil, err
+	}
+	result := pulls[:0]
+	for _, pr := range pulls {
+		_, headChanged := changes["refs/heads/"+pr.HeadBranch]
+		_, baseChanged := changes["refs/heads/"+pr.BaseBranch]
+		if headChanged && pr.HeadRepoID == repoID || baseChanged && pr.BaseRepoID == repoID {
+			result = append(result, pr)
+		}
+	}
+	return result, nil
+}
+
+// validateReferencePullSnapshot 只依赖相关引用与 PR 身份，无关治理写入不使快照过期。
+func validateReferencePullSnapshot(ctx context.Context, repoID int64, changes map[string]governance_model.ReferenceChange, pulls []*issues_model.PullRequest, revisions map[int64]int64) error {
+	for id, revision := range revisions {
+		current, err := governance_model.ReadReferenceRevision(ctx, id)
+		if err != nil {
+			return err
+		}
+		if current != revision {
+			return fmt.Errorf("%w：计算差异期间相关仓库引用已变化", governance_model.ErrConflict)
+		}
+	}
+	current, err := referenceAffectedPulls(ctx, repoID, changes)
+	if err != nil {
+		return err
+	}
+	if len(current) != len(pulls) {
+		return governance_model.ErrConflict
+	}
+	byID := make(map[int64]*issues_model.PullRequest, len(pulls))
+	for _, pr := range pulls {
+		byID[pr.ID] = pr
+	}
+	for _, pr := range current {
+		before := byID[pr.ID]
+		if before == nil || before.HeadRepoID != pr.HeadRepoID || before.BaseRepoID != pr.BaseRepoID || before.HeadBranch != pr.HeadBranch || before.BaseBranch != pr.BaseBranch {
+			return governance_model.ErrConflict
+		}
+	}
+	return nil
+}

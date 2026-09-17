@@ -45,7 +45,10 @@ func InsertProperty(ctx context.Context, refType PropertyType, refID int64, name
 		Value:   value,
 	}
 
-	_, err := db.GetEngine(ctx).Insert(pp)
+	err := withPackageReferenceWrite(ctx, refType, refID, func(ctx context.Context) error {
+		_, err := db.GetEngine(ctx).Insert(pp)
+		return err
+	})
 	return pp, err
 }
 
@@ -63,11 +66,19 @@ func GetPropertiesByName(ctx context.Context, refType PropertyType, refID int64,
 
 // UpdateProperty updates a property
 func UpdateProperty(ctx context.Context, pp *PackageProperty) error {
-	_, err := db.GetEngine(ctx).ID(pp.ID).Update(pp)
-	return err
+	return withPackageReferenceWrite(ctx, pp.RefType, pp.RefID, func(ctx context.Context) error {
+		_, err := db.GetEngine(ctx).ID(pp.ID).Update(pp)
+		return err
+	})
 }
 
 func InsertOrUpdateProperty(ctx context.Context, refType PropertyType, refID int64, name, value string) error {
+	return withPackageReferenceWrite(ctx, refType, refID, func(ctx context.Context) error {
+		return insertOrUpdateProperty(ctx, refType, refID, name, value)
+	})
+}
+
+func insertOrUpdateProperty(ctx context.Context, refType PropertyType, refID int64, name, value string) error {
 	pp, ok, err := db.Get[PackageProperty](ctx, builder.Eq{"ref_type": refType, "ref_id": refID, "`name`": name})
 	if err != nil {
 		return err

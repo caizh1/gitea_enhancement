@@ -77,7 +77,7 @@ func (source *Source) Sync(ctx context.Context, updateExisting bool) error {
 			log.Warn("SyncExternalUsers: Cancelled at update of %s before completed update of users", source.AuthSource.Name)
 			// Rewrite authorized_keys file if LDAP Public SSH Key attribute is set and any key was added or removed
 			if sshKeysNeedUpdate {
-				err = asymkey_service.RewriteAllPublicKeys(ctx)
+				err = asymkey_service.SyncSSHKeyFiles(ctx)
 				if err != nil {
 					log.Error("RewriteAllPublicKeys: %v", err)
 				}
@@ -135,7 +135,9 @@ func (source *Source) Sync(ctx context.Context, updateExisting bool) error {
 
 			if err == nil && isAttributeSSHPublicKeySet {
 				log.Trace("SyncExternalUsers[%s]: Adding LDAP Public SSH Keys for user %s", source.AuthSource.Name, usr.Name)
-				if asymkey_model.AddPublicKeysBySource(ctx, usr, source.AuthSource, su.SSHPublicKey, source.SSHKeysAreVerified) {
+				if changed, err := asymkey_model.AddPublicKeysBySource(ctx, usr, source.AuthSource, su.SSHPublicKey, source.SSHKeysAreVerified); err != nil {
+					return err
+				} else if changed {
 					sshKeysNeedUpdate = true
 				}
 			}
@@ -145,8 +147,12 @@ func (source *Source) Sync(ctx context.Context, updateExisting bool) error {
 			}
 		} else if updateExisting {
 			// Synchronize SSH Public Key if that attribute is set
-			if isAttributeSSHPublicKeySet && asymkey_model.SynchronizePublicKeys(ctx, usr, source.AuthSource, su.SSHPublicKey, source.SSHKeysAreVerified) {
-				sshKeysNeedUpdate = true
+			if isAttributeSSHPublicKeySet {
+				changed, err := asymkey_model.SynchronizePublicKeys(ctx, usr, source.AuthSource, su.SSHPublicKey, source.SSHKeysAreVerified)
+				if err != nil {
+					return err
+				}
+				sshKeysNeedUpdate = sshKeysNeedUpdate || changed
 			}
 
 			// Check if user data has changed
@@ -195,7 +201,7 @@ func (source *Source) Sync(ctx context.Context, updateExisting bool) error {
 
 	// Rewrite authorized_keys file if LDAP Public SSH Key attribute is set and any key was added or removed
 	if sshKeysNeedUpdate {
-		err = asymkey_service.RewriteAllPublicKeys(ctx)
+		err = asymkey_service.SyncSSHKeyFiles(ctx)
 		if err != nil {
 			log.Error("RewriteAllPublicKeys: %v", err)
 		}

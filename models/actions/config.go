@@ -5,7 +5,11 @@ package actions
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"slices"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
@@ -43,7 +47,38 @@ func GetOwnerActionsConfig(ctx context.Context, userID int64) (ret OwnerActionsC
 
 // SetOwnerActionsConfig saves the OwnerActionsConfig for a user or organization to user settings
 func SetOwnerActionsConfig(ctx context.Context, userID int64, cfg OwnerActionsConfig) error {
-	return user_model.SetUserSettingJSON(ctx, userID, user_model.SettingsKeyActionsConfig, cfg)
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		before, err := GetOwnerActionsConfig(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := user_model.SetUserSettingJSON(ctx, userID, user_model.SettingsKeyActionsConfig, cfg); err != nil {
+			return err
+		}
+		changed := make([]string, 0, 3)
+		if before.TokenPermissionMode != cfg.TokenPermissionMode {
+			changed = append(changed, "token_permission_mode")
+		}
+		if !reflect.DeepEqual(before.MaxTokenPermissions, cfg.MaxTokenPermissions) {
+			changed = append(changed, "max_token_permissions")
+		}
+		if !reflect.DeepEqual(before.AllowedCrossRepoIDs, cfg.AllowedCrossRepoIDs) {
+			changed = append(changed, "allowed_cross_repo_ids")
+		}
+		return AppendConfigurationAudit(ctx, userID, 0, "actions.config_updated", "actions_config", userID, "permissions", map[string]any{"before": actionsConfigAuditValues(before), "after": actionsConfigAuditValues(cfg), "changed_fields": changed})
+	})
+}
+
+func actionsConfigAuditValues(cfg OwnerActionsConfig) map[string]any {
+	allowed := slices.Clone(cfg.AllowedCrossRepoIDs)
+	slices.Sort(allowed)
+	permissions := map[string]any{}
+	if cfg.MaxTokenPermissions != nil {
+		for unitType, access := range cfg.MaxTokenPermissions.UnitAccessModes {
+			permissions[fmt.Sprint(unitType)] = access
+		}
+	}
+	return map[string]any{"token_permission_mode": cfg.TokenPermissionMode, "max_token_permissions": permissions, "allowed_cross_repo_ids": allowed}
 }
 
 // GetDefaultTokenPermissions returns the default token permissions by its TokenPermissionMode.

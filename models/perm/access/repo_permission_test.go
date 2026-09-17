@@ -236,6 +236,16 @@ func testGetIndividualUserRepoPermission(t *testing.T) {
 		require.Empty(t, users)
 	})
 
+	repo3.Visibility = repo_model.VisibilityInternal
+	repo3.IsPrivate = true
+	t.Run("DoerWithReadIssueTeamOnInternalRepoKeepsCodeRead", func(t *testing.T) {
+		perm, err := GetIndividualUserRepoPermission(ctx, repo3, user)
+		require.NoError(t, err)
+		assert.Equal(t, perm_model.AccessModeRead, perm.AccessMode)
+		assert.Equal(t, perm_model.AccessModeRead, perm.unitsMode[unit.TypeCode])
+		assert.Equal(t, perm_model.AccessModeRead, perm.unitsMode[unit.TypeIssues])
+	})
+
 	require.NoError(t, db.Insert(ctx, repo_model.Collaboration{RepoID: repo3.ID, UserID: user.ID, Mode: perm_model.AccessModeWrite}))
 	require.NoError(t, db.Insert(ctx, Access{RepoID: repo3.ID, UserID: user.ID, Mode: perm_model.AccessModeWrite}))
 	t.Run("DoerWithReadIssueTeamAndWriteCollaboratorOnPrivateRepo", func(t *testing.T) {

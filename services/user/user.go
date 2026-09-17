@@ -5,12 +5,14 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
 	repo_model "gitea.dev/models/repo"
@@ -21,9 +23,9 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/structs"
-	"gitea.dev/modules/util"
 	"gitea.dev/services/agit"
 	asymkey_service "gitea.dev/services/asymkey"
+	governance_service "gitea.dev/services/governance"
 	org_service "gitea.dev/services/org"
 	"gitea.dev/services/packages"
 	container_service "gitea.dev/services/packages/container"
@@ -32,6 +34,21 @@ import (
 
 // RenameUser renames a user
 func RenameUser(ctx context.Context, u *user_model.User, newUserName string, doer *user_model.User) error {
+	if u.IsOrganization() {
+		n, err := governance_model.GetNamespace(ctx, u.ID)
+		if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+			return err
+		}
+		if err == nil {
+			moved, err := governance_service.MoveGroup(ctx, governance_service.RequestActor(doer, "", "native"), u.ID, governance_service.GroupOption{Path: newUserName, ParentID: n.ParentID, Revision: n.Revision})
+			if err != nil {
+				return err
+			}
+			u.NamespacePath = moved.FullPath
+			return nil
+		}
+	}
+
 	if newUserName == u.Name {
 		return nil
 	}
@@ -49,13 +66,31 @@ func RenameUser(ctx context.Context, u *user_model.User, newUserName string, doe
 	onlyCapitalization := strings.EqualFold(newUserName, u.Name)
 	oldUserName := u.Name
 
+	actor := governance_service.RequestActor(doer, "", "native")
 	if onlyCapitalization {
-		u.Name = newUserName
-		if err := user_model.UpdateUserCols(ctx, u, "name"); err != nil {
+		err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", u.ID), governance_model.Resource("group", u.ID)}, func(ctx context.Context) error {
+			return db.WithTx(ctx, func(ctx context.Context) error {
+				if err := repo_model.FreezeRepositoryStorageByOwnerID(ctx, u.ID); err != nil {
+					return err
+				}
+				if err := governance_model.RenameNativePersonalNamespace(ctx, u.ID, newUserName, actor); err != nil {
+					return err
+				}
+				u.Name = newUserName
+				if err := user_model.UpdateUserCols(ctx, u, "name"); err != nil {
+					return err
+				}
+				return repo_model.UpdateRepositoryOwnerNames(ctx, u.ID, newUserName)
+			})
+		})
+		if err != nil {
 			u.Name = oldUserName
 			return err
 		}
-		return repo_model.UpdateRepositoryOwnerNames(ctx, u.ID, newUserName)
+		if u.NamespacePath != "" {
+			u.NamespacePath = newUserName
+		}
+		return nil
 	}
 
 	ctx, committer, err := db.TxContext(ctx)
@@ -74,6 +109,12 @@ func RenameUser(ctx context.Context, u *user_model.User, newUserName string, doe
 		}
 	}
 
+	if err := governance_model.RenameNativePersonalNamespace(ctx, u.ID, newUserName, actor); err != nil {
+		return err
+	}
+	if err := repo_model.FreezeRepositoryStorageByOwnerID(ctx, u.ID); err != nil {
+		return err
+	}
 	if err = repo_model.UpdateRepositoryOwnerName(ctx, oldUserName, newUserName); err != nil {
 		return err
 	}
@@ -97,21 +138,13 @@ func RenameUser(ctx context.Context, u *user_model.User, newUserName string, doe
 		return err
 	}
 
-	// Do not fail if directory does not exist
-	if err = util.Rename(user_model.UserPath(oldUserName), user_model.UserPath(newUserName)); err != nil && !os.IsNotExist(err) {
-		u.Name = oldUserName
-		u.LowerName = strings.ToLower(oldUserName)
-		return fmt.Errorf("rename user directory: %w", err)
-	}
-
 	if err = committer.Commit(); err != nil {
 		u.Name = oldUserName
 		u.LowerName = strings.ToLower(oldUserName)
-		if err2 := util.Rename(user_model.UserPath(newUserName), user_model.UserPath(oldUserName)); err2 != nil && !os.IsNotExist(err2) {
-			log.Error("Unable to rollback directory change during failed username change from: %s to: %s. DB Error: %v. Filesystem Error: %v", oldUserName, newUserName, err, err2)
-			return fmt.Errorf("failed to rollback directory change during failed username change from: %s to: %s. DB Error: %w. Filesystem Error: %v", oldUserName, newUserName, err, err2)
-		}
 		return err
+	}
+	if u.NamespacePath != "" {
+		u.NamespacePath = newUserName
 	}
 	return nil
 }
@@ -131,17 +164,15 @@ func DeleteUser(ctx context.Context, u *user_model.User, purge bool) error {
 	if purge {
 		// Disable the user first
 		// NOTE: This is deliberately not within a transaction as it must disable the user immediately to prevent any further action by the user to be purged.
-		if err := user_model.UpdateUserCols(ctx, &user_model.User{
-			ID:              u.ID,
-			IsActive:        false,
-			IsRestricted:    true,
-			IsAdmin:         false,
-			ProhibitLogin:   true,
-			Passwd:          "",
-			Salt:            "",
-			PasswdHashAlgo:  "",
-			MaxRepoCreation: 0,
-		}, "is_active", "is_restricted", "is_admin", "prohibit_login", "max_repo_creation", "passwd", "salt", "passwd_hash_algo"); err != nil {
+		if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
+			if err := governance_model.EnsureUserCanLoseOwnerAccess(ctx, u.ID); err != nil {
+				return err
+			}
+			return user_model.UpdateUserCols(ctx, &user_model.User{
+				ID: u.ID, IsActive: false, IsRestricted: true, IsAdmin: false, ProhibitLogin: true,
+				Passwd: "", Salt: "", PasswdHashAlgo: "", MaxRepoCreation: 0,
+			}, "is_active", "is_restricted", "is_admin", "prohibit_login", "max_repo_creation", "passwd", "salt", "passwd_hash_algo")
+		}); err != nil {
 			return fmt.Errorf("unable to disable user: %s[%d] prior to purge. UpdateUserCols: %w", u.Name, u.ID, err)
 		}
 
@@ -208,7 +239,10 @@ func DeleteUser(ctx context.Context, u *user_model.User, purge bool) error {
 		}
 	}
 
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
+		if err := governance_model.EnsureUserCanLoseOwnerAccess(ctx, u.ID); err != nil {
+			return err
+		}
 		// Note: A user owns any repository or belongs to any organization
 		//	cannot perform delete operation. This causes a race with the purge above
 		//  however consistency requires that we ensure that this is the case
@@ -258,9 +292,9 @@ func DeleteUser(ctx context.Context, u *user_model.User, purge bool) error {
 
 	// Note: There are something just cannot be roll back, so just keep error logs of those operations.
 	path := user_model.UserPath(u.Name)
-	if err := util.RemoveAll(path); err != nil {
-		err = fmt.Errorf("failed to RemoveAll %s: %w", path, err)
-		_ = system_model.CreateNotice(ctx, system_model.NoticeTask, fmt.Sprintf("delete user '%s': %v", u.Name, err))
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		// 非空目录可能仍承载已经转出的稳定仓库正文，必须保留。
+		log.Warn("保留用户 %q 的非空仓库目录 %s: %v", u.Name, path, err)
 	}
 
 	if u.Avatar != "" {

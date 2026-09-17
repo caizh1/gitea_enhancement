@@ -104,6 +104,12 @@ func VisibleTeamVisibilitiesFor(isOrgMember, isSignedIn bool) []structs.VisibleT
 }
 
 func ApplyTeamListFilter(ctx context.Context, orgID int64, viewer *user_model.User, isSignedIn bool, opts *SearchTeamOptions) error {
+	if viewer.IsAuditor {
+		auditor, err := user_model.IsActiveAuditor(ctx, viewer.ID)
+		if err != nil || auditor {
+			return err
+		}
+	}
 	if viewer.IsAdmin {
 		return nil
 	}

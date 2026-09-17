@@ -5,6 +5,7 @@ package swagger
 
 import (
 	api "gitea.dev/modules/structs"
+	governance_api "gitea.dev/routers/api/v1/governance"
 	"gitea.dev/services/forms"
 )
 
@@ -14,6 +15,43 @@ import (
 // parameterBodies
 // swagger:response parameterBodies
 type swaggerParameterBodies struct {
+	// in:body
+	GovernanceBranchApprovalUpdate governance_api.BranchApprovalUpdate
+	// in:body
+	GovernanceCapabilities governance_api.GovernanceCapabilities
+	// in:body
+	GovernanceScopeApprovalSettingsOption governance_api.ScopeApprovalSettingsOption
+	// in:body
+	GovernanceApprovalSettingsOption governance_api.ApprovalSettingsOption
+	// in:body
+	GovernanceApprovalRuleOption     governance_api.ApprovalRuleOption
+	GovernancePullApprovalRuleOption governance_api.PullApprovalRuleOption
+	// in:body
+	GovernanceGroupRoleOption governance_api.GroupRoleOption
+	// in:body
+	GovernanceGroupShareOption governance_api.GroupShareOption
+	// in:body
+	GovernanceGroupArchiveOption governance_api.GroupArchiveOption
+	// in:body
+	GovernanceRepositoryDeletionOption governance_api.RepositoryDeletionOption
+	// in:body
+	GovernanceGroupDeletionOption governance_api.GroupDeletionOption
+	// in:body
+	GovernanceGroupOption governance_api.GroupOption
+	// in:body
+	GovernanceGroupMemberOption governance_api.GroupMemberOption
+	// in:body
+	GovernanceAccessRequestSettingOption governance_api.AccessRequestSettingOption
+	GovernanceInvitationOption           governance_api.InvitationOption
+	GovernanceInvitationTokenOption      governance_api.InvitationTokenOption
+
+	// in:body
+	GovernanceAuditExportOption governance_api.AuditExportOption
+	// in:body
+	GovernanceAuditStreamOption governance_api.AuditStreamOption
+	// in:body
+	GovernanceAuditRevisionOption governance_api.AuditRevisionOption
+
 	// in:body
 	AddCollaboratorOption api.AddCollaboratorOption
 

@@ -117,6 +117,7 @@ func GetUserOrgsList(ctx context.Context, user *user_model.User) ([]*MinimalOrg,
 	outputCols := []string{
 		"id",
 		"name",
+		"namespace_path",
 		"full_name",
 		"visibility",
 		"avatar",

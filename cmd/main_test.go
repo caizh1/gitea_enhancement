@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/unittest"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	unittest.MainTest(m)
+	unittest.MainTest(m, &unittest.TestOptions{SetUp: func() error { return governance_model.InitializeLock(context.Background()) }})
 }
 
 func TestDefaultCommand(t *testing.T) {

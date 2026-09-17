@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
@@ -104,8 +105,8 @@ func createPackageAndAddFile(ctx context.Context, pvci *PackageCreationInfo, pfc
 	removeBlob := false
 	defer func() {
 		if blobCreated && removeBlob {
-			contentStore := packages_module.NewContentStore()
-			if err := contentStore.Delete(packages_module.BlobHash256Key(pb.HashSHA256)); err != nil {
+			_ = committer.Close()
+			if err := RemoveUnreferencedBlobContent(ctx, pb.HashSHA256); err != nil {
 				log.Error("Error deleting package blob from content store: %v", err)
 			}
 		}
@@ -113,6 +114,16 @@ func createPackageAndAddFile(ctx context.Context, pvci *PackageCreationInfo, pfc
 	if err != nil {
 		removeBlob = true
 		return nil, nil, err
+	}
+	if err := packages_model.AppendFileAudit(dbCtx, pf, "package.file_added"); err != nil {
+		removeBlob = true
+		return nil, nil, err
+	}
+	if created {
+		if err := packages_model.AppendVersionAudit(dbCtx, pv, "package.version_published"); err != nil {
+			removeBlob = true
+			return nil, nil, err
+		}
 	}
 
 	if err := committer.Commit(); err != nil {
@@ -220,6 +231,7 @@ func AddFileToPackageVersionInternal(ctx context.Context, pv *packages_model.Pac
 }
 
 func addFileToPackageWrapper(ctx context.Context, fn func(ctx context.Context) (*packages_model.PackageFile, *packages_model.PackageBlob, bool, error)) (*packages_model.PackageFile, error) {
+	originalCtx := ctx
 	ctx, committer, err := db.TxContext(ctx)
 	if err != nil {
 		return nil, err
@@ -230,13 +242,17 @@ func addFileToPackageWrapper(ctx context.Context, fn func(ctx context.Context) (
 	removeBlob := false
 	defer func() {
 		if removeBlob {
-			contentStore := packages_module.NewContentStore()
-			if err := contentStore.Delete(packages_module.BlobHash256Key(pb.HashSHA256)); err != nil {
+			_ = committer.Close()
+			if err := RemoveUnreferencedBlobContent(originalCtx, pb.HashSHA256); err != nil {
 				log.Error("Error deleting package blob from content store: %v", err)
 			}
 		}
 	}()
 	if err != nil {
+		removeBlob = blobCreated
+		return nil, err
+	}
+	if err := packages_model.AppendFileAudit(ctx, pf, "package.file_added"); err != nil {
 		removeBlob = blobCreated
 		return nil, err
 	}
@@ -282,7 +298,7 @@ func addFileToPackageVersionUnchecked(ctx context.Context, pv *packages_model.Pa
 		contentStore := packages_module.NewContentStore()
 		if err := contentStore.Save(packages_module.BlobHash256Key(pb.HashSHA256), pfci.Data, pfci.Data.Size()); err != nil {
 			log.Error("Error saving package blob in content store: %v", err)
-			return nil, nil, false, err
+			return nil, pb, true, err
 		}
 	}
 
@@ -492,10 +508,8 @@ func RemovePackageVersion(ctx context.Context, doer *user_model.User, pv *packag
 	}
 	// HINT: PACKAGE-DEFER-STORAGE-DELETE: Blobs are not deleted immediately, instead they are deleted by the cleanup_packages cron task.
 	// If there are no more versions for the package, the same task removes that as well.
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
-		log.Trace("Deleting package: %v", pv.ID)
-		return DeletePackageVersionAndReferences(ctx, pv)
-	}); err != nil {
+	log.Trace("Deleting package: %v", pv.ID)
+	if err := DeletePackageVersionAndReferences(ctx, pv); err != nil {
 		return err
 	}
 
@@ -508,7 +522,7 @@ func RemovePackageVersion(ctx context.Context, doer *user_model.User, pv *packag
 func RemovePackageFileAndVersionIfUnreferenced(ctx context.Context, doer *user_model.User, pf *packages_model.PackageFile) error {
 	var pd *packages_model.PackageDescriptor
 
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		if err := DeletePackageFile(ctx, pf); err != nil {
 			return err
 		}
@@ -547,25 +561,45 @@ func RemovePackageFileAndVersionIfUnreferenced(ctx context.Context, doer *user_m
 
 // DeletePackageVersionAndReferences deletes the package version and its properties and files
 func DeletePackageVersionAndReferences(ctx context.Context, pv *packages_model.PackageVersion) error {
-	if err := packages_model.DeleteAllProperties(ctx, packages_model.PropertyTypeVersion, pv.ID); err != nil {
-		return err
-	}
-	if err := packages_model.DeleteFilePropertiesByVersionID(ctx, pv.ID); err != nil {
-		return err
-	}
-	if err := packages_model.DeleteFilesByVersionID(ctx, pv.ID); err != nil {
-		return err
-	}
-
-	return packages_model.DeleteVersionByID(ctx, pv.ID)
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, err := packages_model.GetVersionByID(ctx, pv.ID)
+		if err != nil {
+			return err
+		}
+		if err := packages_model.AppendVersionAudit(ctx, fresh, "package.version_deleted"); err != nil {
+			return err
+		}
+		if err := packages_model.DeleteAllProperties(ctx, packages_model.PropertyTypeVersion, fresh.ID); err != nil {
+			return err
+		}
+		if err := packages_model.DeleteFilePropertiesByVersionID(ctx, fresh.ID); err != nil {
+			return err
+		}
+		if err := packages_model.DeleteFilesByVersionID(ctx, fresh.ID); err != nil {
+			return err
+		}
+		return packages_model.DeleteVersionByID(ctx, fresh.ID)
+	})
 }
 
 // DeletePackageFile deletes the package file and its properties
 func DeletePackageFile(ctx context.Context, pf *packages_model.PackageFile) error {
-	if err := packages_model.DeleteAllProperties(ctx, packages_model.PropertyTypeFile, pf.ID); err != nil {
-		return err
-	}
-	return packages_model.DeleteFileByID(ctx, pf.ID)
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, has, err := db.GetByID[packages_model.PackageFile](ctx, pf.ID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return packages_model.ErrPackageFileNotExist
+		}
+		if err := packages_model.AppendFileAudit(ctx, fresh, "package.file_deleted"); err != nil {
+			return err
+		}
+		if err := packages_model.DeleteAllProperties(ctx, packages_model.PropertyTypeFile, fresh.ID); err != nil {
+			return err
+		}
+		return packages_model.DeleteFileByID(ctx, fresh.ID)
+	})
 }
 
 // OpenFileForDownloadByPackageNameAndVersion returns the content of the specific package file and increases the download counter.
@@ -633,6 +667,12 @@ func OpenBlobForDownload(ctx context.Context, pf *packages_model.PackageFile, pb
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if err := packages_model.AppendDownloadAccessAudit(ctx, pf); err != nil {
+		if s != nil {
+			_ = s.Close()
+		}
+		return nil, nil, nil, err
+	}
 
 	if pf.IsLead && method == http.MethodGet {
 		if err := packages_model.IncrementDownloadCounter(ctx, pf.VersionID); err != nil {
@@ -653,7 +693,12 @@ func RemovePackage(ctx context.Context, doer *user_model.User, p *packages_model
 	}
 
 	// HINT: PACKAGE-DEFER-STORAGE-DELETE: Blobs are not deleted immediately, instead they are deleted by cleanup_packages cron task.
-	err = db.WithTx(ctx, func(ctx context.Context) error {
+	err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		for _, pd := range pds {
+			if err := packages_model.AppendVersionAudit(ctx, pd.Version, "package.version_deleted"); err != nil {
+				return err
+			}
+		}
 		err := packages_model.DeletePropertiesByPackageID(ctx, packages_model.PropertyTypePackage, p.ID)
 		if err != nil {
 			return err

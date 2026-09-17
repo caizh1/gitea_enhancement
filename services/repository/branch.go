@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
@@ -34,8 +35,24 @@ import (
 	notify_service "gitea.dev/services/notify"
 	release_service "gitea.dev/services/release"
 
+	"github.com/google/uuid"
 	"xorm.io/builder"
 )
+
+func referenceBusinessEnv(_ context.Context, repo *repo_model.Repository, env []string, operation, oldBranch, newBranch string, updateHEAD bool) ([]string, string) {
+	installed, err := gitrepo.ReferenceTransactionHookInstalled(repo)
+	if err != nil || !installed {
+		return env, ""
+	}
+	id := uuid.NewString()
+	return append(env,
+		repo_module.EnvReferenceOperationID+"="+id,
+		repo_module.EnvReferenceOperation+"="+operation,
+		repo_module.EnvReferenceOldBranch+"="+oldBranch,
+		repo_module.EnvReferenceNewBranch+"="+newBranch,
+		repo_module.EnvReferenceUpdateHEAD+"="+strconv.FormatBool(updateHEAD),
+	), id
+}
 
 // CreateNewBranch creates a new repository branch
 func CreateNewBranch(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, oldBranchName, branchName string) (err error) {
@@ -452,39 +469,45 @@ func RenameBranch(ctx context.Context, repo *repo_model.Repository, doer *user_m
 		return "", git_model.ErrBranchIsProtected
 	}
 
-	if err := git_model.RenameBranch(ctx, repo, from, to, func(ctx context.Context, isDefault bool) error {
-		err2 := gitrepo.RenameBranch(ctx, repo, from, to)
-		if err2 != nil {
-			return err2
-		}
-
-		if isDefault {
-			// if default branch changed, we need to delete all schedules and cron jobs
-			if err := actions_model.DeleteScheduleTaskByRepo(ctx, repo.ID); err != nil {
-				log.Error("DeleteCronTaskByRepo: %v", err)
-			}
-			// cancel running cron jobs of this repository and delete old schedules
-			if err := actions_service.CancelPreviousJobs(
-				ctx,
-				repo.ID,
-				from,
-				"",
-				webhook_module.HookEventSchedule,
-			); err != nil {
-				log.Error("CancelPreviousJobs: %v", err)
-			}
-
-			err2 = gitrepo.SetDefaultBranch(ctx, repo, to)
-			if err2 != nil {
-				return err2
-			}
-		}
-
-		return nil
-	}); err != nil {
+	env, operationID := referenceBusinessEnv(ctx, repo, repo_module.PushingEnvironment(doer, repo), "branch_rename", from, to, isDefault)
+	if err := gitrepo.RenameBranchReferencesWithEnv(ctx, repo, from, to, env); err != nil {
 		return "", err
 	}
+	if operationID != "" {
+		if err := ApplyReferenceBusinessOperation(ctx, operationID); err != nil {
+			return "", err
+		}
+	} else {
+		if err := git_model.RenameBranch(ctx, repo, from, to, func(ctx context.Context, isDefault bool) error {
+			if isDefault {
+				// if default branch changed, we need to delete all schedules and cron jobs
+				if err := actions_model.DeleteScheduleTaskByRepo(ctx, repo.ID); err != nil {
+					log.Error("DeleteCronTaskByRepo: %v", err)
+				}
+				// cancel running cron jobs of this repository and delete old schedules
+				if err := actions_service.CancelPreviousJobs(
+					ctx,
+					repo.ID,
+					from,
+					"",
+					webhook_module.HookEventSchedule,
+				); err != nil {
+					log.Error("CancelPreviousJobs: %v", err)
+				}
 
+				if err := gitrepo.SetDefaultBranch(ctx, repo, to); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}); err != nil {
+			if rollbackErr := gitrepo.RenameBranchReferencesWithEnv(ctx, repo, to, from, env); rollbackErr != nil {
+				log.Error("回滚分支改名失败，需恢复核对: repo=%d from=%s to=%s err=%v", repo.ID, to, from, rollbackErr)
+			}
+			return "", err
+		}
+	}
 	notify_service.DeleteRef(ctx, doer, repo, git.RefNameFromBranch(from))
 	notify_service.CreateRef(ctx, doer, repo, git.RefNameFromBranch(to), fromBranch.CommitID)
 
@@ -589,7 +612,7 @@ func deleteBranchInternal(ctx context.Context, doer *user_model.User, repo *repo
 
 	// process the branch in git
 	if branchCommit != nil {
-		err := gitrepo.DeleteBranch(ctx, repo, branchName, true)
+		err := gitrepo.DeleteBranchWithEnv(ctx, repo, branchName, true, repo_module.PushingEnvironment(doer, repo))
 		if err != nil {
 			return false, fmt.Errorf("DeleteBranch: %w", err)
 		}
@@ -621,12 +644,31 @@ func DeleteBranch(ctx context.Context, doer *user_model.User, repo *repo_model.R
 		return err
 	}
 
+	if branchCommit != nil {
+		env, operationID := referenceBusinessEnv(ctx, repo, repo_module.PushingEnvironment(doer, repo), "branch_delete", branchName, "", false)
+		if err := gitrepo.DeleteBranchReferenceWithEnv(ctx, repo, branchName, branchCommit.ID.String(), env); err != nil {
+			return fmt.Errorf("DeleteBranch: %w", err)
+		}
+		if operationID != "" {
+			if err := ApplyReferenceBusinessOperation(ctx, operationID); err != nil {
+				return err
+			}
+			deleteBranchSuccessPostProcess(doer, repo, branchName, branchCommit)
+			return nil
+		}
+	}
 	branchExisted, err := db.WithTx2(ctx, func(ctx context.Context) (bool, error) {
-		return deleteBranchInternal(ctx, doer, repo, branchName, branchCommit)
+		return deleteBranchInternal(ctx, doer, repo, branchName, nil)
 	})
 	if err != nil {
+		if branchCommit != nil {
+			if rollbackErr := gitrepo.CreateBranchWithEnv(ctx, repo, branchName, branchCommit.ID.String(), repo_module.PushingEnvironment(doer, repo)); rollbackErr != nil {
+				log.Error("回滚分支删除失败，需恢复核对: repo=%d branch=%s err=%v", repo.ID, branchName, rollbackErr)
+			}
+		}
 		return err
 	}
+	branchExisted = branchExisted || branchCommit != nil
 
 	if !branchExisted {
 		return git.ErrBranchNotExist{Name: branchName}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	files_service "gitea.dev/services/repository/files"
 )
 
@@ -47,6 +48,16 @@ func GetBlob(ctx *context.APIContext) {
 		return
 	}
 
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, "access.code", map[string]any{"object_kind": "blob", "object_sha": sha})
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
+	}
 	if blob, err := files_service.GetBlobBySHA(ctx.Repo.Repository, ctx.Repo.GitRepo, sha); err != nil {
 		ctx.APIError(http.StatusBadRequest, err.Error())
 	} else {

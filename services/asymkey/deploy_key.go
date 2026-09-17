@@ -9,22 +9,25 @@ import (
 
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 )
 
 // DeleteRepoDeployKeys deletes all deploy keys of a repository. permissions check should be done outside
 func DeleteRepoDeployKeys(ctx context.Context, repoID int64) (int, error) {
-	deployKeys, err := db.Find[asymkey_model.DeployKey](ctx, asymkey_model.ListDeployKeysOptions{RepoID: repoID})
-	if err != nil {
-		return 0, fmt.Errorf("listDeployKeys: %w", err)
-	}
-
-	for _, dKey := range deployKeys {
-		if err := deleteDeployKeyFromDB(ctx, dKey); err != nil {
-			return 0, fmt.Errorf("deleteDeployKeys: %w", err)
+	return asymkey_model.WithKeyWrite(ctx, func(ctx context.Context) (int, error) {
+		deployKeys, err := db.Find[asymkey_model.DeployKey](ctx, asymkey_model.ListDeployKeysOptions{RepoID: repoID})
+		if err != nil {
+			return 0, fmt.Errorf("listDeployKeys: %w", err)
 		}
-	}
-	return len(deployKeys), nil
+
+		for _, dKey := range deployKeys {
+			if err := deleteDeployKeyFromDB(ctx, dKey); err != nil {
+				return 0, fmt.Errorf("deleteDeployKeys: %w", err)
+			}
+		}
+		return len(deployKeys), nil
+	})
 }
 
 // deleteDeployKeyFromDB delete deploy keys from database
@@ -43,13 +46,13 @@ func deleteDeployKeyFromDB(ctx context.Context, key *asymkey_model.DeployKey) er
 		}
 	}
 
-	return nil
+	return asymkey_model.AppendDeployKeyAudit(ctx, key, "credential.deploy_key_revoked")
 }
 
 // DeleteDeployKey deletes deploy key from its repository authorized_keys file if needed.
 // Permissions check should be done outside.
 func DeleteDeployKey(ctx context.Context, repo *repo_model.Repository, id int64) error {
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		key, err := asymkey_model.GetDeployKeyByID(ctx, id)
 		if err != nil {
 			if asymkey_model.IsErrDeployKeyNotExist(err) {
@@ -67,5 +70,5 @@ func DeleteDeployKey(ctx context.Context, repo *repo_model.Repository, id int64)
 		return err
 	}
 
-	return RewriteAllPublicKeys(ctx)
+	return SyncSSHKeyFiles(ctx)
 }

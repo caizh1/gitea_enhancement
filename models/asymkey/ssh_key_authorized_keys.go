@@ -104,62 +104,6 @@ func writeAuthorizedStringForKey(key *PublicKey, w io.Writer) (keyValid bool, er
 	return true, err
 }
 
-// appendAuthorizedKeysToFile appends new SSH keys' content to authorized_keys file.
-func appendAuthorizedKeysToFile(keys ...*PublicKey) error {
-	// Don't need to rewrite this file if builtin SSH server is enabled.
-	if setting.SSH.StartBuiltinServer || !setting.SSH.CreateAuthorizedKeysFile {
-		return nil
-	}
-
-	sshOpLocker.Lock()
-	defer sshOpLocker.Unlock()
-
-	if setting.SSH.RootPath != "" {
-		// First of ensure that the RootPath is present, and if not make it with 0700 permissions
-		// This of course doesn't guarantee that this is the right directory for authorized_keys
-		// but at least if it's supposed to be this directory and it doesn't exist and we're the
-		// right user it will at least be created properly.
-		err := os.MkdirAll(setting.SSH.RootPath, 0o700)
-		if err != nil {
-			log.Error("Unable to MkdirAll(%s): %v", setting.SSH.RootPath, err)
-			return err
-		}
-	}
-
-	fPath := filepath.Join(setting.SSH.RootPath, "authorized_keys")
-	f, err := os.OpenFile(fPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// Note: chmod command does not support in Windows.
-	if !setting.IsWindows {
-		fi, err := f.Stat()
-		if err != nil {
-			return err
-		}
-
-		// .ssh directory should have mode 700, and authorized_keys file should have mode 600.
-		if fi.Mode().Perm() > 0o600 {
-			log.Error("authorized_keys file has unusual permission flags: %s - setting to -rw-------", fi.Mode().Perm().String())
-			if err = f.Chmod(0o600); err != nil {
-				return err
-			}
-		}
-	}
-
-	for _, key := range keys {
-		if key.Type == KeyTypePrincipal {
-			continue
-		}
-		if err = WriteAuthorizedStringForValidKey(key, f); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // RegeneratePublicKeys regenerates the authorized_keys file
 func RegeneratePublicKeys(ctx context.Context, t io.Writer) error {
 	if err := db.GetEngine(ctx).Where("type != ?", KeyTypePrincipal).Iterate(new(PublicKey), func(idx int, bean any) (err error) {

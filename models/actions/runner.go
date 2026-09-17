@@ -12,6 +12,7 @@ import (
 
 	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/shared/types"
 	user_model "gitea.dev/models/user"
@@ -344,28 +345,80 @@ func UpdateRunner(ctx context.Context, r *ActionRunner, cols ...string) error {
 	return err
 }
 
-func SetRunnerDisabled(ctx context.Context, runner *ActionRunner, isDisabled bool) error {
-	if runner.IsDisabled == isDisabled {
-		return nil
-	}
-
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		runner.IsDisabled = isDisabled
-		if err := UpdateRunner(ctx, runner, "is_disabled"); err != nil {
+// UpdateRunnerConfiguration 更新管理员可修改的 Runner 配置并记录审计。
+func UpdateRunnerConfiguration(ctx context.Context, runner *ActionRunner, cols ...string) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, err := GetRunnerByID(ctx, runner.ID)
+		if err != nil {
 			return err
 		}
-		return IncreaseTaskVersion(ctx, runner.OwnerID, runner.RepoID)
+		if err := UpdateRunner(ctx, runner, cols...); err != nil {
+			return err
+		}
+		updated, err := GetRunnerByID(ctx, runner.ID)
+		if err != nil {
+			return err
+		}
+		before, after := runnerAuditValues(fresh), runnerAuditValues(updated)
+		changed := make([]string, 0, 2)
+		if fresh.Name != updated.Name {
+			changed = append(changed, "name")
+		}
+		if fresh.Description != updated.Description {
+			changed = append(changed, "description")
+		}
+		if err := AppendConfigurationAudit(ctx, fresh.OwnerID, fresh.RepoID, "actions.runner_updated", "actions_runner", fresh.ID, updated.Name, map[string]any{"before": before, "after": after, "changed_fields": changed}); err != nil {
+			return err
+		}
+		*runner = *updated
+		return nil
+	})
+}
+
+func SetRunnerDisabled(ctx context.Context, runner *ActionRunner, isDisabled bool) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, err := GetRunnerByID(ctx, runner.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.IsDisabled == isDisabled {
+			*runner = *fresh
+			return nil
+		}
+		before := fresh.IsDisabled
+		fresh.IsDisabled = isDisabled
+		affected, err := db.GetEngine(ctx).ID(fresh.ID).Where("is_disabled = ?", before).Cols("is_disabled").Update(fresh)
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			return fmt.Errorf("runner %d changed concurrently", fresh.ID)
+		}
+		if err := IncreaseTaskVersion(ctx, fresh.OwnerID, fresh.RepoID); err != nil {
+			return err
+		}
+		if err := AppendConfigurationAudit(ctx, fresh.OwnerID, fresh.RepoID, "actions.runner_updated", "actions_runner", fresh.ID, fresh.Name, map[string]any{"name": fresh.Name, "before_disabled": before, "after_disabled": isDisabled, "changed_fields": []string{"disabled"}}); err != nil {
+			return err
+		}
+		*runner = *fresh
+		return nil
 	})
 }
 
 // DeleteRunner deletes a runner by given ID.
 func DeleteRunner(ctx context.Context, id int64) error {
-	if _, err := GetRunnerByID(ctx, id); err != nil {
-		return err
-	}
-
-	_, err := db.DeleteByID[ActionRunner](ctx, id)
-	return err
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		runner, err := GetRunnerByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if count, err := db.DeleteByID[ActionRunner](ctx, id); err != nil {
+			return err
+		} else if count != 1 {
+			return util.NewNotExistErrorf("runner with id %d", id)
+		}
+		return AppendConfigurationAudit(ctx, runner.OwnerID, runner.RepoID, "actions.runner_deleted", "actions_runner", runner.ID, runner.Name, runnerAuditDetails(runner, []string{"deleted"}))
+	})
 }
 
 // DeleteEphemeralRunner deletes a ephemeral runner by given ID.
@@ -393,7 +446,44 @@ func CreateRunner(ctx context.Context, t *ActionRunner) error {
 		t.OwnerID = 0
 	}
 	t.Name = util.EllipsisDisplayString(t.Name, 255)
-	return db.Insert(ctx, t)
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := db.Insert(ctx, t); err != nil {
+			return err
+		}
+		return AppendConfigurationAudit(ctx, t.OwnerID, t.RepoID, "actions.runner_created", "actions_runner", t.ID, t.Name, runnerAuditDetails(t, []string{"created"}))
+	})
+}
+
+// RegisterRunnerWithToken 在同一治理事务内重查注册凭据并创建 Runner。
+func RegisterRunnerWithToken(ctx context.Context, runner *ActionRunner, tokenID int64) error {
+	candidate := *runner
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		token, has, err := db.GetByID[ActionRunnerToken](ctx, tokenID)
+		if err != nil {
+			return err
+		}
+		if !has || !token.IsActive || token.OwnerID != candidate.OwnerID || token.RepoID != candidate.RepoID {
+			return fmt.Errorf("runner registration token is no longer active")
+		}
+		if err := db.Insert(ctx, &candidate); err != nil {
+			return err
+		}
+		if err := AppendConfigurationAudit(ctx, candidate.OwnerID, candidate.RepoID, "actions.runner_created", "actions_runner", candidate.ID, candidate.Name, runnerAuditDetails(&candidate, []string{"created"})); err != nil {
+			return err
+		}
+		*runner = candidate
+		return nil
+	})
+}
+
+func runnerAuditDetails(runner *ActionRunner, changed []string) map[string]any {
+	values := runnerAuditValues(runner)
+	values["changed_fields"] = changed
+	return values
+}
+
+func runnerAuditValues(runner *ActionRunner) map[string]any {
+	return map[string]any{"name": runner.Name, "base": runner.Base, "ephemeral": runner.Ephemeral, "disabled": runner.IsDisabled, "description_configured": runner.Description != ""}
 }
 
 func CountRunnersWithoutBelongingOwner(ctx context.Context) (int64, error) {

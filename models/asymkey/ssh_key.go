@@ -73,32 +73,17 @@ func (key *PublicKey) OmitEmail() string {
 	return strings.Join(fields[:2], " ")
 }
 
-func addKey(ctx context.Context, key *PublicKey) (err error) {
-	if len(key.Fingerprint) == 0 {
-		key.Fingerprint, err = CalcFingerprint(key.Content)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Save SSH key.
-	if err = db.Insert(ctx, key); err != nil {
-		return err
-	}
-
-	return appendAuthorizedKeysToFile(key)
-}
-
-// AddPublicKey adds new public key to database and authorized_keys file.
+// AddPublicKey 同事务保存密钥、审计及授权文件待同步记录。
 func AddPublicKey(ctx context.Context, ownerID int64, name, content string, authSourceID int64, verified bool) (*PublicKey, error) {
-	log.Trace(content)
-
 	fingerprint, err := CalcFingerprint(content)
 	if err != nil {
 		return nil, err
 	}
 
-	return db.WithTx2(ctx, func(ctx context.Context) (*PublicKey, error) {
+	return WithKeyWrite(ctx, func(ctx context.Context) (*PublicKey, error) {
+		if _, err := user_model.GetUserByID(ctx, ownerID); err != nil {
+			return nil, err
+		}
 		if err := checkKeyFingerprint(ctx, fingerprint); err != nil {
 			return nil, err
 		}
@@ -123,10 +108,12 @@ func AddPublicKey(ctx context.Context, ownerID int64, name, content string, auth
 			LoginSourceID: authSourceID,
 			Verified:      verified,
 		}
-		if err = addKey(ctx, key); err != nil {
-			return nil, fmt.Errorf("addKey: %w", err)
+		if err := db.Insert(ctx, key); err != nil {
+			return nil, err
 		}
-
+		if err := AppendPublicKeyAudit(ctx, key, "credential.ssh_key_created"); err != nil {
+			return nil, err
+		}
 		return key, nil
 	})
 }
@@ -283,19 +270,24 @@ func PublicKeyIsExternallyManaged(ctx context.Context, id int64) (bool, error) {
 }
 
 // deleteKeysMarkedForDeletion returns true if ssh keys needs update
-func deleteKeysMarkedForDeletion(ctx context.Context, keys []string) (bool, error) {
-	return db.WithTx2(ctx, func(ctx context.Context) (bool, error) {
+func deleteKeysMarkedForDeletion(ctx context.Context, ownerID, sourceID int64, keys []string) (bool, error) {
+	return WithKeyWrite(ctx, func(ctx context.Context) (bool, error) {
 		// Delete keys marked for deletion
 		var sshKeysNeedUpdate bool
 		for _, KeyToDelete := range keys {
-			key, err := SearchPublicKeyByContent(ctx, KeyToDelete)
+			key := new(PublicKey)
+			has, err := db.GetEngine(ctx).Where("owner_id = ? AND login_source_id = ? AND content LIKE ? AND type = ?", ownerID, sourceID, KeyToDelete+"%", KeyTypeUser).Get(key)
 			if err != nil {
-				log.Error("SearchPublicKeyByContent: %v", err)
+				return false, err
+			}
+			if !has {
 				continue
 			}
 			if _, err = db.DeleteByID[PublicKey](ctx, key.ID); err != nil {
-				log.Error("DeleteByID[PublicKey]: %v", err)
-				continue
+				return false, err
+			}
+			if err := AppendPublicKeyAudit(ctx, key, "credential.ssh_key_revoked"); err != nil {
+				return false, err
 			}
 			sshKeysNeedUpdate = true
 		}
@@ -305,7 +297,14 @@ func deleteKeysMarkedForDeletion(ctx context.Context, keys []string) (bool, erro
 }
 
 // AddPublicKeysBySource add a users public keys. Returns true if there are changes.
-func AddPublicKeysBySource(ctx context.Context, usr *user_model.User, s *auth.Source, sshPublicKeys []string, verified bool) bool {
+func AddPublicKeysBySource(ctx context.Context, usr *user_model.User, s *auth.Source, sshPublicKeys []string, verified bool) (bool, error) {
+	ctx = sourceKeyContext(ctx)
+	return WithKeyWrite(ctx, func(ctx context.Context) (bool, error) {
+		return addPublicKeysBySource(ctx, usr, s, sshPublicKeys, verified)
+	})
+}
+
+func addPublicKeysBySource(ctx context.Context, usr *user_model.User, s *auth.Source, sshPublicKeys []string, verified bool) (bool, error) {
 	var sshKeysNeedUpdate bool
 	for _, sshKey := range sshPublicKeys {
 		var err error
@@ -328,7 +327,7 @@ func AddPublicKeysBySource(ctx context.Context, usr *user_model.User, s *auth.So
 				if IsErrKeyAlreadyExist(err) {
 					log.Trace("AddPublicKeysBySource[%s]: Public SSH Key %s already exists for user", sshKeyName, usr.Name)
 				} else {
-					log.Error("AddPublicKeysBySource[%s]: Error adding Public SSH Key for user %s: %v", sshKeyName, usr.Name, err)
+					return false, err
 				}
 			} else {
 				log.Trace("AddPublicKeysBySource[%s]: Added Public SSH Key for user %s", sshKeyName, usr.Name)
@@ -339,11 +338,18 @@ func AddPublicKeysBySource(ctx context.Context, usr *user_model.User, s *auth.So
 			log.Warn("AddPublicKeysBySource[%s]: Skipping invalid Public SSH Key for user %s: %v", s.Name, usr.Name, sshKey)
 		}
 	}
-	return sshKeysNeedUpdate
+	return sshKeysNeedUpdate, nil
 }
 
 // SynchronizePublicKeys updates a user's public keys. Returns true if there are changes.
-func SynchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.Source, sshPublicKeys []string, verified bool) bool {
+func SynchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.Source, sshPublicKeys []string, verified bool) (bool, error) {
+	ctx = sourceKeyContext(ctx)
+	return WithKeyWrite(ctx, func(ctx context.Context) (bool, error) {
+		return synchronizePublicKeys(ctx, usr, s, sshPublicKeys, verified)
+	})
+}
+
+func synchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.Source, sshPublicKeys []string, verified bool) (bool, error) {
 	var sshKeysNeedUpdate bool
 
 	log.Trace("synchronizePublicKeys[%s]: Handling Public SSH Key synchronization for user %s", s.Name, usr.Name)
@@ -355,7 +361,7 @@ func SynchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.So
 		LoginSourceID: s.ID,
 	})
 	if err != nil {
-		log.Error("synchronizePublicKeys[%s]: Error listing Public SSH Keys for user %s: %v", s.Name, usr.Name, err)
+		return false, err
 	}
 
 	for _, v := range keys {
@@ -377,7 +383,7 @@ func SynchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.So
 	// Check if Public Key sync is needed
 	if util.SliceSortedEqual(giteaKeys, providedKeys) {
 		log.Trace("synchronizePublicKeys[%s]: Public Keys are already in sync for %s (Source:%v/DB:%v)", s.Name, usr.Name, len(providedKeys), len(giteaKeys))
-		return false
+		return false, nil
 	}
 	log.Trace("synchronizePublicKeys[%s]: Public Key needs update for user %s (Source:%v/DB:%v)", s.Name, usr.Name, len(providedKeys), len(giteaKeys))
 
@@ -388,7 +394,9 @@ func SynchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.So
 			newKeys = append(newKeys, key)
 		}
 	}
-	if AddPublicKeysBySource(ctx, usr, s, newKeys, verified) {
+	if added, err := AddPublicKeysBySource(ctx, usr, s, newKeys, verified); err != nil {
+		return false, err
+	} else if added {
 		sshKeysNeedUpdate = true
 	}
 
@@ -402,13 +410,13 @@ func SynchronizePublicKeys(ctx context.Context, usr *user_model.User, s *auth.So
 	}
 
 	// Delete keys from DB that no longer exist in the source
-	needUpd, err := deleteKeysMarkedForDeletion(ctx, giteaKeysToDelete)
+	needUpd, err := deleteKeysMarkedForDeletion(ctx, usr.ID, s.ID, giteaKeysToDelete)
 	if err != nil {
-		log.Error("synchronizePublicKeys[%s]: Error deleting Public Keys marked for deletion for user %s: %v", s.Name, usr.Name, err)
+		return false, err
 	}
 	if needUpd {
 		sshKeysNeedUpdate = true
 	}
 
-	return sshKeysNeedUpdate
+	return sshKeysNeedUpdate, nil
 }

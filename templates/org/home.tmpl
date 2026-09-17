@@ -3,6 +3,7 @@
 	{{template "org/header" .}}
 
 	<div class="ui container">
+ {{if .IsSigned}}<p><a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.Org.ID}}">子群组与权限来源</a></p>{{end}}
 		<div class="ui mobile reversed stackable grid">
 			<div class="ui {{if .ShowMemberAndTeamTab}}eleven wide{{end}} column">
 				{{if .ProfileReadmeContent}}

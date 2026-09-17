@@ -11,6 +11,7 @@ import (
 
 	asymkey_model "gitea.dev/models/asymkey"
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -50,6 +51,7 @@ func TestDeleteDeployKeyNoLogin(t *testing.T) {
 
 func TestCreateReadOnlyDeployKey(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{Name: "repo1"})
 	repoOwner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: repo.OwnerID})
 
@@ -89,6 +91,7 @@ func TestCreateReadOnlyDeployKey(t *testing.T) {
 
 func TestCreateReadWriteDeployKey(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{Name: "repo1"})
 	repoOwner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: repo.OwnerID})
 

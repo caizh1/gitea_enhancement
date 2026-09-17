@@ -16,6 +16,7 @@ func TestMain(m *testing.M) {
 			"action_run.yml",
 			"repository.yml",
 			"user.yml",
+			"governance_write_lock.yml",
 		},
 	})
 }

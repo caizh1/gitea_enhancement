@@ -6,9 +6,11 @@ package repo
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/util"
 )
 
@@ -35,14 +37,53 @@ func UpdateRepositoryUpdatedTime(ctx context.Context, repoID int64, updateTime t
 
 // UpdateRepositoryColsWithAutoTime updates repository's columns and the timestamp fields automatically
 func UpdateRepositoryColsWithAutoTime(ctx context.Context, repo *Repository, colName string, moreColNames ...string) error {
-	_, err := db.GetEngine(ctx).ID(repo.ID).Cols(append([]string{colName}, moreColNames...)...).Update(repo)
-	return err
+	return updateRepositoryCols(ctx, repo, append([]string{colName}, moreColNames...), false)
 }
 
 // UpdateRepositoryColsNoAutoTime updates repository's columns, doesn't change timestamp field automatically
 func UpdateRepositoryColsNoAutoTime(ctx context.Context, repo *Repository, colName string, moreColNames ...string) error {
-	_, err := db.GetEngine(ctx).ID(repo.ID).Cols(append([]string{colName}, moreColNames...)...).NoAutoTime().Update(repo)
-	return err
+	return updateRepositoryCols(ctx, repo, append([]string{colName}, moreColNames...), true)
+}
+
+func updateRepositoryCols(ctx context.Context, repo *Repository, cols []string, noAutoTime bool) error {
+	update := func(ctx context.Context) error {
+		session := db.GetEngine(ctx).ID(repo.ID).Cols(cols...)
+		if noAutoTime {
+			session = session.NoAutoTime()
+		}
+		_, err := session.Update(repo)
+		return err
+	}
+	pathChanged := slices.Contains(cols, "name") || slices.Contains(cols, "owner_id")
+	governed := pathChanged
+	for _, col := range []string{"is_private", "is_archived", "status", "is_mirror", "default_branch", "trust_model", "is_fork"} {
+		governed = governed || slices.Contains(cols, col)
+	}
+	if !governed {
+		return update(ctx)
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		if !pathChanged {
+			return update(ctx)
+		}
+		previous, err := GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		ownerID, name := previous.OwnerID, previous.Name
+		if slices.Contains(cols, "name") {
+			name = repo.Name
+		}
+		if slices.Contains(cols, "owner_id") {
+			ownerID = repo.OwnerID
+		}
+		repo.OwnerNamespace, err = governance_model.ChangeNativeRepositoryPath(ctx, repo.ID, ownerID, name)
+		if err != nil {
+			return err
+		}
+		cols = append(cols, "owner_namespace")
+		return update(ctx)
+	})
 }
 
 // ErrReachLimitOfRepo represents a "ReachLimitOfRepo" kind of error.

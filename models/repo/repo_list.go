@@ -153,17 +153,18 @@ func (repos RepositoryList) LoadAttributes(ctx context.Context) error {
 // SearchRepoOptions holds the search options
 type SearchRepoOptions struct {
 	db.ListOptions
-	Actor           *user_model.User
-	Keyword         string
-	OwnerID         int64
-	PriorityOwnerID int64
-	TeamID          int64
-	OrderBy         db.SearchOrderBy
-	Private         bool // Include private repositories in results
-	StarredByID     int64
-	WatchedByID     int64
-	AllPublic       bool // Include also all public repositories of users and public organisations
-	AllLimited      bool // Include also all public repositories of limited organisations
+	governanceRepoIDs []int64
+	Actor             *user_model.User
+	Keyword           string
+	OwnerID           int64
+	PriorityOwnerID   int64
+	TeamID            int64
+	OrderBy           db.SearchOrderBy
+	Private           bool // Include private repositories in results
+	StarredByID       int64
+	WatchedByID       int64
+	AllPublic         bool // Include also all public repositories of users and public organisations
+	AllLimited        bool // Include also all public repositories of limited organisations
 	// None -> include public and private
 	// True -> include just private
 	// False -> include just public
@@ -378,17 +379,22 @@ func SearchRepositoryCondition(opts SearchRepoOptions) builder.Cond {
 	if opts.Private {
 		if opts.Actor != nil && !opts.Actor.IsAdmin && opts.Actor.ID != opts.OwnerID {
 			// OK we're in the context of a User
-			cond = cond.And(AccessibleRepositoryCondition(opts.Actor, unit.TypeInvalid))
+			cond = cond.And(AccessibleRepositoryCondition(opts.Actor, unit.TypeInvalid).Or(builder.In("`repository`.id", opts.governanceRepoIDs)))
 		}
 	} else {
 		// Not looking at private organisations and users
 		// We should be able to see all non-private repositories that
 		// isn't in a private or limited organisation.
-		cond = cond.And(
+		visible := builder.And(
 			builder.Eq{"is_private": false},
 			builder.NotIn("owner_id", builder.Select("id").From("`user`").Where(
 				builder.Or(builder.Eq{"visibility": structs.VisibleTypeLimited}, builder.Eq{"visibility": structs.VisibleTypePrivate}),
 			)))
+		if opts.Actor != nil && opts.Actor.ID > 0 && !opts.Actor.IsRestricted && !opts.Actor.IsGiteaActions() {
+			visible = visible.Or(builder.And(builder.Eq{"`repository`.visibility": VisibilityInternal},
+				builder.NotIn("owner_id", builder.Select("id").From("`user`").Where(builder.Eq{"visibility": structs.VisibleTypePrivate}))))
+		}
+		cond = cond.And(visible)
 	}
 
 	if opts.IsPrivate.Has() {
@@ -435,6 +441,9 @@ func SearchRepositoryCondition(opts SearchRepoOptions) builder.Cond {
 				}
 				// C. Public repositories in organizations that we are member of
 				userAccessCond = userAccessCond.Or(userOrgPublicRepoCondPrivate(opts.OwnerID))
+				if opts.Actor != nil && opts.Actor.ID == opts.OwnerID {
+					userAccessCond = userAccessCond.Or(builder.In("`repository`.id", opts.governanceRepoIDs))
+				}
 				collaborateCond = collaborateCond.And(userAccessCond)
 			}
 			if !opts.Private {
@@ -521,7 +530,7 @@ func SearchRepositoryCondition(opts SearchRepoOptions) builder.Cond {
 	}
 
 	if opts.Actor != nil && opts.Actor.IsRestricted {
-		cond = cond.And(AccessibleRepositoryCondition(opts.Actor, unit.TypeInvalid))
+		cond = cond.And(AccessibleRepositoryCondition(opts.Actor, unit.TypeInvalid).Or(builder.In("`repository`.id", opts.governanceRepoIDs)))
 	}
 
 	if opts.Archived.Has() {
@@ -565,12 +574,18 @@ func SearchRepositoryCondition(opts SearchRepoOptions) builder.Cond {
 // SearchRepository returns repositories based on search options,
 // it returns results in given range and number of total results.
 func SearchRepository(ctx context.Context, opts SearchRepoOptions) (RepositoryList, int64, error) {
+	if err := prepareGovernanceSearch(ctx, &opts); err != nil {
+		return nil, 0, err
+	}
 	cond := SearchRepositoryCondition(opts)
 	return SearchRepositoryByCondition(ctx, opts, cond, true)
 }
 
 // CountRepository counts repositories based on search options,
 func CountRepository(ctx context.Context, opts SearchRepoOptions) (int64, error) {
+	if err := prepareGovernanceSearch(ctx, &opts); err != nil {
+		return 0, err
+	}
 	return db.GetEngine(ctx).Where(SearchRepositoryCondition(opts)).Count(new(Repository))
 }
 
@@ -667,6 +682,9 @@ func userAllPublicRepoCond(cond builder.Cond, ownerVisibilityLimit []structs.Vis
 // AccessibleRepositoryCondition takes a user a returns a condition for checking if a repository is accessible
 func AccessibleRepositoryCondition(user *user_model.User, unitType unit.Type) builder.Cond {
 	cond := builder.NewCond()
+	if user != nil && user.ID > 0 && user.IsAuditor {
+		cond = cond.Or(builder.Exists(builder.Select("id").From("`user`").Where(user_model.AuditorCondition(user.ID))))
+	}
 
 	if user == nil || !user.IsRestricted || user.ID <= 0 {
 		orgVisibilityLimit := []structs.VisibleType{structs.VisibleTypePrivate}
@@ -678,6 +696,11 @@ func AccessibleRepositoryCondition(user *user_model.User, unitType unit.Type) bu
 	}
 
 	if user != nil {
+		if user.ID > 0 && !user.IsRestricted && !user.IsGiteaActions() {
+			// 内部项目对全部正常登录用户可见，私有父群组仍由所有者可见性检查收紧。
+			cond = cond.Or(builder.And(builder.Eq{"`repository`.visibility": VisibilityInternal},
+				builder.NotIn("`repository`.owner_id", builder.Select("id").From("`user`").Where(builder.Eq{"visibility": structs.VisibleTypePrivate}))))
+		}
 		// 2. Be able to see all repositories that we have unit independent access to
 		// 3. Be able to see all repositories through team membership(s)
 		if unitType == unit.TypeInvalid {
@@ -717,6 +740,9 @@ func SearchRepositoryByName(ctx context.Context, opts SearchRepoOptions) (Reposi
 // SearchRepositoryIDs takes keyword and part of repository name to search,
 // it returns results in given range and number of total results.
 func SearchRepositoryIDs(ctx context.Context, opts SearchRepoOptions) ([]int64, int64, error) {
+	if err := prepareGovernanceSearch(ctx, &opts); err != nil {
+		return nil, 0, err
+	}
 	opts.IncludeDescription = false
 
 	cond := SearchRepositoryCondition(opts)

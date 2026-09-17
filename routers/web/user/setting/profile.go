@@ -270,6 +270,13 @@ func Repos(ctx *context.Context) {
 			if repo_model.IsUsableRepoName(name) != nil || strings.ToLower(name) != name {
 				return filepath.SkipDir
 			}
+			storageRepo, occupied, err := repo_model.GetRepositoryByStoragePath(ctx, ctxUser.Name, name)
+			if err != nil {
+				return err
+			}
+			if occupied && storageRepo.OwnerID != ctxUser.ID {
+				return filepath.SkipDir
+			}
 			if count >= start && count < end {
 				repoNames = append(repoNames, name)
 			}

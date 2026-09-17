@@ -12,11 +12,13 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
 	"connectrpc.com/connect"
+	gouuid "github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -68,6 +70,7 @@ var withRunner = connect.WithInterceptors(connect.UnaryInterceptorFunc(func(unar
 			}
 		}
 
+		ctx = governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "actions_runner", Name: runner.Name, CredentialID: runner.ID, Transport: "actions_rpc", IP: request.Peer().Addr, RequestID: gouuid.NewString()})
 		ctx = context.WithValue(ctx, runnerCtxKey{}, runner)
 		return unaryFunc(ctx, request)
 	}

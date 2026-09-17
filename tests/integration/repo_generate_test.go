@@ -11,12 +11,15 @@ import (
 	"strings"
 	"testing"
 
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/setting"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testRepoGenerate(t *testing.T, session *TestSession, templateID, templateOwnerName, templateRepoName, generateOwnerName, generateRepoName string) *httptest.ResponseRecorder {
@@ -75,6 +78,11 @@ Clone URL: %s%s/%s.git`,
 	req = NewRequestf(t, "GET", "/%s/%s/raw/branch/master/%s.log", generateOwnerName, generateRepoName, generateRepoName)
 	resp = session.MakeRequest(t, req, http.StatusOK)
 	assert.Equal(t, generateRepoName, resp.Body.String())
+
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerID: generateOwner.ID, Name: generateRepoName})
+	installed, err := gitrepo.ReferenceTransactionHookInstalled(repo)
+	require.NoError(t, err)
+	require.True(t, installed, "模板生成应接入引用事务入口")
 
 	return resp
 }

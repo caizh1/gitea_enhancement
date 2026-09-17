@@ -9,6 +9,7 @@ import (
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -67,6 +68,10 @@ func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
 		&git_model.RenamedBranch{RepoID: 1, From: "old-name", To: "new-name"},
 		&git_model.CommitStatusSummary{RepoID: 1, SHA: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", State: "success"},
 		&repo_model.RepoTransfer{RepoID: 1, DoerID: 2, RecipientID: 3},
+		&governance_model.Membership{ScopeType: "repository", ScopeID: 1, UserID: 4, Role: governance_model.Reporter},
+		&governance_model.Share{ScopeType: "repository", ScopeID: 1, GroupID: 3, MaxRole: governance_model.Reporter},
+		&governance_model.AccessRequest{ScopeType: "repository", ScopeID: 1, UserID: 5, Username: "user5", ScopePath: "user2/repo1"},
+		&governance_model.AccessRequestSetting{ScopeType: "repository", ScopeID: 1, Disabled: true},
 	))
 	unittest.AssertExistsAndLoadBean(t, &git_model.CommitStatusIndex{RepoID: 1})
 
@@ -79,4 +84,8 @@ func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
 	unittest.AssertNotExistsBean(t, &git_model.CommitStatusSummary{RepoID: 1})
 	unittest.AssertNotExistsBean(t, &git_model.CommitStatusIndex{RepoID: 1})
 	unittest.AssertNotExistsBean(t, &repo_model.RepoTransfer{RepoID: 1})
+	unittest.AssertNotExistsBean(t, &governance_model.Membership{ScopeType: "repository", ScopeID: 1})
+	unittest.AssertNotExistsBean(t, &governance_model.Share{ScopeType: "repository", ScopeID: 1})
+	unittest.AssertNotExistsBean(t, &governance_model.AccessRequest{ScopeType: "repository", ScopeID: 1})
+	unittest.AssertCount(t, &governance_model.AccessRequestSetting{ScopeType: "repository", ScopeID: 1}, 0)
 }

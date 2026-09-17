@@ -113,6 +113,16 @@ func (source *Source) ProvidesSSHKeys() bool {
 	return strings.TrimSpace(source.AttributeSSHPublicKey) != ""
 }
 
+func (source *Source) AuditSourceConfig() map[string]any {
+	return map[string]any{
+		"host": source.Host, "port": source.Port, "security_protocol": source.SecurityProtocolName(), "bind_dn": source.BindDN,
+		"bind_password_configured": source.BindPassword != "" || source.BindPasswordEncrypt != "", "user_base": source.UserBase,
+		"user_dn": source.UserDN, "filter": source.Filter, "admin_filter": source.AdminFilter, "restricted_filter": source.RestrictedFilter,
+		"group_dn": source.GroupDN, "group_filter": source.GroupFilter, "group_member_uid": source.GroupMemberUID,
+		"attribute_username": source.AttributeUsername, "attribute_mail": source.AttributeMail, "attribute_ssh_public_key": source.AttributeSSHPublicKey,
+	}
+}
+
 func init() {
 	auth.RegisterTypeConfig(auth.LDAP, &Source{})
 	auth.RegisterTypeConfig(auth.DLDAP, &Source{})

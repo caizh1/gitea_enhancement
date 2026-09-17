@@ -72,7 +72,9 @@
 				{{template "repo/issue/view_content/pull_merge_box".}}
 			{{end}}
 
-			{{if .IsSigned}}
+			{{if not (.Permission.CanParticipateInIssuesOrPulls .Issue.IsPull)}}
+				<div class="ui info message">当前通过全站审计员身份只读查看。评论和评审需要相应的项目授权。</div>
+			{{else if .IsSigned}}
 				{{if and (or .IsRepoAdmin .HasIssuesOrPullsWritePermission (not .Issue.IsLocked)) (not .Repository.IsArchived)}}
 				<div class="timeline-item comment form">
 					<a class="timeline-avatar" href="{{.SignedUser.HomeLink}}">

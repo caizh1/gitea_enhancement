@@ -17,6 +17,7 @@ import (
 	"gitea.dev/modules/templates"
 	"gitea.dev/routers/web/explore"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -50,13 +51,13 @@ func DeleteRepo(ctx *context.Context) {
 		ctx.Repo.GitRepo.Close()
 	}
 
-	if err := repo_service.DeleteRepository(ctx, ctx.Doer, repo, true); err != nil {
+	if _, err := repo_service.ScheduleRepositoryDeletion(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), repo.ID, repo_service.DeletionOption{ConfirmationPath: repo.FullPath()}); err != nil {
 		ctx.ServerError("DeleteRepository", err)
 		return
 	}
 	log.Trace("Repository deleted: %s", repo.FullName())
 
-	ctx.Flash.Success(ctx.Tr("repo.settings.deletion_success"))
+	ctx.Flash.Success("项目已进入保留期，可从项目设置恢复或确认永久删除。")
 	ctx.JSONRedirect(setting.AppSubURL + "/-/admin/repos?page=" + url.QueryEscape(ctx.FormString("page")) + "&sort=" + url.QueryEscape(ctx.FormString("sort")))
 }
 

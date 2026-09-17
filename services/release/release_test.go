@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -29,6 +30,7 @@ func TestMain(m *testing.M) {
 
 func TestRelease_Create(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
@@ -134,6 +136,7 @@ func TestRelease_Create(t *testing.T) {
 
 func TestRelease_Update(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
@@ -293,6 +296,7 @@ func TestRelease_Update(t *testing.T) {
 
 func TestRelease_createTag(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
@@ -321,13 +325,13 @@ func TestRelease_createTag(t *testing.T) {
 		IsPrerelease: false,
 		IsTag:        false,
 	}
-	_, err = createTag(t.Context(), gitRepo, release, "")
+	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, release.CreatedUnix)
 	releaseCreatedUnix := release.CreatedUnix
 	advance()
 	release.Note = "Changed note"
-	_, err = createTag(t.Context(), gitRepo, release, "")
+	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(releaseCreatedUnix), int64(release.CreatedUnix))
 
@@ -345,12 +349,12 @@ func TestRelease_createTag(t *testing.T) {
 		IsPrerelease: false,
 		IsTag:        false,
 	}
-	_, err = createTag(t.Context(), gitRepo, release, "")
+	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
 	assert.NoError(t, err)
 	releaseCreatedUnix = release.CreatedUnix
 	advance()
 	release.Title = "Changed title"
-	_, err = createTag(t.Context(), gitRepo, release, "")
+	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
 	assert.NoError(t, err)
 	assert.Less(t, int64(releaseCreatedUnix), int64(release.CreatedUnix))
 
@@ -368,19 +372,20 @@ func TestRelease_createTag(t *testing.T) {
 		IsPrerelease: true,
 		IsTag:        false,
 	}
-	_, err = createTag(t.Context(), gitRepo, release, "")
+	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
 	assert.NoError(t, err)
 	releaseCreatedUnix = release.CreatedUnix
 	advance()
 	release.Title = "Changed title"
 	release.Note = "Changed note"
-	_, err = createTag(t.Context(), gitRepo, release, "")
+	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(releaseCreatedUnix), int64(release.CreatedUnix))
 }
 
 func TestCreateNewTag(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
 

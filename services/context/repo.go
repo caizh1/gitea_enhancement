@@ -17,6 +17,7 @@ import (
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -33,6 +34,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	asymkey_service "gitea.dev/services/asymkey"
+	governance_service "gitea.dev/services/governance"
 
 	"github.com/editorconfig/editorconfig-core-go/v2"
 )
@@ -453,6 +455,13 @@ func repoAssignmentLegacy(ctx *Context, data *repoAssignmentPrepareDataStruct) {
 		}
 	}
 
+	if ctx.Repo.Permission.HasAuditorRead() && !AuditorReadRequest(ctx.Base, false) {
+		ctx.Repo.Permission = ctx.Repo.Permission.ForMutation()
+		if !ctx.Repo.Permission.HasAnyUnitAccessOrPublicAccess() {
+			ctx.HTTPError(http.StatusForbidden, "当前身份没有此项目的写入授权")
+			return
+		}
+	}
 	if !ctx.Repo.Permission.HasAnyUnitAccessOrPublicAccess() && !canWriteAsMaintainer(ctx) {
 		if ctx.FormString("go-get") == "1" {
 			EarlyResponseForGoGetMeta(ctx)
@@ -475,6 +484,16 @@ func repoAssignmentLegacy(ctx *Context, data *repoAssignmentPrepareDataStruct) {
 
 	ctx.Repo.Repository = repo
 	ctx.Data["RepoName"] = ctx.Repo.Repository.Name
+	actorID := int64(0)
+	if ctx.Doer != nil {
+		actorID = ctx.Doer.ID
+	}
+	breadcrumbs, err := governance_service.RepositoryNavigationBreadcrumbs(ctx, actorID, repo.OwnerID)
+	if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+		ctx.ServerError("RepositoryNavigationBreadcrumbs", err)
+		return
+	}
+	ctx.Data["RepositoryBreadcrumbs"] = breadcrumbs
 	ctx.Data["IsEmptyRepo"] = ctx.Repo.Repository.IsEmpty
 }
 
@@ -629,7 +648,7 @@ func repoAssignmentPrepareTemplateData(ctx *Context, data *repoAssignmentPrepare
 		return
 	}
 
-	ctx.Data["Title"] = repo.Owner.Name + "/" + repo.Name
+	ctx.Data["Title"] = repo.FullPath()
 	ctx.Data["PageTitleCommon"] = repo.Name + " - " + setting.AppName
 	ctx.Data["Repository"] = repo
 	ctx.Data["Owner"] = ctx.Repo.Repository.Owner
@@ -828,6 +847,24 @@ func RepoAssignment(ctx *Context) {
 		if ctx.Written() {
 			return
 		}
+	}
+	canManageProject, err := access_model.HasGovernanceAbility(ctx, ctx.Repo.Repository, ctx.Doer, governance_model.ManageProject)
+	if err != nil {
+		ctx.ServerError("HasGovernanceAbility", err)
+		return
+	}
+	ctx.Data["CanManageProject"] = canManageProject
+	for ability, key := range map[string]string{
+		governance_model.ManageMembers:   "CanManageGovernanceMembers",
+		governance_model.ManageApprovals: "CanManageGovernanceApprovals",
+		governance_model.ReadAudit:       "CanReadGovernanceAudit",
+	} {
+		allowed, err := access_model.HasGovernanceAbility(ctx, ctx.Repo.Repository, ctx.Doer, ability)
+		if err != nil {
+			ctx.ServerError("HasGovernanceAbility", err)
+			return
+		}
+		ctx.Data[key] = allowed
 	}
 }
 

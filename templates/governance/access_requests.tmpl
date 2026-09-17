@@ -1,0 +1,47 @@
+{{template "base/head" .}}
+<div role="main" class="page-content governance access-requests">
+ <div class="ui container tw-py-6">
+  {{template "base/alert" .}}
+  <h2>访问申请</h2>
+  <p class="tw-break-all"><a href="{{AppSubUrl}}/{{.State.FullPath|PathEscapeSegments}}">{{.State.FullPath}}</a></p>
+  {{if .State.Archived}}<p class="ui message">资源已归档或正在等待删除，不能提交或批准新的访问申请。</p>{{end}}
+  {{with .State.OwnRequest}}
+   <div class="ui segment"><p>你的申请正在等待处理，提交时间：{{DateUtils.FullTime .CreatedUnix}}</p>
+    <form method="post" action="{{$.RequestPath}}">{{$.CsrfTokenHtml}}<input type="hidden" name="request_id" value="{{.ID}}"><button class="ui button" name="action" value="withdraw">撤回申请</button></form>
+   </div>
+  {{else}}
+   {{if .State.CanRequest}}<form method="post" action="{{.RequestPath}}">{{.CsrfTokenHtml}}<button class="ui primary button" name="action" value="request">申请访问</button></form><p>申请通过前不会增加访问权限。</p>
+   {{else}}<p>当前无需申请，或此资源未开放访问申请。</p>{{end}}
+  {{end}}
+  {{if .State.CanManage}}
+   {{if .MemberPath}}<a class="ui button" href="{{.MemberPath}}">管理项目成员与来源</a>{{end}}
+   <h3 class="ui dividing header">待处理申请</h3>
+   {{range .State.Requests}}
+    <div class="ui segment">
+     <div class="tw-flex tw-justify-between tw-items-center tw-flex-wrap tw-gap-2"><strong>{{if .CurrentUsername}}{{.CurrentUsername}}{{else}}{{.Username}}{{end}}</strong>{{if ne .CurrentUsername .Username}}<span>申请时用户名：{{.Username}}</span>{{end}}{{if ne .UserState "active"}}<span class="ui label">账号不可用</span>{{end}}<span>{{DateUtils.FullTime .CreatedUnix}}</span></div>
+     <form class="ui form tw-mt-3" method="post" action="{{$.RequestPath}}">
+      {{$.CsrfTokenHtml}}<input type="hidden" name="request_id" value="{{.ID}}"><input type="hidden" name="revision" value="{{$.State.Revision}}">
+      {{if and (not $.State.Archived) (eq .UserState "active")}}
+       <div class="three fields">
+        <div class="field"><label for="request-role-{{.ID}}">批准后的角色</label><select id="request-role-{{.ID}}" name="role">{{range $role,$name := $.RoleNames}}{{if or (eq $.Scope "group") (ne $role 50)}}<option value="{{$role}}" {{if eq $role 30}}selected{{end}}>{{$name}}</option>{{end}}{{end}}</select></div>
+        <div class="field"><label for="request-custom-{{.ID}}">自定义角色</label><select id="request-custom-{{.ID}}" name="custom_role_id"><option value="0">使用标准角色</option>{{range $.State.Roles}}<option value="{{.ID}}">{{.Name}} · {{index $.RoleNames .BaseRole}}</option>{{end}}</select></div>
+        <div class="field"><label for="request-expiry-{{.ID}}">有效至（UTC 日期，留空为永久）</label><input id="request-expiry-{{.ID}}" type="date" name="expires"></div>
+       </div>
+      {{end}}
+      <div class="tw-flex tw-flex-wrap tw-gap-2">{{if and (not $.State.Archived) (eq .UserState "active")}}<button class="ui primary button" name="action" value="approve">批准并添加直接授权</button>{{end}}<button class="ui red basic button" name="action" value="deny">拒绝申请</button></div>
+     </form>
+    </div>
+   {{else}}<p>暂无待处理申请。</p>{{end}}
+   {{if .State.NextID}}<a class="ui button" href="?after_id={{.State.NextID}}">下一页申请</a>{{end}}
+  {{end}}
+  {{if .State.CanManageSettings}}
+   <details class="ui segment"><summary>访问申请设置</summary>
+    <form class="ui form tw-mt-3" method="post" action="{{.RequestPath}}">{{.CsrfTokenHtml}}<input type="hidden" name="setting_revision" value="{{.State.Setting.Revision}}">
+     <div class="field"><label for="request-enabled">允许新的访问申请</label><select id="request-enabled" name="disabled"><option value="false" {{if not .State.Setting.Disabled}}selected{{end}}>允许</option><option value="true" {{if .State.Setting.Disabled}}selected{{end}}>关闭</option></select></div>
+     <p>关闭后仍可处理已经提交的申请。</p><button class="ui button" name="action" value="settings">保存设置</button>
+    </form>
+   </details>
+  {{end}}
+ </div>
+</div>
+{{template "base/footer" .}}

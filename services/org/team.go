@@ -11,6 +11,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -95,7 +96,7 @@ func UpdateTeam(ctx context.Context, t *organization.Team, authChanged, includeA
 		t.Description = t.Description[:255]
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
 		t.LowerName = strings.ToLower(t.Name)
 		has, err := db.Exist[organization.Team](ctx, builder.Eq{
 			"org_id":     t.OrgID,
@@ -161,7 +162,7 @@ func UpdateTeam(ctx context.Context, t *organization.Team, authChanged, includeA
 // DeleteTeam deletes given team.
 // It's caller's responsibility to assign organization ID.
 func DeleteTeam(ctx context.Context, t *organization.Team) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
 		if err := t.LoadMembers(ctx); err != nil {
 			return err
 		}
@@ -195,6 +196,11 @@ func DeleteTeam(ctx context.Context, t *organization.Team) error {
 		); err != nil {
 			return err
 		}
+		if t.IsOwnerTeam() {
+			if err := governance_model.EnsurePermanentGroupOwner(ctx, t.OrgID, 0); err != nil {
+				return err
+			}
+		}
 
 		for _, tm := range t.Members {
 			if err := removeInvalidOrgUser(ctx, t.OrgID, tm); err != nil {
@@ -211,6 +217,12 @@ func DeleteTeam(ctx context.Context, t *organization.Team) error {
 // AddTeamMember adds new membership of given team to given organization,
 // the user will have membership to given organization automatically when needed.
 func AddTeamMember(ctx context.Context, team *organization.Team, user *user_model.User) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", team.OrgID), governance_model.Resource("team", team.ID), governance_model.Resource("user", user.ID)}, func(ctx context.Context) error {
+		return addTeamMember(ctx, team, user)
+	})
+}
+
+func addTeamMember(ctx context.Context, team *organization.Team, user *user_model.User) error {
 	if user_model.IsUserBlockedBy(ctx, user, team.OrgID) {
 		return user_model.ErrBlockedUser
 	}
@@ -280,12 +292,19 @@ func removeTeamMember(ctx context.Context, team *organization.Team, user *user_m
 		return err
 	}
 
-	// Check if the user to delete is the last member in owner team.
-	if team.IsOwnerTeam() && team.NumMembers == 1 {
-		return organization.ErrLastOrgOwner{UID: user.ID}
+	// 在写锁内读取真实人数，不能使用请求开始时读取的旧计数删除最后一个 Owner。
+	memberCount, err := e.Where("team_id = ?", team.ID).Count(new(organization.TeamUser))
+	if err != nil {
+		return err
 	}
-
-	team.NumMembers--
+	if team.IsOwnerTeam() && memberCount <= 1 {
+		if _, namespaceErr := governance_model.GetNamespace(ctx, team.OrgID); errors.Is(namespaceErr, governance_model.ErrNotFound) {
+			return organization.ErrLastOrgOwner{UID: user.ID}
+		} else if namespaceErr != nil {
+			return namespaceErr
+		}
+	}
+	team.NumMembers = int(memberCount) - 1
 
 	repos, err := repo_model.GetTeamRepositories(ctx, &repo_model.SearchTeamRepoOptions{
 		TeamID: team.ID,
@@ -305,6 +324,11 @@ func removeTeamMember(ctx context.Context, team *organization.Team, user *user_m
 		Cols("num_members").
 		Update(team); err != nil {
 		return err
+	}
+	if team.IsOwnerTeam() {
+		if err := governance_model.EnsurePermanentGroupOwner(ctx, team.OrgID, 0); err != nil {
+			return err
+		}
 	}
 
 	// Delete access to team repositories. If any user or repo is missing, we can continue.
@@ -347,7 +371,9 @@ func removeInvalidOrgUser(ctx context.Context, orgID int64, user *user_model.Use
 
 // RemoveTeamMember removes member from given team of given organization.
 func RemoveTeamMember(ctx context.Context, team *organization.Team, user *user_model.User) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		return removeTeamMember(ctx, team, user)
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", team.OrgID), governance_model.Resource("team", team.ID), governance_model.Resource("user", user.ID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			return removeTeamMember(ctx, team, user)
+		})
 	})
 }

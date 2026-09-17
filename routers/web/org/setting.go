@@ -8,10 +8,10 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"gitea.dev/models/db"
-	packages_model "gitea.dev/models/packages"
-	repo_model "gitea.dev/models/repo"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/models/webhook"
 	"gitea.dev/modules/log"
@@ -26,6 +26,7 @@ import (
 	user_setting "gitea.dev/routers/web/user/setting"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	org_service "gitea.dev/services/org"
 	user_service "gitea.dev/services/user"
 )
@@ -130,20 +131,18 @@ func SettingsDeleteOrgPost(ctx *context.Context) {
 		return
 	}
 
-	if err := org_service.DeleteOrganization(ctx, ctx.Org.Organization, false /* no purge */); err != nil {
-		if repo_model.IsErrUserOwnRepos(err) {
-			ctx.JSONError(ctx.Tr("form.org_still_own_repo"))
-		} else if packages_model.IsErrUserOwnPackages(err) {
-			ctx.JSONError(ctx.Tr("form.org_still_own_packages"))
-		} else {
-			log.Error("DeleteOrganization: %v", err)
-			ctx.JSONError(util.Iif(ctx.Doer.IsAdmin, err.Error(), string(ctx.Tr("org.settings.delete_failed"))))
-		}
+	namespace, err := governance_model.GetNamespace(ctx, ctx.Org.Organization.ID)
+	if err != nil {
+		ctx.JSONError("读取群组删除状态失败")
 		return
 	}
-
-	ctx.Flash.Success(ctx.Tr("org.settings.delete_successful", ctx.Org.Organization.Name))
-	ctx.JSONRedirect(setting.AppSubURL + "/")
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	if _, err := governance_service.ScheduleGroupDeletion(ctx, actor, namespace.ID, governance_service.GroupDeletionOption{Revision: namespace.Revision, ConfirmationPath: namespace.FullPath}); err != nil {
+		ctx.JSONError("无法安排删除，请检查群组权限及当前状态")
+		return
+	}
+	ctx.Flash.Success("群组已进入删除保留期，可在群组治理页面恢复")
+	ctx.JSONRedirect(setting.AppSubURL + "/governance/groups/" + strconv.FormatInt(namespace.ID, 10))
 }
 
 // Webhooks render webhook list page
@@ -230,7 +229,7 @@ func SettingsRenamePost(ctx *context.Context) {
 	}
 
 	ctx.Flash.Success(ctx.Tr("org.settings.rename_success", oldOrgName, newOrgName))
-	ctx.JSONRedirect(setting.AppSubURL + "/org/" + url.PathEscape(newOrgName) + "/settings")
+	ctx.JSONRedirect(ctx.Org.Organization.AsUser().SettingsLink())
 }
 
 // SettingsChangeVisibilityPost response for change organization visibility

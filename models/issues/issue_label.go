@@ -6,9 +6,11 @@ package issues
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	access_model "gitea.dev/models/perm/access"
 	user_model "gitea.dev/models/user"
 
@@ -84,31 +86,39 @@ func RemoveDuplicateExclusiveIssueLabels(ctx context.Context, issue *Issue, labe
 
 // NewIssueLabel creates a new issue-label relation.
 func NewIssueLabel(ctx context.Context, issue *Issue, label *Label, doer *user_model.User) (err error) {
-	if HasIssueLabel(ctx, issue.ID, label.ID) {
-		return nil
-	}
+	return governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			beforeIDs, beforeNames, err := issueLabelAuditValues(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			if HasIssueLabel(ctx, issue.ID, label.ID) {
+				return nil
+			}
+			if err = issue.LoadRepo(ctx); err != nil {
+				return err
+			}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		if err = issue.LoadRepo(ctx); err != nil {
-			return err
-		}
+			// Do NOT add invalid labels
+			if issue.RepoID != label.RepoID && issue.Repo.OwnerID != label.OrgID {
+				return nil
+			}
 
-		// Do NOT add invalid labels
-		if issue.RepoID != label.RepoID && issue.Repo.OwnerID != label.OrgID {
-			return nil
-		}
+			if err = RemoveDuplicateExclusiveIssueLabels(ctx, issue, label, doer); err != nil {
+				return nil
+			}
 
-		if err = RemoveDuplicateExclusiveIssueLabels(ctx, issue, label, doer); err != nil {
-			return nil
-		}
+			if err = newIssueLabel(ctx, issue, label, doer); err != nil {
+				return err
+			}
 
-		if err = newIssueLabel(ctx, issue, label, doer); err != nil {
-			return err
-		}
-
-		issue.isLabelsLoaded = false
-		issue.Labels = nil
-		return issue.LoadLabels(ctx)
+			issue.isLabelsLoaded = false
+			issue.Labels = nil
+			if err := issue.LoadLabels(ctx); err != nil {
+				return err
+			}
+			return appendIssueLabelAudit(ctx, issue, beforeIDs, beforeNames)
+		})
 	})
 }
 
@@ -143,15 +153,24 @@ func newIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer *us
 
 // NewIssueLabels creates a list of issue-label relations.
 func NewIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer *user_model.User) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		if err = newIssueLabels(ctx, issue, labels, doer); err != nil {
-			return err
-		}
+	return governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			beforeIDs, beforeNames, err := issueLabelAuditValues(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			if err = newIssueLabels(ctx, issue, labels, doer); err != nil {
+				return err
+			}
 
-		// reload all labels
-		issue.isLabelsLoaded = false
-		issue.Labels = nil
-		return issue.LoadLabels(ctx)
+			// reload all labels
+			issue.isLabelsLoaded = false
+			issue.Labels = nil
+			if err := issue.LoadLabels(ctx); err != nil {
+				return err
+			}
+			return appendIssueLabelAudit(ctx, issue, beforeIDs, beforeNames)
+		})
 	})
 }
 
@@ -185,13 +204,49 @@ func deleteIssueLabel(ctx context.Context, issue *Issue, label *Label, doer *use
 
 // DeleteIssueLabel deletes issue-label relation.
 func DeleteIssueLabel(ctx context.Context, issue *Issue, label *Label, doer *user_model.User) error {
-	if err := deleteIssueLabel(ctx, issue, label, doer); err != nil {
+	return governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			beforeIDs, beforeNames, err := issueLabelAuditValues(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			if err := deleteIssueLabel(ctx, issue, label, doer); err != nil {
+				return err
+			}
+			issue.Labels = nil
+			issue.isLabelsLoaded = false
+			if err := issue.LoadLabels(ctx); err != nil {
+				return err
+			}
+			return appendIssueLabelAudit(ctx, issue, beforeIDs, beforeNames)
+		})
+	})
+}
+
+func issueLabelAuditValues(ctx context.Context, issueID int64) ([]int64, []string, error) {
+	var relations []IssueLabel
+	if err := db.GetEngine(ctx).Where("issue_id = ?", issueID).Asc("label_id").Find(&relations); err != nil {
+		return nil, nil, err
+	}
+	ids, names := make([]int64, 0, len(relations)), make([]string, 0, len(relations))
+	for _, relation := range relations {
+		label, has, err := db.GetByID[Label](ctx, relation.LabelID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if has {
+			ids, names = append(ids, label.ID), append(names, label.Name)
+		}
+	}
+	return ids, names, nil
+}
+
+func appendIssueLabelAudit(ctx context.Context, issue *Issue, beforeIDs []int64, beforeNames []string) error {
+	afterIDs, afterNames, err := issueLabelAuditValues(ctx, issue.ID)
+	if err != nil || slices.Equal(beforeIDs, afterIDs) && slices.Equal(beforeNames, afterNames) {
 		return err
 	}
-
-	issue.Labels = nil
-	issue.isLabelsLoaded = false
-	return issue.LoadLabels(ctx)
+	return AppendIssueUpdatedAudit(ctx, issue, map[string]any{"before": map[string]any{"label_ids": beforeIDs, "label_names": beforeNames}, "after": map[string]any{"label_ids": afterIDs, "label_names": afterNames}})
 }
 
 // DeleteLabelsByRepoID  deletes labels of some repository

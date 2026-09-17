@@ -30,10 +30,13 @@
 					{{template "repo/upload" .}}
 				</div>
 			{{end}}
+   {{if .ApprovalRequiresReauthentication}}<div class="field"><label for="approval-password">批准前再次验证当前账号密码</label><input id="approval-password" type="password" name="approval_password" autocomplete="current-password"><p>仅批准时需要；密码不会保存到评审或审计记录。</p></div>{{end}}
 			<div class="divider"></div>
 			{{$showSelfTooltip := (and $.IsSigned ($.Issue.IsPoster $.SignedUser.ID))}}
 			{{if not $.Issue.IsClosed}}
-				{{if $showSelfTooltip}}
+				{{if $.ApprovalCommitterBlockReason}}
+     <span class="tw-inline-block" data-tooltip-content="{{$.ApprovalCommitterBlockReason}}"><button type="submit" name="type" value="approve" disabled class="ui submit primary tiny button btn-submit">{{ctx.Locale.Tr "repo.diff.review.approve"}}</button></span>
+    {{else if and $showSelfTooltip (not $.ApprovalAllowsAuthor)}}
 					<span class="tw-inline-block" data-tooltip-content="{{ctx.Locale.Tr "repo.diff.review.self_approve"}}">
 						<button type="submit" name="type" value="approve" disabled class="ui submit primary tiny button btn-submit">{{ctx.Locale.Tr "repo.diff.review.approve"}}</button>
 					</span>

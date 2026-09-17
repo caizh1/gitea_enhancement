@@ -9,21 +9,27 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
 	system_model "gitea.dev/models/system"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/storage"
+	"gitea.dev/modules/util"
 	notify_service "gitea.dev/services/notify"
 )
 
 // NewIssue creates new issue with labels for repository.
 func NewIssue(ctx context.Context, repo *repo_model.Repository, issue *issues_model.Issue, labelIDs []int64, uuids []string, assigneeIDs, projectIDs []int64) error {
+	if err := access_model.CheckAuditorParticipation(ctx, repo.ID, issue.PosterID, unit.TypeIssues); err != nil {
+		return err
+	}
 	if err := issue.LoadPoster(ctx); err != nil {
 		return err
 	}
@@ -122,6 +128,9 @@ func ChangeTitle(ctx context.Context, issue *issues_model.Issue, doer *user_mode
 
 	notify_service.IssueChangeTitle(ctx, doer, issue, oldTitle)
 	ReviewRequestNotify(ctx, issue, issue.Poster, reviewNotifiers)
+	if issue.IsPull && issues_model.HasWorkInProgressPrefix(oldTitle) && !issues_model.HasWorkInProgressPrefix(title) {
+		SyncGovernanceReviewRequests(ctx, issue.PullRequest, doer)
+	}
 
 	return nil
 }
@@ -157,8 +166,12 @@ func DeleteIssue(ctx context.Context, doer *user_model.User, issue *issues_model
 		return err
 	}
 
-	// delete entries in database
-	attachmentPaths, err := deleteIssue(ctx, issue)
+	var attachmentPaths []string
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", issue.RepoID), governance_model.Resource("issue", issue.ID)}, func(ctx context.Context) error {
+		var err error
+		attachmentPaths, err = deleteIssue(ctx, issue)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -199,6 +212,10 @@ func GetRefEndNamesAndURLs(issues []*issues_model.Issue, repoLink string) (map[i
 // deleteIssue deletes the issue
 func deleteIssue(ctx context.Context, issue *issues_model.Issue) ([]string, error) {
 	return db.WithTx2(ctx, func(ctx context.Context) ([]string, error) {
+		freshIssue, err := issues_model.GetIssueByID(ctx, issue.ID)
+		if err != nil {
+			return nil, err
+		}
 		if _, err := db.GetEngine(ctx).ID(issue.ID).NoAutoCondition().Delete(issue); err != nil {
 			return nil, err
 		}
@@ -216,14 +233,28 @@ func deleteIssue(ctx context.Context, issue *issues_model.Issue) ([]string, erro
 			return nil, err
 		}
 
-		// find attachments related to this issue and remove them
-		if err := issue.LoadAttachments(ctx); err != nil {
+		var comments []*issues_model.Comment
+		if err := db.GetEngine(ctx).Where("issue_id = ?", issue.ID).Find(&comments); err != nil {
 			return nil, err
 		}
-
-		var attachmentPaths []string
-		for i := range issue.Attachments {
-			attachmentPaths = append(attachmentPaths, issue.Attachments[i].RelativePath())
+		for _, comment := range comments {
+			if comment.Type == issues_model.CommentTypeComment || comment.Type == issues_model.CommentTypeCode {
+				if err := issues_model.AppendContentAudit(ctx, "comment.deleted", freshIssue, "comment", comment.ID, map[string]any{"comment_type": comment.Type.String(), "issue_id": issue.ID}); err != nil {
+					return nil, err
+				}
+			}
+		}
+		var attachments []*repo_model.Attachment
+		if err := db.GetEngine(ctx).Where("issue_id = ?", issue.ID).Find(&attachments); err != nil {
+			return nil, err
+		}
+		if _, err := repo_model.DeleteAttachments(ctx, attachments, true); err != nil {
+			return nil, err
+		}
+		if !freshIssue.IsPull {
+			if err := issues_model.AppendContentAudit(ctx, "issue.deleted", freshIssue, "issue", freshIssue.ID, map[string]any{"before": map[string]any{"state": util.Iif(freshIssue.IsClosed, "closed", "open"), "title": freshIssue.Title}}); err != nil {
+				return nil, err
+			}
 		}
 
 		// delete all database data still assigned to this issue
@@ -240,7 +271,6 @@ func deleteIssue(ctx context.Context, issue *issues_model.Issue) ([]string, erro
 			&issues_model.Stopwatch{IssueID: issue.ID},
 			&issues_model.TrackedTime{IssueID: issue.ID},
 			&project_model.ProjectIssue{IssueID: issue.ID},
-			&repo_model.Attachment{IssueID: issue.ID},
 			&issues_model.PullRequest{IssueID: issue.ID},
 			&issues_model.Comment{RefIssueID: issue.ID},
 			&issues_model.IssueDependency{DependencyID: issue.ID},
@@ -250,7 +280,7 @@ func deleteIssue(ctx context.Context, issue *issues_model.Issue) ([]string, erro
 			return nil, err
 		}
 
-		return attachmentPaths, nil
+		return nil, nil
 	})
 }
 

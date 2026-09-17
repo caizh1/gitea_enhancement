@@ -9,6 +9,8 @@ import (
 	"slices"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 )
@@ -85,6 +87,27 @@ func RequireRepoAdmin() func(ctx *Context) {
 		if !ctx.IsSigned || !ctx.Repo.Permission.IsAdmin() {
 			ctx.NotFound(nil)
 			return
+		}
+	}
+}
+
+// RequireRepoAdminOrAbility 允许独立治理能力进入指定原生入口，但不提升仓库管理员权限。
+func RequireRepoAdminOrAbility(ability string) func(ctx *Context) {
+	return func(ctx *Context) {
+		if !ctx.IsSigned {
+			ctx.NotFound(nil)
+			return
+		}
+		if ctx.Repo.Permission.IsAdmin() {
+			return
+		}
+		allowed, err := access_model.HasGovernanceAbility(ctx, ctx.Repo.Repository, ctx.Doer, ability)
+		if err != nil {
+			ctx.ServerError("HasGovernanceAbility", err)
+			return
+		}
+		if !allowed || ability == "" || ability == governance_model.ManageGroup {
+			ctx.NotFound(nil)
 		}
 	}
 }

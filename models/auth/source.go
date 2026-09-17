@@ -5,11 +5,13 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
@@ -62,6 +64,11 @@ type Config interface {
 	SetAuthSource(*Source)
 }
 
+// AuditableSourceConfig 返回显式白名单配置；不得包含密码、令牌或完整认证 URL。
+type AuditableSourceConfig interface {
+	AuditSourceConfig() map[string]any
+}
+
 type ConfigBase struct {
 	AuthSource *Source
 }
@@ -94,6 +101,75 @@ type SSHKeyProvider interface {
 type RegisterableSource interface {
 	RegisterSource() error
 	UnregisterSource() error
+}
+
+// PreparedSourceChange 在外部发现完成后，负责用注册表写锁包住短数据库事务与不可失败的内存发布。
+type PreparedSourceChange interface {
+	Commit(func() error) error
+}
+
+// TransactionalRegisterableSource 保证认证源数据库、审计与进程内注册表一致切换。
+type TransactionalRegisterableSource interface {
+	PrepareSourceChange(previous, next *Source) (PreparedSourceChange, error)
+}
+
+type directSourceChange struct{}
+
+func (directSourceChange) Commit(commit func() error) error { return commit() }
+
+// PrepareSourceChange 在治理锁外完成可能发生网络访问的认证提供者准备。
+func PrepareSourceChange(previous, next *Source) (PreparedSourceChange, error) {
+	var cfg Config
+	if next != nil {
+		cfg = next.Cfg
+	} else if previous != nil {
+		cfg = previous.Cfg
+	}
+	if cfg == nil {
+		return directSourceChange{}, nil
+	}
+	if next != nil {
+		next.Cfg.SetAuthSource(next)
+	}
+	if prepared, ok := cfg.(TransactionalRegisterableSource); ok {
+		return prepared.PrepareSourceChange(previous, next)
+	}
+	if _, ok := cfg.(RegisterableSource); ok {
+		return nil, fmt.Errorf("认证源不支持事务化注册")
+	}
+	return directSourceChange{}, nil
+}
+
+// RequireSourceAdministrator 在提交点重新核对管理员及代办原身份，不能只信请求入口。
+func RequireSourceAdministrator(ctx context.Context) error {
+	actor := governance_model.AuditActor(ctx)
+	if actor.EffectiveUserID() <= 0 {
+		return nil
+	}
+	type administrator struct {
+		ID            int64
+		IsAdmin       bool
+		IsActive      bool
+		ProhibitLogin bool
+	}
+	check := func(id int64) error {
+		var user administrator
+		has, err := db.GetEngine(ctx).Table("user").ID(id).Get(&user)
+		if err != nil {
+			return err
+		}
+		if !has || !user.IsAdmin || !user.IsActive || user.ProhibitLogin {
+			return governance_model.ErrForbidden
+		}
+		return nil
+	}
+	if err := check(actor.EffectiveUserID()); err != nil {
+		return err
+	}
+	if actor.ActingAsID > 0 {
+		return check(actor.ID)
+	}
+	return nil
 }
 
 var registeredConfigs = map[Type]func() Config{}
@@ -214,6 +290,9 @@ func (source *Source) TwoFactorShouldSkip() bool {
 // CreateSource inserts a AuthSource in the DB if not already
 // existing with the given name.
 func CreateSource(ctx context.Context, source *Source) error {
+	if db.InTransaction(ctx) {
+		return fmt.Errorf("认证源注册不能嵌套在外层数据库事务中")
+	}
 	has, err := db.GetEngine(ctx).Where("name=?", source.Name).Exist(new(Source))
 	if err != nil {
 		return err
@@ -225,28 +304,32 @@ func CreateSource(ctx context.Context, source *Source) error {
 		source.IsSyncEnabled = false
 	}
 
-	_, err = db.GetEngine(ctx).Insert(source)
+	candidate := *source
+	prepared, err := PrepareSourceChange(nil, &candidate)
 	if err != nil {
 		return err
 	}
-
-	if !source.IsActive {
-		return nil
-	}
-
-	source.Cfg.SetAuthSource(source)
-
-	registerableSource, ok := source.Cfg.(RegisterableSource)
-	if !ok {
-		return nil
-	}
-
-	err = registerableSource.RegisterSource()
-	if err != nil {
-		// remove the AuthSource in case of errors while registering configuration
-		if _, err := db.GetEngine(ctx).ID(source.ID).Delete(new(Source)); err != nil {
-			log.Error("CreateSource: Error while wrapOpenIDConnectInitializeError: %v", err)
-		}
+	err = prepared.Commit(func() error {
+		return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+			if err := RequireSourceAdministrator(ctx); err != nil {
+				return err
+			}
+			has, err := db.GetEngine(ctx).Where("name=?", candidate.Name).Exist(new(Source))
+			if err != nil {
+				return err
+			}
+			if has {
+				return ErrSourceAlreadyExist{candidate.Name}
+			}
+			if err := db.Insert(ctx, &candidate); err != nil {
+				return err
+			}
+			return AppendSourceAudit(ctx, nil, &candidate, "created")
+		})
+	})
+	if err == nil {
+		*source = candidate
+		source.Cfg.SetAuthSource(source)
 	}
 	return err
 }
@@ -304,13 +387,12 @@ func GetSourceByID(ctx context.Context, id int64) (*Source, error) {
 
 // UpdateSource updates a Source record in DB.
 func UpdateSource(ctx context.Context, source *Source) error {
-	var originalSource *Source
-	if source.IsOAuth2() {
-		// keep track of the original values so we can restore in case of errors while registering OAuth2 providers
-		var err error
-		if originalSource, err = GetSourceByID(ctx, source.ID); err != nil {
-			return err
-		}
+	if db.InTransaction(ctx) {
+		return fmt.Errorf("认证源注册不能嵌套在外层数据库事务中")
+	}
+	originalSource, err := GetSourceByID(ctx, source.ID)
+	if err != nil {
+		return err
 	}
 
 	has, err := db.GetEngine(ctx).Where("name=? AND id!=?", source.Name, source.ID).Exist(new(Source))
@@ -320,30 +402,51 @@ func UpdateSource(ctx context.Context, source *Source) error {
 		return ErrSourceAlreadyExist{source.Name}
 	}
 
-	_, err = db.GetEngine(ctx).ID(source.ID).AllCols().Update(source)
+	prepared, err := PrepareSourceChange(originalSource, source)
 	if err != nil {
 		return err
 	}
+	return prepared.Commit(func() error {
+		return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+			if err := RequireSourceAdministrator(ctx); err != nil {
+				return err
+			}
+			fresh, err := GetSourceByID(ctx, source.ID)
+			if err != nil {
+				return err
+			}
+			equal, err := SameSourceRevision(originalSource, fresh)
+			if err != nil {
+				return err
+			}
+			if !equal {
+				return governance_model.ErrConflict
+			}
+			count, err := db.GetEngine(ctx).ID(source.ID).AllCols().Update(source)
+			if err != nil {
+				return err
+			}
+			if count != 1 {
+				return ErrSourceNotExist{source.ID}
+			}
+			return AppendSourceAudit(ctx, originalSource, source, "updated")
+		})
+	})
+}
 
-	if !source.IsActive {
-		return nil
+func SameSourceRevision(left, right *Source) (bool, error) {
+	if left == nil || right == nil || left.ID != right.ID || left.Type != right.Type || left.Name != right.Name || left.IsActive != right.IsActive || left.IsSyncEnabled != right.IsSyncEnabled || left.TwoFactorPolicy != right.TwoFactorPolicy {
+		return false, nil
 	}
-
-	source.Cfg.SetAuthSource(source)
-
-	registerableSource, ok := source.Cfg.(RegisterableSource)
-	if !ok {
-		return nil
-	}
-
-	err = registerableSource.RegisterSource()
+	leftCfg, err := left.Cfg.ToDB()
 	if err != nil {
-		// restore original values since we cannot update the provider itself
-		if _, err := db.GetEngine(ctx).ID(source.ID).AllCols().Update(originalSource); err != nil {
-			log.Error("UpdateSource: Error while wrapOpenIDConnectInitializeError: %v", err)
-		}
+		return false, err
 	}
-	return err
+	rightCfg, err := right.Cfg.ToDB()
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(leftCfg, rightCfg), nil
 }
 
 // ErrSourceNotExist represents a "SourceNotExist" kind of error.

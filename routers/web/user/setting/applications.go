@@ -10,12 +10,14 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 )
 
 const (
@@ -103,7 +105,7 @@ func ApplicationsPost(ctx *context.Context) {
 		}
 	}
 
-	if err := auth_model.NewAccessToken(ctx, t); err != nil {
+	if err := auth_model.NewAccessToken(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), t); err != nil {
 		ctx.ServerError("NewAccessToken", err)
 		return
 	}
@@ -116,7 +118,7 @@ func ApplicationsPost(ctx *context.Context) {
 
 // DeleteApplication response for delete user access token
 func DeleteApplication(ctx *context.Context) {
-	if err := auth_model.DeleteAccessTokenByID(ctx, ctx.FormInt64("id"), ctx.Doer.ID); err != nil {
+	if err := auth_model.DeleteAccessTokenByID(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), ctx.FormInt64("id"), ctx.Doer.ID); err != nil {
 		ctx.Flash.Error("DeleteAccessTokenByID: " + err.Error())
 	} else {
 		ctx.Flash.Success(ctx.Tr("settings.delete_token_success"))

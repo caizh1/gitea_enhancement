@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
@@ -189,7 +190,12 @@ func CreateCredential(ctx context.Context, userID int64, name string, cred *weba
 		CloneWarning:    false,
 	}
 
-	if err := db.Insert(ctx, c); err != nil {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", userID)}, func(ctx context.Context) error {
+		if err := db.Insert(ctx, c); err != nil {
+			return err
+		}
+		return appendCredentialAudit(ctx, "credential.webauthn_created", "webauthn", name, c.ID, userID)
+	}); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -197,6 +203,21 @@ func CreateCredential(ctx context.Context, userID int64, name string, cred *weba
 
 // DeleteCredential will delete WebAuthnCredential
 func DeleteCredential(ctx context.Context, id, userID int64) (bool, error) {
-	had, err := db.GetEngine(ctx).ID(id).Where("user_id = ?", userID).Delete(&WebAuthnCredential{})
-	return had > 0, err
+	deleted := false
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", userID)}, func(ctx context.Context) error {
+		credential := new(WebAuthnCredential)
+		exists, err := db.GetEngine(ctx).ID(id).Where("user_id = ?", userID).Get(credential)
+		if err != nil || !exists {
+			return err
+		}
+		if _, err := db.GetEngine(ctx).ID(id).Where("user_id = ?", userID).Delete(new(WebAuthnCredential)); err != nil {
+			return err
+		}
+		if err := appendCredentialAudit(ctx, "credential.webauthn_revoked", "webauthn", credential.Name, id, userID); err != nil {
+			return err
+		}
+		deleted = true
+		return nil
+	})
+	return deleted && err == nil, err
 }

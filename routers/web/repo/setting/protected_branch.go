@@ -6,6 +6,8 @@ package setting
 import (
 	"errors"
 	"fmt"
+	governance_model "gitea.dev/models/governance"
+	governance_service "gitea.dev/services/governance"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -45,6 +47,33 @@ func ProtectedBranchRules(ctx *context.Context) {
 		return
 	}
 	ctx.Data["ProtectedBranches"] = rules
+	summaries := map[int64]string{}
+	for _, rule := range rules {
+		configuration, err := governance_service.ReadBranchApprovals(ctx, ctx.Doer.ID, ctx.Repo.Repository.ID, rule.ID)
+		if err != nil {
+			ctx.ServerError("ReadBranchApprovals", err)
+			return
+		}
+		local, inherited, attention := 0, 0, 0
+		for _, approval := range configuration.Rules {
+			if !approval.Enabled || !configuration.Presentation[approval.ID].Applicable {
+				continue
+			}
+			if configuration.Presentation[approval.ID].Notice != "" {
+				attention++
+			}
+			if approval.ScopeType == "repository" {
+				local++
+			} else {
+				inherited++
+			}
+		}
+		summaries[rule.ID] = fmt.Sprintf("审批：本仓库 %d 条 · 继承 %d 条", local, inherited)
+		if attention > 0 {
+			summaries[rule.ID] += fmt.Sprintf(" · %d 条规则需要处理", attention)
+		}
+	}
+	ctx.Data["ApprovalSummaries"] = summaries
 
 	repo.PrepareBranchList(ctx)
 	if ctx.Written() {
@@ -58,7 +87,18 @@ func ProtectedBranchRules(ctx *context.Context) {
 func SettingsProtectedBranch(c *context.Context) {
 	ruleName := c.FormString("rule_name")
 	var rule *git_model.ProtectedBranch
-	if ruleName != "" {
+	if id := c.FormInt64("rule_id"); id > 0 {
+		var err error
+		rule, err = git_model.GetProtectedBranchRuleByID(c, c.Repo.Repository.ID, id)
+		if err != nil {
+			c.ServerError("GetProtectedBranchRuleByID", err)
+			return
+		}
+		if rule == nil {
+			c.NotFound(nil)
+			return
+		}
+	} else if ruleName != "" {
 		var err error
 		rule, err = git_model.GetProtectedBranchRuleByName(c, c.Repo.Repository.ID, ruleName)
 		if err != nil {
@@ -72,6 +112,13 @@ func SettingsProtectedBranch(c *context.Context) {
 		rule = &git_model.ProtectedBranch{}
 	}
 
+	if err := prepareBranchApprovalEditor(c, rule.ID); err != nil {
+		c.ServerError("ReadBranchApprovals", err)
+		return
+	}
+	if state := c.Data["BranchApprovals"].(*governance_service.BranchApprovalConfiguration); state.Protection != nil {
+		rule = state.Protection
+	}
 	c.Data["PageIsSettingsBranches"] = true
 	c.Data["Title"] = c.Locale.TrString("repo.settings.protected_branch") + " - " + rule.RuleName
 	users, err := access_model.GetUsersWithAnyUnitAccess(c, c.Repo.Repository, perm.AccessModeRead, unit.TypeCode, unit.TypePullRequests)
@@ -110,6 +157,15 @@ func SettingsProtectedBranch(c *context.Context) {
 // SettingsProtectedBranchPost updates the protected branch settings
 func SettingsProtectedBranchPost(ctx *context.Context) {
 	f := web.GetForm(ctx).(*forms.ProtectBranchForm)
+	var approvals []governance_service.BranchApprovalUpdate
+	if f.ApprovalConfiguration != "" {
+		var option governance_service.BranchApprovalUpdate
+		if err := json.Unmarshal([]byte(f.ApprovalConfiguration), &option); err != nil || option.ProtectionID != f.RuleID {
+			ctx.JSON(http.StatusUnprocessableEntity, map[string]string{"message": "审批草稿格式无效"})
+			return
+		}
+		approvals = append(approvals, option)
+	}
 	var protectBranch *git_model.ProtectedBranch
 	if f.RuleName == "" {
 		ctx.Flash.Error(ctx.Tr("repo.settings.protected_branch_required_rule_name"))
@@ -123,6 +179,10 @@ func SettingsProtectedBranchPost(ctx *context.Context) {
 		protectBranch, err = git_model.GetProtectedBranchRuleByID(ctx, ctx.Repo.Repository.ID, f.RuleID)
 		if err != nil {
 			ctx.ServerError("GetProtectBranchOfRepoByID", err)
+			return
+		}
+		if protectBranch == nil && len(approvals) > 0 {
+			ctx.JSON(http.StatusConflict, map[string]string{"message": "保护规则已被删除，请保留草稿并重新核对"})
 			return
 		}
 		if protectBranch != nil && protectBranch.RuleName != f.RuleName {
@@ -146,6 +206,10 @@ func SettingsProtectedBranchPost(ctx *context.Context) {
 		protectBranch, err = git_model.GetProtectedBranchRuleByName(ctx, ctx.Repo.Repository.ID, f.RuleName)
 		if err != nil {
 			ctx.ServerError("GetProtectBranchOfRepoByName", err)
+			return
+		}
+		if protectBranch != nil && len(approvals) > 0 {
+			ctx.JSON(http.StatusConflict, map[string]string{"message": "同名保护规则已存在，请重新读取后编辑"})
 			return
 		}
 	}
@@ -254,25 +318,33 @@ func SettingsProtectedBranchPost(ctx *context.Context) {
 		protectBranch.StatusCheckContexts = nil
 	}
 
-	protectBranch.RequiredApprovals = f.RequiredApprovals
-	protectBranch.EnableApprovalsWhitelist = f.EnableApprovalsWhitelist
-	if f.EnableApprovalsWhitelist {
-		if strings.TrimSpace(f.ApprovalsWhitelistUsers) != "" {
-			approvalsWhitelistUsers, _ = base.StringsToInt64s(strings.Split(f.ApprovalsWhitelistUsers, ","))
+	if len(approvals) == 0 {
+		protectBranch.RequiredApprovals = f.RequiredApprovals
+		protectBranch.EnableApprovalsWhitelist = f.EnableApprovalsWhitelist
+		if f.EnableApprovalsWhitelist {
+			if strings.TrimSpace(f.ApprovalsWhitelistUsers) != "" {
+				approvalsWhitelistUsers, _ = base.StringsToInt64s(strings.Split(f.ApprovalsWhitelistUsers, ","))
+			}
+			if strings.TrimSpace(f.ApprovalsWhitelistTeams) != "" {
+				approvalsWhitelistTeams, _ = base.StringsToInt64s(strings.Split(f.ApprovalsWhitelistTeams, ","))
+			}
 		}
-		if strings.TrimSpace(f.ApprovalsWhitelistTeams) != "" {
-			approvalsWhitelistTeams, _ = base.StringsToInt64s(strings.Split(f.ApprovalsWhitelistTeams, ","))
-		}
+	} else {
+		approvalsWhitelistUsers = protectBranch.ApprovalsWhitelistUserIDs
+		approvalsWhitelistTeams = protectBranch.ApprovalsWhitelistTeamIDs
 	}
 	protectBranch.BlockOnRejectedReviews = f.BlockOnRejectedReviews
 	protectBranch.BlockOnOfficialReviewRequests = f.BlockOnOfficialReviewRequests
-	protectBranch.DismissStaleApprovals = f.DismissStaleApprovals
-	protectBranch.IgnoreStaleApprovals = f.IgnoreStaleApprovals
+	if len(approvals) == 0 {
+		protectBranch.DismissStaleApprovals = f.DismissStaleApprovals
+		protectBranch.IgnoreStaleApprovals = f.IgnoreStaleApprovals
+	}
 	protectBranch.RequireSignedCommits = f.RequireSignedCommits
 	protectBranch.ProtectedFilePatterns = f.ProtectedFilePatterns
 	protectBranch.UnprotectedFilePatterns = f.UnprotectedFilePatterns
 	protectBranch.BlockOnOutdatedBranch = f.BlockOnOutdatedBranch
 	protectBranch.BlockAdminMergeOverride = f.BlockAdminMergeOverride
+	protectBranch.RequireGovernanceApproval = f.RequireGovernanceApproval
 
 	if err = pull_service.CreateOrUpdateProtectedBranch(ctx, ctx.Repo.Repository, protectBranch, git_model.WhitelistOptions{
 		UserIDs:          whitelistUsers,
@@ -285,11 +357,41 @@ func SettingsProtectedBranchPost(ctx *context.Context) {
 		ApprovalsTeamIDs: approvalsWhitelistTeams,
 		BypassUserIDs:    bypassAllowlistUsers,
 		BypassTeamIDs:    bypassAllowlistTeams,
-	}); err != nil {
+	}, approvals...); err != nil {
+		var saved *pull_service.ProtectionSavedRefreshError
+		if errors.As(err, &saved) {
+			ctx.Flash.Warning(saved.Error())
+			if len(approvals) > 0 {
+				ctx.JSON(http.StatusOK, map[string]string{"redirect": ctx.Repo.RepoLink + "/settings/branches", "warning": saved.Error()})
+			} else {
+				ctx.Redirect(ctx.Repo.RepoLink + "/settings/branches")
+			}
+			return
+		}
+		if len(approvals) > 0 {
+			status := http.StatusUnprocessableEntity
+			if errors.Is(err, governance_model.ErrConflict) {
+				status = http.StatusConflict
+			}
+			if errors.Is(err, governance_model.ErrForbidden) {
+				status = http.StatusForbidden
+			}
+			message := map[string]any{"message": err.Error()}
+			var ruleError *governance_service.ApprovalRuleSaveError
+			if errors.As(err, &ruleError) {
+				message["rule_index"] = ruleError.Index
+			}
+			ctx.JSON(status, message)
+			return
+		}
 		ctx.ServerError("CreateOrUpdateProtectedBranch", err)
 		return
 	}
 
+	if len(approvals) > 0 {
+		ctx.JSON(http.StatusOK, map[string]string{"redirect": ctx.Repo.RepoLink + "/settings/branches"})
+		return
+	}
 	ctx.Flash.Success(ctx.Tr("repo.settings.update_protect_branch_success", protectBranch.RuleName))
 	ctx.Redirect(fmt.Sprintf("%s/settings/branches?rule_name=%s", ctx.Repo.RepoLink, protectBranch.RuleName))
 }

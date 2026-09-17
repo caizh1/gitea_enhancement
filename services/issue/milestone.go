@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	user_model "gitea.dev/models/user"
 	notify_service "gitea.dev/services/notify"
@@ -69,9 +70,20 @@ func changeMilestoneAssign(ctx context.Context, doer *user_model.User, issue *is
 
 // ChangeMilestoneAssign changes assignment of milestone for issue.
 func ChangeMilestoneAssign(ctx context.Context, issue *issues_model.Issue, doer *user_model.User, oldMilestoneID int64) (err error) {
-	if err := db.WithTx(ctx, func(dbCtx context.Context) error {
-		return changeMilestoneAssign(dbCtx, doer, issue, oldMilestoneID)
-	}); err != nil {
+	err = governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", issue.RepoID), governance_model.Resource("issue", issue.ID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			fresh, err := issues_model.GetIssueByID(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			oldMilestoneID = fresh.MilestoneID
+			if err := changeMilestoneAssign(ctx, doer, issue, oldMilestoneID); err != nil {
+				return err
+			}
+			return issues_model.AppendIssueUpdatedAudit(ctx, issue, map[string]any{"before": map[string]any{"milestone_id": oldMilestoneID}, "after": map[string]any{"milestone_id": issue.MilestoneID}})
+		})
+	})
+	if err != nil {
 		return err
 	}
 

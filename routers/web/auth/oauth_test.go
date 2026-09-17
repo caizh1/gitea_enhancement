@@ -27,7 +27,7 @@ func createAndParseToken(t *testing.T, grant *auth.OAuth2Grant) *oauth2_provider
 	assert.NoError(t, err)
 	assert.NotNil(t, signingKey)
 
-	response, terr := oauth2_provider.NewAccessTokenResponse(t.Context(), grant, signingKey, signingKey)
+	response, terr := oauth2_provider.NewAccessTokenResponse(t.Context(), grant, signingKey, signingKey, false)
 	assert.Nil(t, terr)
 	assert.NotNil(t, response)
 

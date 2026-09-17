@@ -10,6 +10,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
@@ -68,6 +69,7 @@ func GenerateProtectedBranch(ctx context.Context, templateRepo, generateRepo *re
 
 // GenerateRepository generates a repository from a template
 func GenerateRepository(ctx context.Context, doer, owner *user_model.User, templateRepo *repo_model.Repository, opts GenerateRepoOptions) (_ *repo_model.Repository, err error) {
+	ctx = withRepositoryCreation(ctx, "template", map[string]any{"source_repository_id": templateRepo.ID})
 	if !doer.CanCreateRepoIn(owner) {
 		return nil, repo_model.ErrReachLimitOfRepo{
 			Limit: owner.MaxRepoCreation,
@@ -97,6 +99,8 @@ func GenerateRepository(ctx context.Context, doer, owner *user_model.User, templ
 	}); err != nil {
 		return nil, err
 	}
+	stopCreationHeartbeat := startRepositoryCreationHeartbeat(generateRepo.ID)
+	defer stopCreationHeartbeat()
 
 	// last - clean up the repository if something goes wrong
 	defer func() {
@@ -182,10 +186,22 @@ func GenerateRepository(ctx context.Context, doer, owner *user_model.User, templ
 		}
 	}
 
+	if err = gitrepo.InstallReferenceTransactionHook(ctx, generateRepo); err != nil {
+		return nil, fmt.Errorf("安装原生引用事务入口：%w", err)
+	}
+	if err = markRepositoryCreationStorageComplete(ctx, generateRepo.ID); err != nil {
+		return nil, err
+	}
+
 	// 6 - update repository status to be ready
 	generateRepo.Status = repo_model.RepositoryReady
-	if err = repo_model.UpdateRepositoryColsWithAutoTime(ctx, generateRepo, "status"); err != nil {
-		return nil, fmt.Errorf("UpdateRepositoryCols: %w", err)
+	if err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := repo_model.UpdateRepositoryColsWithAutoTime(ctx, generateRepo, "status"); err != nil {
+			return fmt.Errorf("UpdateRepositoryCols: %w", err)
+		}
+		return completeRepositoryCreation(ctx, generateRepo)
+	}); err != nil {
+		return nil, err
 	}
 
 	notify_service.CreateRepository(ctx, doer, owner, generateRepo)

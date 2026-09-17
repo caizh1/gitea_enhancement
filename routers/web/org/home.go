@@ -17,6 +17,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
+	governance_web "gitea.dev/routers/web/governance"
 	shared_user "gitea.dev/routers/web/shared/user"
 	"gitea.dev/services/context"
 )
@@ -25,6 +26,10 @@ const tplOrgHome templates.TplName = "org/home"
 
 // Home show organization home page
 func Home(ctx *context.Context) {
+	if ctx.FormString("tab") != "readme" {
+		governance_web.NavigationHome(ctx, ctx.ContextUser.ID)
+		return
+	}
 	uname := ctx.PathParam("username")
 
 	if strings.HasSuffix(uname, ".keys") || strings.HasSuffix(uname, ".gpg") {
@@ -105,7 +110,7 @@ func home(ctx *context.Context, viewRepositories bool) {
 	// signed-in non-members), so re-query the viewer's own membership; owners
 	// keep the full list they are entitled to manage.
 	overviewTeams := ctx.Org.Teams
-	if !ctx.Org.IsOwner {
+	if !ctx.Org.IsOwner && !ctx.Org.IsAuditor {
 		overviewTeams = nil
 		if ctx.Org.IsMember {
 			overviewTeams, _, err = organization.SearchTeam(ctx, &organization.SearchTeamOptions{
@@ -121,7 +126,7 @@ func home(ctx *context.Context, viewRepositories bool) {
 	}
 	ctx.Data["OrgOverviewTeams"] = overviewTeams[:min(len(overviewTeams), orgOverviewTeamsLimit)]
 	ctx.Data["DisableNewPullMirrors"] = setting.Mirror.DisableNewPull
-	ctx.Data["ShowMemberAndTeamTab"] = ctx.Org.IsMember || len(members) > 0
+	ctx.Data["ShowMemberAndTeamTab"] = ctx.Org.IsMember || ctx.Org.IsAuditor || len(members) > 0
 
 	prepareResult, err := shared_user.RenderUserOrgHeader(ctx)
 	if err != nil {

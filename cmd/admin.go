@@ -24,6 +24,7 @@ func newAdminCommand() *cli.Command {
 		Usage: "Perform common administrative operations",
 		Commands: []*cli.Command{
 			newUserCommand(),
+			newGovernanceAdminCommand(),
 			newRepoSyncReleasesCommand(),
 			newRegenerateCommand(),
 			newAuthCommand(),

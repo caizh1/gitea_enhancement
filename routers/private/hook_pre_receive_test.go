@@ -6,16 +6,47 @@ package private
 import (
 	"testing"
 
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/gitrepo"
+	"gitea.dev/modules/private"
+	repo_module "gitea.dev/modules/repository"
+	gitea_context "gitea.dev/services/context"
 	"gitea.dev/services/contexttest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTrustedMergeAuthorizationRequiresExactServiceMerge(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 10})
+	require.NoError(t, gitrepo.InstallReferenceTransactionHook(t.Context(), repo))
+	authorization := &governance_model.MergeAuthorization{ID: "merge-auth-test", RepoID: repo.ID, PullID: 1, Branch: "master", OldTarget: "old", NewTarget: "new", Head: "head", State: "authorized", Actor: governance_model.Actor{ID: 2}}
+	require.NoError(t, db.Insert(t.Context(), authorization))
+
+	mockCtx, _ := contexttest.MockPrivateContext(t, "/")
+	mockCtx.Repo = &gitea_context.Repository{Repository: repo}
+	ctx := &preReceiveContext{PrivateContext: mockCtx, opts: &private.HookOptions{
+		UserID: 2, MergeAuthorizationID: authorization.ID,
+		OldCommitIDs: []string{"old"}, NewCommitIDs: []string{"new"}, RefFullNames: []git.RefName{git.RefNameFromBranch("master")},
+	}}
+	operation := referenceMergeOperation(ctx)
+
+	_, err := trustedMergeAuthorizationContext(ctx, operation)
+	require.ErrorIs(t, err, governance_model.ErrForbidden, "普通推送不能借用合并授权绕过 PushCode")
+	ctx.opts.PushTrigger = repo_module.PushTriggerPRMergeToBase
+	_, err = trustedMergeAuthorizationContext(ctx, operation)
+	require.NoError(t, err, "服务端合并的精确授权应允许对应的单次目标引用写入")
+	operation.Changes[0].New = "other"
+	_, err = trustedMergeAuthorizationContext(ctx, operation)
+	require.ErrorIs(t, err, governance_model.ErrConflict, "授权不能用于其他提交")
+}
 
 // TestPreReceiveCanWriteCodePerBranch ensures the maintainer-edit write grant is evaluated against
 // the exact ref being pushed on every call, derived from that ref rather than shared mutable state.

@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	asymkey_model "gitea.dev/models/asymkey"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
@@ -33,6 +34,7 @@ func ServNoCommand(ctx context.Context, keyID int64) (*asymkey_model.PublicKey, 
 
 // ServCommandResults are the results of a call to the private route serv
 type ServCommandResults struct {
+	AccessAudit *governance_model.AuditEvent
 	IsWiki      bool
 	DeployKeyID int64
 	KeyID       int64  // public key
@@ -43,6 +45,8 @@ type ServCommandResults struct {
 	OwnerName   string
 	RepoName    string
 	RepoID      int64
+	// StorageRelativePath 仅供内部 SSH 执行定位稳定正文；不得用于公开 URL 或权限判断。
+	StorageRelativePath string
 }
 
 // ServCommand preps for a serv call
@@ -58,4 +62,17 @@ func ServCommand(ctx context.Context, keyID int64, ownerName, repoName string, m
 	_ = lfsVerb
 	req := newInternalRequestAPI(ctx, reqURL, "GET")
 	return requestJSONResp(req, &ServCommandResults{})
+}
+
+// ServAuditCompletion 仅由持有内部认证的 SSH 子进程提交，不包含代码和认证正文。
+type ServAuditCompletion struct {
+	Event  governance_model.AuditEvent
+	Result string
+}
+
+// CompleteServAudit 保存 SSH 子进程结束结果；请求失败时不自动重放操作。
+func CompleteServAudit(ctx context.Context, event *governance_model.AuditEvent, result string) ResponseExtra {
+	req := newInternalRequestAPI(ctx, setting.LocalURL+"api/internal/serv/audit-complete", "POST", ServAuditCompletion{Event: *event, Result: result})
+	_, extra := requestJSONResp(req, &Response{})
+	return extra
 }

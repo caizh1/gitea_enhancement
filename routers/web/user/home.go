@@ -39,6 +39,7 @@ import (
 	"gitea.dev/routers/web/shared/user"
 	"gitea.dev/services/context"
 	feed_service "gitea.dev/services/feed"
+	governance_service "gitea.dev/services/governance"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
 
@@ -64,7 +65,7 @@ func prepareDashboardContextUserOrgTeams(ctx *context.Context) *user_model.User 
 	}
 	ctx.Data["ContextUser"] = ctxUser
 
-	orgs, err := organization.GetUserOrgsList(ctx, ctx.Doer)
+	orgs, err := governance_service.NavigationOrganizations(ctx, ctx.Doer.ID, false)
 	if err != nil {
 		ctx.ServerError("GetUserOrgsList", err)
 		return nil

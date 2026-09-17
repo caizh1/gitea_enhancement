@@ -255,7 +255,7 @@ func RunnersEditPost(ctx *context.Context) {
 	form := web.GetForm(ctx).(*forms.EditRunnerForm)
 	runner.Description = form.Description
 
-	err = actions_model.UpdateRunner(ctx, runner, "description")
+	err = actions_model.UpdateRunnerConfiguration(ctx, runner, "description")
 	if err != nil {
 		log.Warn("RunnerDetailsEditPost.UpdateRunner failed: %v, url: %s", err, ctx.Req.URL)
 		ctx.Flash.Warning(ctx.Tr("actions.runners.update_runner_failed"))

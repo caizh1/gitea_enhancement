@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
@@ -232,7 +233,7 @@ func (w *Webhook) SetHeaderAuthorization(cleartext string) error {
 // CreateWebhook creates a new web hook.
 func CreateWebhook(ctx context.Context, w *Webhook) error {
 	w.Type = strings.TrimSpace(w.Type)
-	return db.Insert(ctx, w)
+	return governanceCreateWebhooks(ctx, []*Webhook{w})
 }
 
 // CreateWebhooks creates multiple web hooks
@@ -244,7 +245,32 @@ func CreateWebhooks(ctx context.Context, ws []*Webhook) error {
 	for i := range ws {
 		ws[i].Type = strings.TrimSpace(ws[i].Type)
 	}
-	return db.Insert(ctx, ws)
+	return governanceCreateWebhooks(ctx, ws)
+}
+
+func governanceCreateWebhooks(ctx context.Context, hooks []*Webhook) error {
+	candidates := make([]Webhook, len(hooks))
+	for i, hook := range hooks {
+		candidates[i] = *hook
+	}
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		for i := range candidates {
+			candidate := &candidates[i]
+			if err := db.Insert(ctx, candidate); err != nil {
+				return err
+			}
+			if err := appendWebhookAudit(ctx, candidate, candidate, "created", nil, webhookAuditValues(candidate), []string{"created"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err == nil {
+		for i := range hooks {
+			*hooks[i] = candidates[i]
+		}
+	}
+	return err
 }
 
 // GetWebhookByID returns webhook of repository by given ID.
@@ -307,8 +333,25 @@ func (opts ListWebhookOptions) ToConds() builder.Cond {
 
 // UpdateWebhook updates information of webhook.
 func UpdateWebhook(ctx context.Context, w *Webhook) error {
-	_, err := db.GetEngine(ctx).ID(w.ID).AllCols().Update(w)
-	return err
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		before, err := GetWebhookByID(ctx, w.ID)
+		if err != nil {
+			return err
+		}
+		if before.RepoID != w.RepoID || before.OwnerID != w.OwnerID {
+			return governance_model.ErrConflict
+		}
+		count, err := db.GetEngine(ctx).ID(w.ID).Cols(
+			"url", "name", "http_method", "content_type", "secret", "events", "is_active", "type", "meta", "header_authorization_encrypted", "is_system_webhook",
+		).Update(w)
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrWebhookNotExist{ID: w.ID}
+		}
+		return appendWebhookAudit(ctx, before, w, "updated", webhookAuditValues(before), webhookAuditValues(w), webhookChangedFields(before, w))
+	})
 }
 
 // UpdateWebhookLastStatus updates last status of webhook.
@@ -320,7 +363,11 @@ func UpdateWebhookLastStatus(ctx context.Context, w *Webhook) error {
 // DeleteWebhookByID uses argument bean as query condition,
 // ID must be specified and do not assign unnecessary fields.
 func DeleteWebhookByID(ctx context.Context, id int64) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		hook, err := GetWebhookByID(ctx, id)
+		if err != nil {
+			return err
+		}
 		if count, err := db.DeleteByID[Webhook](ctx, id); err != nil {
 			return err
 		} else if count == 0 {
@@ -328,7 +375,7 @@ func DeleteWebhookByID(ctx context.Context, id int64) (err error) {
 		} else if _, err = db.DeleteByBean(ctx, &HookTask{HookID: id}); err != nil {
 			return err
 		}
-		return nil
+		return appendWebhookAudit(ctx, hook, hook, "deleted", webhookAuditValues(hook), nil, []string{"deleted"})
 	})
 }
 

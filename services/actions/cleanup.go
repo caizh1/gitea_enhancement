@@ -11,8 +11,11 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
 	actions_module "gitea.dev/modules/actions"
 	"gitea.dev/modules/container"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
@@ -200,6 +203,17 @@ func DeleteRun(ctx context.Context, run *actions_model.ActionRun) error {
 	if err != nil {
 		return err
 	}
+	cleanup := &governance_model.ResourceCleanup{Kind: "actions_run", ResourceID: run.ID, Actor: governance_model.AuditActor(ctx), ObjectPath: fmt.Sprintf("repository-%d/actions/run-%d", run.RepoID, run.ID)}
+	for _, task := range tasks {
+		if task.LogFilename != "" {
+			cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "action_log", Path: task.LogFilename, InStorage: task.LogInStorage})
+		}
+	}
+	for _, artifact := range artifacts {
+		if artifact.StoragePath != "" {
+			cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "artifact", Path: artifact.StoragePath})
+		}
+	}
 
 	var recordsToDelete []any
 
@@ -237,7 +251,22 @@ func DeleteRun(ctx context.Context, run *actions_model.ActionRun) error {
 		RunID:  run.ID,
 	})
 
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		repo, err := repo_model.GetRepositoryByID(ctx, run.RepoID)
+		if err != nil {
+			return err
+		}
+		chain, err := governance_model.Ancestors(ctx, repo.OwnerID)
+		if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+			return err
+		}
+		cleanup.ScopeType, cleanup.ScopeID = "repository", repo.ID
+		cleanup.ObjectPath = fmt.Sprintf("%s/actions/run-%d", repo.FullPath(), run.ID)
+		for _, ancestor := range chain {
+			if ancestor.Kind == "group" {
+				cleanup.AncestorIDs = append(cleanup.AncestorIDs, ancestor.ID)
+			}
+		}
 		// TODO: Deleting task records could break current ephemeral runner implementation. This is a temporary workaround suggested by ChristopherHX.
 		// Since you delete potentially the only task an ephemeral act_runner has ever run, please delete the affected runners first.
 		// one of
@@ -249,22 +278,25 @@ func DeleteRun(ctx context.Context, run *actions_model.ActionRun) error {
 		if err := CleanupEphemeralRunners(ctx); err != nil {
 			return err
 		}
+		if err := actions_model.AppendRunAudit(ctx, run, "actions.run_deleted"); err != nil {
+			return err
+		}
+		if err := db.Insert(ctx, cleanup); err != nil {
+			return err
+		}
+		details, err := json.Marshal(map[string]any{"cleanup_id": cleanup.ID, "storage_cleanup": "pending"})
+		if err != nil {
+			return err
+		}
+		if err := governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: "resource.deletion_committed", Actor: cleanup.Actor, ScopeType: cleanup.ScopeType, ScopeID: cleanup.ScopeID, AncestorIDs: cleanup.AncestorIDs, ObjectType: cleanup.Kind, ObjectID: cleanup.ResourceID, ObjectPath: cleanup.ObjectPath, Result: "pending", Details: details}); err != nil {
+			return err
+		}
 		return db.DeleteBeans(ctx, recordsToDelete...)
 	}); err != nil {
 		return err
 	}
 
 	actions_model.UpdateRepoRunsNumbers(ctx, repoID)
-
-	// Delete files on storage
-	for _, tas := range tasks {
-		removeTaskLog(ctx, tas)
-	}
-	for _, art := range artifacts {
-		if err := storage.ActionsArtifacts.Delete(art.StoragePath); err != nil {
-			log.Error("remove artifact file %q: %v", art.StoragePath, err)
-		}
-	}
 
 	return nil
 }

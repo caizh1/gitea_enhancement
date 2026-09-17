@@ -58,7 +58,7 @@
 	<div class="content">
 		<div class="ui warning message">
 			{{ctx.Locale.Tr "repo.settings.delete_notices_1"}}<br>
-			{{ctx.Locale.Tr "repo.settings.delete_notices_2" .Repository.FullName}}
+			{{ctx.Locale.Tr "repo.settings.delete_notices_2" .Repository.FullPath}}
 			{{if .Repository.NumForks}}<br>
 			{{ctx.Locale.Tr "repo.settings.delete_notices_fork_1"}}
 			{{end}}

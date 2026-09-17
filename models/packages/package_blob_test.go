@@ -4,6 +4,7 @@
 package packages
 
 import (
+	"strings"
 	"testing"
 
 	"gitea.dev/models/unittest"
@@ -21,7 +22,7 @@ func TestGetOrInsertBlobConcurrent(t *testing.T) {
 		Size:       123,
 		HashMD5:    "md5",
 		HashSHA1:   "sha1",
-		HashSHA256: "sha256",
+		HashSHA256: strings.Repeat("a", 64),
 		HashSHA512: "sha512",
 	}
 
@@ -59,7 +60,7 @@ func TestIsBlobAccessibleForRestrictedUser(t *testing.T) {
 	require.NoError(t, err)
 	version, err := GetOrInsertVersion(t.Context(), &PackageVersion{PackageID: pkg.ID, Version: "1", LowerVersion: "1"})
 	require.NoError(t, err)
-	blob, _, err := GetOrInsertBlob(t.Context(), &PackageBlob{Size: 1, HashMD5: "md5", HashSHA1: "sha1", HashSHA256: "sha256", HashSHA512: "sha512"})
+	blob, _, err := GetOrInsertBlob(t.Context(), &PackageBlob{Size: 1, HashMD5: "md5", HashSHA1: "sha1", HashSHA256: strings.Repeat("a", 64), HashSHA512: "sha512"})
 	require.NoError(t, err)
 	_, err = TryInsertFile(t.Context(), &PackageFile{VersionID: version.ID, BlobID: blob.ID, Name: "blob", LowerName: "blob"})
 	require.NoError(t, err)

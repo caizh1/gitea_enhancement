@@ -10,6 +10,7 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 
@@ -19,7 +20,7 @@ import (
 
 func TestAdminUserCreate(t *testing.T) {
 	reset := func() {
-		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}))
+		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}, &governance_model.Namespace{}, &governance_model.ResourcePath{}))
 		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.EmailAddress{}))
 		require.NoError(t, db.TruncateBeans(t.Context(), &auth_model.AccessToken{}))
 	}

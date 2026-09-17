@@ -12,9 +12,11 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/structs"
@@ -337,6 +339,9 @@ func RecalculateReviewsOfficial(ctx context.Context, issue *Issue) error {
 	// Clearing and restoring the official flags must happen atomically, otherwise a
 	// failure in between would leave the reviews without any official flag set.
 	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := lockReviewGovernance(ctx, issue.ID); err != nil {
+			return err
+		}
 		// Only the latest approve/reject review of each reviewer counts as official, so
 		// clear the flag on all of them first and restore it only where it still applies.
 		if _, err := db.GetEngine(ctx).
@@ -380,6 +385,11 @@ func RecalculateReviewsOfficial(ctx context.Context, issue *Issue) error {
 // CreateReview creates a new review based on opts
 func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error) {
 	return db.WithTx2(ctx, func(ctx context.Context) (*Review, error) {
+		if opts.Type == ReviewTypeApprove || opts.Type == ReviewTypeReject {
+			if err := lockReviewGovernance(ctx, opts.Issue.ID); err != nil {
+				return nil, err
+			}
+		}
 		sess := db.GetEngine(ctx)
 
 		review := &Review{
@@ -420,6 +430,9 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 		}
 
 		if _, err := sess.Insert(review); err != nil {
+			return nil, err
+		}
+		if err := recordReviewGovernance(ctx, review); err != nil {
 			return nil, err
 		}
 		return review, nil
@@ -472,6 +485,11 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 		return nil, nil, err
 	}
 	defer committer.Close()
+	if reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject {
+		if err := lockReviewGovernance(ctx, issue.ID); err != nil {
+			return nil, nil, err
+		}
+	}
 	sess := db.GetEngine(ctx)
 
 	official := false
@@ -534,6 +552,9 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 		review.Stale = stale
 
 		if _, err := sess.ID(review.ID).Cols("content, type, official, commit_id, stale").Update(review); err != nil {
+			return nil, nil, err
+		}
+		if err := recordReviewGovernance(ctx, review); err != nil {
 			return nil, nil, err
 		}
 
@@ -624,32 +645,66 @@ func GetTeamReviewerByIssueIDAndTeamID(ctx context.Context, issueID, teamID int6
 
 // MarkReviewsAsStale marks existing reviews as stale
 func MarkReviewsAsStale(ctx context.Context, issueID int64) (err error) {
-	_, err = db.GetEngine(ctx).Exec("UPDATE `review` SET stale=? WHERE issue_id=?", true, issueID)
-
-	return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := lockReviewGovernance(ctx, issueID); err != nil {
+			return err
+		}
+		_, err := db.GetEngine(ctx).Exec("UPDATE `review` SET stale=? WHERE issue_id=?", true, issueID)
+		return err
+	})
 }
 
 // MarkReviewsAsNotStale marks existing reviews as not stale for a giving commit SHA
 func MarkReviewsAsNotStale(ctx context.Context, issueID int64, commitID string) (err error) {
-	_, err = db.GetEngine(ctx).Exec("UPDATE `review` SET stale=? WHERE issue_id=? AND commit_id=?", false, issueID, commitID)
-
-	return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := lockReviewGovernance(ctx, issueID); err != nil {
+			return err
+		}
+		_, err := db.GetEngine(ctx).Exec("UPDATE `review` SET stale=? WHERE issue_id=? AND commit_id=?", false, issueID, commitID)
+		return err
+	})
 }
 
 // DismissReview change the dismiss status of a review
-func DismissReview(ctx context.Context, review *Review, isDismiss bool) (err error) {
-	if review.Dismissed == isDismiss || (review.Type != ReviewTypeApprove && review.Type != ReviewTypeReject) {
-		return nil
-	}
-
-	review.Dismissed = isDismiss
-
+func DismissReview(ctx context.Context, review *Review, isDismiss bool) error {
 	if review.ID == 0 {
 		return ErrReviewNotExist{}
 	}
-
-	_, err = db.GetEngine(ctx).ID(review.ID).Cols("dismissed").Update(review)
-
+	err := db.WithTx(ctx, func(ctx context.Context) error {
+		current, err := GetReviewByID(ctx, review.ID)
+		if err != nil {
+			return err
+		}
+		if current.Type != ReviewTypeApprove && current.Type != ReviewTypeReject {
+			return nil
+		}
+		if err := lockReviewGovernance(ctx, current.IssueID); err != nil {
+			return err
+		}
+		current, err = GetReviewByID(ctx, review.ID)
+		if err != nil {
+			return err
+		}
+		if current.Dismissed == isDismiss {
+			return nil
+		}
+		_, err = db.GetEngine(ctx).ID(current.ID).Cols("dismissed").Update(&Review{Dismissed: isDismiss})
+		if err != nil {
+			return err
+		}
+		event := "review.restored"
+		if isDismiss {
+			event = "review.dismissed"
+			if current.Type == ReviewTypeApprove {
+				event = "approval.withdrawn"
+			}
+		}
+		current.Dismissed = isDismiss
+		return appendReviewAudit(ctx, current, event, "dismissed_changed")
+	})
+	if err == nil && (review.Type == ReviewTypeApprove || review.Type == ReviewTypeReject) {
+		review.Dismissed = isDismiss
+	}
 	return err
 }
 
@@ -659,6 +714,9 @@ func InsertReviews(ctx context.Context, reviews []*Review) error {
 		sess := db.GetEngine(ctx)
 
 		for _, review := range reviews {
+			if err := lockReviewGovernance(ctx, review.IssueID); err != nil {
+				return err
+			}
 			if _, err := sess.NoAutoTime().Insert(review); err != nil {
 				return err
 			}
@@ -697,7 +755,44 @@ func InsertReviews(ctx context.Context, reviews []*Review) error {
 
 // AddReviewRequest add a review request from one reviewer
 func AddReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_model.User, isCodeOwners bool) (*Comment, error) {
+	return addReviewRequest(ctx, issue, reviewer, doer, isCodeOwners, false)
+}
+
+// AddGovernanceReviewRequest 创建原生待办，但不把候选池通知升级为每人都必须完成的原生阻断条件。
+func AddGovernanceReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_model.User) (*Comment, error) {
+	return addReviewRequest(ctx, issue, reviewer, doer, false, true)
+}
+
+func addReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_model.User, isCodeOwners, governanceRequest bool) (*Comment, error) {
 	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+		if err := lockReviewGovernance(ctx, issue.ID); err != nil {
+			return nil, err
+		}
+		if governanceRequest {
+			freshReviewer, err := user_model.GetUserByID(ctx, reviewer.ID)
+			if err != nil {
+				if user_model.IsErrUserNotExist(err) {
+					return nil, nil
+				}
+				return nil, err
+			}
+			reviewer = freshReviewer
+			if !reviewer.IsActive || reviewer.ProhibitLogin || reviewer.IsOrganization() || reviewer.IsGhost() {
+				return nil, nil
+			}
+			freshRepo, err := repo_model.GetRepositoryByID(ctx, issue.RepoID)
+			if err != nil {
+				return nil, err
+			}
+			issue.Repo = freshRepo
+			permission, err := access_model.GetIndividualUserRepoPermission(ctx, issue.Repo, reviewer)
+			if err != nil {
+				return nil, err
+			}
+			if !permission.CanRead(unit.TypePullRequests) {
+				return nil, nil
+			}
+		}
 		sess := db.GetEngine(ctx)
 
 		review, err := GetReviewByIssueIDAndUserID(ctx, issue.ID, reviewer.ID)
@@ -706,9 +801,22 @@ func AddReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_mo
 		}
 
 		if review != nil {
+			if governanceRequest {
+				return nil, nil // 已有人工请求或评审时，自动待办不得覆盖它。
+			}
 			// skip it when reviewer has been request to review
 			if review.Type == ReviewTypeRequest {
-				return nil, nil // still commit the transaction, or committer.Close() will rollback it, even if it's a reused transaction.
+				governance, err := isGovernanceReviewRequest(ctx, review.ID)
+				if err != nil {
+					return nil, err
+				}
+				if !governance {
+					return nil, nil // still commit the transaction, or committer.Close() will rollback it, even if it's a reused transaction.
+				}
+				if _, err := sess.ID(review.ID).Delete(new(Review)); err != nil {
+					return nil, err
+				}
+				review = nil // 人工请求显式升级自动待办，并重新计算原生 official 状态。
 			}
 
 			if issue.IsClosed {
@@ -727,10 +835,17 @@ func AddReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_mo
 
 		// if the reviewer is an official reviewer,
 		// remove the official flag in the all previous reviews
+		// IsOfficialReviewer 会读取基础仓库；共同入口必须自行装载，不能依赖网页上下文预填。
+		if err := issue.LoadPullRequest(ctx); err != nil {
+			return nil, err
+		}
+		if err := issue.PullRequest.LoadBaseRepo(ctx); err != nil {
+			return nil, err
+		}
 		official, err := IsOfficialReviewer(ctx, issue, reviewer)
 		if err != nil {
 			return nil, err
-		} else if official {
+		} else if official && !governanceRequest {
 			if _, err := sess.Exec("UPDATE `review` SET official=? WHERE issue_id=? AND reviewer_id=?", false, issue.ID, reviewer.ID); err != nil {
 				return nil, err
 			}
@@ -740,13 +855,17 @@ func AddReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_mo
 			Type:     ReviewTypeRequest,
 			Issue:    issue,
 			Reviewer: reviewer,
-			Official: official,
+			Official: official && !governanceRequest,
 			Stale:    false,
 		})
 		if err != nil {
 			return nil, err
 		}
 
+		specialDoerName := util.Iif(isCodeOwners, SpecialDoerNameCodeOwners, "")
+		if governanceRequest {
+			specialDoerName = SpecialDoerNameGovernanceApprovals
+		}
 		comment, err := CreateComment(ctx, &CreateCommentOptions{
 			Type:            CommentTypeReviewRequest,
 			Doer:            doer,
@@ -755,7 +874,7 @@ func AddReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_mo
 			RemovedAssignee: false,       // Use RemovedAssignee as !isRequest
 			AssigneeID:      reviewer.ID, // Use AssigneeID as reviewer ID
 			ReviewID:        review.ID,
-			SpecialDoerName: util.Iif(isCodeOwners, SpecialDoerNameCodeOwners, ""),
+			SpecialDoerName: specialDoerName,
 		})
 		if err != nil {
 			return nil, err
@@ -763,14 +882,33 @@ func AddReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_mo
 
 		// func caller use the created comment to retrieve created review too.
 		comment.Review = review
+		if governanceRequest {
+			comment.Assignee = reviewer
+		}
 
 		return comment, nil
 	})
 }
 
+func isGovernanceReviewRequest(ctx context.Context, reviewID int64) (bool, error) {
+	var comments []*Comment
+	if err := db.GetEngine(ctx).Where("review_id = ? AND type = ?", reviewID, CommentTypeReviewRequest).Find(&comments); err != nil {
+		return false, err
+	}
+	for _, comment := range comments {
+		if comment.CommentMetaData != nil && comment.CommentMetaData.SpecialDoerName == SpecialDoerNameGovernanceApprovals {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // RemoveReviewRequest remove a review request from one reviewer
 func RemoveReviewRequest(ctx context.Context, issue *Issue, reviewer, doer *user_model.User) (*Comment, error) {
 	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+		if err := lockReviewGovernance(ctx, issue.ID); err != nil {
+			return nil, err
+		}
 		review, err := GetReviewByIssueIDAndUserID(ctx, issue.ID, reviewer.ID)
 		if err != nil && !IsErrReviewNotExist(err) {
 			return nil, err
@@ -823,6 +961,9 @@ func restoreLatestOfficialReview(ctx context.Context, issueID, reviewerID int64)
 // AddTeamReviewRequest add a review request from one team
 func AddTeamReviewRequest(ctx context.Context, issue *Issue, reviewer *organization.Team, doer *user_model.User, isCodeOwners bool) (*Comment, error) {
 	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+		if err := lockReviewGovernance(ctx, issue.ID); err != nil {
+			return nil, err
+		}
 		review, err := GetTeamReviewerByIssueIDAndTeamID(ctx, issue.ID, reviewer.ID)
 		if err != nil && !IsErrReviewNotExist(err) {
 			return nil, err
@@ -879,6 +1020,9 @@ func AddTeamReviewRequest(ctx context.Context, issue *Issue, reviewer *organizat
 // RemoveTeamReviewRequest remove a review request from one team
 func RemoveTeamReviewRequest(ctx context.Context, issue *Issue, reviewer *organization.Team, doer *user_model.User) (*Comment, error) {
 	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+		if err := lockReviewGovernance(ctx, issue.ID); err != nil {
+			return nil, err
+		}
 		review, err := GetTeamReviewerByIssueIDAndTeamID(ctx, issue.ID, reviewer.ID)
 		if err != nil && !IsErrReviewNotExist(err) {
 			return nil, err
@@ -994,7 +1138,17 @@ func CanMarkConversation(ctx context.Context, issue *Issue, doer *user_model.Use
 
 // DeleteReview delete a review and it's code comments
 func DeleteReview(ctx context.Context, r *Review) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		current, err := GetReviewByID(ctx, r.ID)
+		if err != nil {
+			return err
+		}
+		r = current // 待定评审可能刚提交为批准，不能沿用旧类型绕过占用检查。
+		if r.Type == ReviewTypeApprove || r.Type == ReviewTypeReject {
+			if err := lockReviewGovernance(ctx, r.IssueID); err != nil {
+				return err
+			}
+		}
 		if r.ID == 0 {
 			return errors.New("review is not allowed to be 0")
 		}
@@ -1034,6 +1188,13 @@ func DeleteReview(ctx context.Context, r *Review) error {
 		}
 
 		if _, err := db.DeleteByID[Review](ctx, r.ID); err != nil {
+			return err
+		}
+		event := "review.deleted"
+		if r.Type == ReviewTypeApprove && !r.Dismissed {
+			event = "approval.withdrawn"
+		}
+		if err := appendReviewAudit(ctx, r, event, "deleted"); err != nil {
 			return err
 		}
 

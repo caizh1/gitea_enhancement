@@ -5,8 +5,11 @@
 package context
 
 import (
+	"errors"
+	"net/http"
 	"strings"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	"gitea.dev/models/unit"
@@ -19,6 +22,7 @@ import (
 
 // Organization contains organization context
 type Organization struct {
+	IsAuditor        bool
 	IsOwner          bool
 	IsMember         bool
 	IsTeamMember     bool // Is member of team.
@@ -90,6 +94,13 @@ func OrgAssignment(orgAssignmentOpts OrgAssignmentOptions) func(ctx *Context) {
 		}
 
 		org := ctx.Org.Organization
+		if ctx.IsSigned && ctx.Doer.IsAuditor {
+			ctx.Org.IsAuditor, err = user_model.IsActiveAuditor(ctx, ctx.Doer.ID)
+			if err != nil {
+				ctx.ServerError("读取全站审计员身份", err)
+				return
+			}
+		}
 
 		// Handle Visibility
 		if org.Visibility != structs.VisibleTypePublic && !ctx.IsSigned {
@@ -102,6 +113,9 @@ func OrgAssignment(orgAssignmentOpts OrgAssignmentOptions) func(ctx *Context) {
 			opts.RequireMember = true
 		} else if ctx.IsSigned && ctx.Doer.IsRestricted {
 			opts.RequireMember = true
+		}
+		if ctx.Org.IsAuditor && (ctx.Req.Method == http.MethodGet || ctx.Req.Method == http.MethodHead) && !opts.RequireOwner && !opts.RequireTeamAdmin {
+			opts.RequireMember, opts.RequireTeamMember = false, false
 		}
 
 		ctx.ContextUser = org.AsUser()
@@ -156,6 +170,15 @@ func OrgAssignment(orgAssignmentOpts OrgAssignmentOptions) func(ctx *Context) {
 			is, _ := organization.IsPublicMembership(ctx, ctx.Org.Organization.ID, uid)
 			return is
 		}
+		namespace, err := governance_model.GetNamespace(ctx, org.ID)
+		if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+			ctx.ServerError("读取群组归档状态", err)
+			return
+		}
+		if namespace != nil && namespace.Archived {
+			ctx.Data["GovernanceGroupArchived"] = true
+			ctx.Org.CanCreateOrgRepo = false
+		}
 		ctx.Data["CanCreateOrgRepo"] = ctx.Org.CanCreateOrgRepo
 
 		ctx.Org.OrgLink = org.AsUser().OrganisationLink()
@@ -200,7 +223,7 @@ func OrgAssignment(orgAssignmentOpts OrgAssignmentOptions) func(ctx *Context) {
 				return
 			}
 		}
-		if ctx.Org.IsMember {
+		if ctx.Org.IsMember || ctx.Org.IsAuditor {
 			ctx.Data["NumTeams"] = len(ctx.Org.Teams)
 		}
 
@@ -265,6 +288,9 @@ func OrgAssignment(orgAssignmentOpts OrgAssignmentOptions) func(ctx *Context) {
 
 // UserShouldSeeAllOrgTeams tells if a user has permission to view all teams in the org.
 func UserShouldSeeAllOrgTeams(ctx *Context) (bool, error) {
+	if ctx.Org.IsAuditor {
+		return true, nil
+	}
 	if !ctx.Org.IsMember {
 		return false, nil
 	}

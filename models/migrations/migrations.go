@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	"gitea.dev/models/governance"
 	"gitea.dev/models/migrations/v1_10"
 	"gitea.dev/models/migrations/v1_11"
 	"gitea.dev/models/migrations/v1_12"
@@ -420,6 +421,34 @@ func prepareMigrationTasks() []*migration {
 		newMigration(340, "Add ContinueOnError column to ActionRunJob", v1_27.AddContinueOnErrorToActionRunJob),
 		newMigration(341, "Convert legacy MSSQL DATETIME columns to DATETIME2", v1_27.FixLegacyMSSQLDateTimeColumns),
 		newMigration(342, "Add scoped workflows schema", v1_27.AddScopedWorkflowsSchema),
+		newMigration(343, "创建原生企业治理数据结构", governance.CreateSchema),
+		newMigration(344, "增加审计查询索引与持久化导出任务", governance.AddAuditExports),
+		newMigration(345, "增加审计外送目标配置与投递状态", governance.AddAuditStreamStatus),
+		newMigration(346, "分离原生命名空间公开路径与物理位置", governance.AddNativeNamespacePaths),
+		newMigration(347, "记录 Git 引用事务及持久化占用", governance.AddReferenceTransactions),
+		newMigration(348, "保存 PR 独立审批规则版本", governance.AddPullRuleVersions),
+		newMigration(349, "关联最终合并审批依据与引用事务", governance.AddMergeApprovalProof),
+		newMigration(350, "按仓库记录引用修订，避免无关治理写入误拒绝", governance.AddReferenceRevisions),
+		newMigration(351, "保留审批设置恢复继承后的修订历史", governance.AddApprovalSettingsHistory),
+		newMigration(352, "保护分支只能通过最终审批授权写入", governance.AddNativeApprovalGate),
+		newMigration(353, "提交后可靠清理删除资源", governance.AddResourceCleanup),
+		newMigration(354, "保存群组删除与恢复状态", governance.AddGroupDeletion),
+		newMigration(355, "软件包共享正文锁与清理恢复", governance.AddPackageContentRecovery),
+		newMigration(356, "项目延迟删除与稳定正文名称", governance.AddRepositoryDeletion),
+		newMigration(357, "群组与项目访问申请", governance.AddAccessRequests),
+		newMigration(358, "邮件邀请与持久化投递状态", governance.AddInvitations),
+		newMigration(359, "SSH 授权文件持久化同步", governance.AddSSHKeyFileSync),
+		newMigration(360, "全站审计员只读角色", governance.AddAuditor),
+		newMigration(361, "保留项目正文的稳定物理拥有者", governance.AddRepositoryStableStorageOwner),
+		newMigration(362, "限制顶级群组向层级外新建共享", governance.AddExternalShareRestriction),
+		newMigration(363, "区分代码与 Wiki 引用事务及内容事件", governance.AddReferenceTransactionWiki),
+		newMigration(364, "保存项目创建恢复证据与资源清理审计范围", governance.AddRepositoryCreationRecovery),
+		newMigration(365, "审批规则可动态遵循原生审批资格池", governance.AddApprovalRuleNativePool),
+		newMigration(366, "项目独立支持公开、内部与私有可见性", governance.AddRepositoryVisibility),
+		newMigration(367, "保存分支与 Wiki 默认分支跨存储恢复依据", governance.AddReferenceBusinessOperations),
+		newMigration(368, "补齐默认分支跨存储恢复标记", governance.AddReferenceBusinessOperationHEAD),
+		newMigration(369, "保存 Release 跨存储恢复载荷", governance.AddReferenceBusinessOperationPayload),
+		newMigration(370, "统一原生分支保护审批配置与稳定关联", governance.AddUnifiedBranchApprovals),
 	}
 	return preparedMigrations
 }

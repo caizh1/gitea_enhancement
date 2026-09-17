@@ -15,6 +15,7 @@ import (
 
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
@@ -31,6 +32,9 @@ const authorizedPrincipalsFile = "authorized_principals"
 // Note: db.GetEngine(ctx).Iterate does not get latest data after insert/delete, so we have to call this function
 // outside any session scope independently.
 func RewriteAllPrincipalKeys(ctx context.Context) error {
+	if db.InTransaction(ctx) {
+		return governance_model.QueueSSHKeyFileSync(ctx, true)
+	}
 	// Don't rewrite key if internal server
 	if setting.SSH.StartBuiltinServer || !setting.SSH.CreateAuthorizedPrincipalsFile {
 		return nil
@@ -83,8 +87,13 @@ func rewriteAllPrincipalKeys(ctx context.Context) error {
 		return err
 	}
 
-	t.Close()
-	return util.Rename(tmpPath, fPath)
+	if err := t.Sync(); err != nil {
+		return err
+	}
+	if err := t.Close(); err != nil {
+		return err
+	}
+	return replaceSSHKeyFile(tmpPath, fPath)
 }
 
 func regeneratePrincipalKeys(ctx context.Context, t io.Writer) error {

@@ -52,6 +52,9 @@ func testSuccessfulEdit(t *testing.T, formData user_model.User) {
 
 func makeRequest(t *testing.T, formData user_model.User, headerCode int) {
 	session := loginUser(t, "user1")
+	if original := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: formData.ID}); original.Name != formData.Name {
+		session.MakeRequest(t, NewRequestWithValues(t, "POST", "/-/admin/users/"+strconv.Itoa(int(formData.ID))+"/rename", map[string]string{"user_name": formData.Name}), headerCode)
+	}
 	req := NewRequestWithValues(t, "POST", "/-/admin/users/"+strconv.Itoa(int(formData.ID))+"/edit", map[string]string{
 		"user_name":  formData.Name,
 		"login_name": formData.LoginName,

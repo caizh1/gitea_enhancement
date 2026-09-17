@@ -12,9 +12,9 @@ import (
 	"html/template"
 	"mime"
 	"net/mail"
-	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +23,7 @@ import (
 
 	"gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/auth/openid"
 	"gitea.dev/modules/auth/password/hash"
 	"gitea.dev/modules/base"
@@ -82,10 +83,11 @@ const (
 
 // User represents the object of individual and member of organization.
 type User struct {
-	ID        int64  `xorm:"pk autoincr"`
-	LowerName string `xorm:"UNIQUE NOT NULL"`
-	Name      string `xorm:"UNIQUE NOT NULL"`
-	FullName  string
+	ID            int64  `xorm:"pk autoincr"`
+	LowerName     string `xorm:"UNIQUE NOT NULL"`
+	Name          string `xorm:"UNIQUE NOT NULL"`
+	NamespacePath string `xorm:"VARCHAR(2048) NOT NULL DEFAULT ''"`
+	FullName      string
 	// Email is the primary email address (to be used for communication)
 	Email                        string `xorm:"NOT NULL"`
 	KeepEmailPrivate             bool
@@ -121,7 +123,8 @@ type User struct {
 	// false: an inactive user can only log in Web UI for account operations (ex: activate the account by email), no other access.
 	IsActive bool `xorm:"INDEX"`
 	// the user is a Gitea admin, who can access all repositories and the admin pages.
-	IsAdmin bool
+	IsAdmin   bool
+	IsAuditor bool `xorm:"NOT NULL DEFAULT false"`
 	// true: the user is only allowed to see organizations/repositories that they has explicit rights to.
 	// (ex: in private Gitea instances user won't be allowed to see even organizations/repositories that are set as public)
 	IsRestricted bool `xorm:"NOT NULL DEFAULT false"`
@@ -315,9 +318,17 @@ func (u *User) SettingsLink() string {
 	return setting.AppSubURL + "/user/settings"
 }
 
+// FullPath 返回公开命名空间，不改变内部账号名称。
+func (u *User) FullPath() string {
+	if u.NamespacePath != "" {
+		return u.NamespacePath
+	}
+	return u.Name
+}
+
 // HomeLink returns the user or organization home page link.
 func (u *User) HomeLink() string {
-	return setting.AppSubURL + "/" + url.PathEscape(u.Name)
+	return setting.AppSubURL + "/" + util.PathEscapeSegments(u.FullPath())
 }
 
 // HTMLURL returns the user or organization's full link.
@@ -327,7 +338,7 @@ func (u *User) HTMLURL(ctx context.Context) string {
 
 // OrganisationLink returns the organization sub page link.
 func (u *User) OrganisationLink() string {
-	return setting.AppSubURL + "/org/" + url.PathEscape(u.Name)
+	return setting.AppSubURL + "/org/" + util.PathEscapeSegments(u.FullPath())
 }
 
 // GetUserFollowers returns range of user's followers.
@@ -663,11 +674,19 @@ func CreateUser(ctx context.Context, u *User, meta *Meta, overwriteDefault ...*C
 
 // AdminCreateUser is used by admins to manually create users
 func AdminCreateUser(ctx context.Context, u *User, meta *Meta, overwriteDefault ...*CreateUserOverwriteOptions) (err error) {
+	if u.IsAuditor {
+		return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+			return createUser(ctx, u, meta, true, overwriteDefault...)
+		})
+	}
 	return createUser(ctx, u, meta, true, overwriteDefault...)
 }
 
 // createUser creates record of a new user.
 func createUser(ctx context.Context, u *User, meta *Meta, createdByAdmin bool, overwriteDefault ...*CreateUserOverwriteOptions) (err error) {
+	if u.IsAuditor && !createdByAdmin {
+		return governance_model.ErrForbidden
+	}
 	if err = IsUsableUsername(u.Name); err != nil {
 		return err
 	}
@@ -731,7 +750,7 @@ func createUser(ctx context.Context, u *User, meta *Meta, createdByAdmin bool, o
 		}
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		isExist, err := IsUserExist(ctx, 0, u.Name)
 		if err != nil {
 			return err
@@ -782,6 +801,20 @@ func createUser(ctx context.Context, u *User, meta *Meta, createdByAdmin bool, o
 			return err
 		}
 
+		n := &governance_model.Namespace{ID: u.ID, Slug: u.Name, Kind: "user", Visibility: int(u.Visibility)}
+		if u.IsAuditor {
+			if err := appendAuditorAudit(ctx, u, false); err != nil {
+				return err
+			}
+		}
+		if err = governance_model.RegisterNativeNamespace(ctx, n); err != nil {
+			return err
+		}
+		u.NamespacePath = n.FullPath
+		if _, err = db.GetEngine(ctx).ID(u.ID).NoAutoTime().Cols("namespace_path").Update(u); err != nil {
+			return err
+		}
+
 		if setting.RecordUserSignupMetadata {
 			// insert initial IP and UserAgent
 			if err = SetUserSetting(ctx, u.ID, SignupIP, meta.InitialIP); err != nil {
@@ -799,13 +832,17 @@ func createUser(ctx context.Context, u *User, meta *Meta, createdByAdmin bool, o
 		}
 
 		// insert email address
-		return db.Insert(ctx, &EmailAddress{
+		primaryEmail := &EmailAddress{
 			UID:         u.ID,
 			Email:       u.Email,
 			LowerEmail:  strings.ToLower(u.Email),
 			IsActivated: u.IsActive,
 			IsPrimary:   true,
-		})
+		}
+		if err := db.Insert(ctx, primaryEmail); err != nil {
+			return err
+		}
+		return AppendLifecycleAudit(ctx, u, "user.created")
 	})
 }
 
@@ -955,22 +992,54 @@ func ValidateUser(u *User, cols ...string) error {
 
 // UpdateUserCols update user according special columns
 func UpdateUserCols(ctx context.Context, u *User, cols ...string) error {
-	if err := ValidateUser(u, cols...); err != nil {
-		return err
-	}
-
-	_, err := db.GetEngine(ctx).ID(u.ID).Cols(cols...).Update(u)
-	return err
+	return updateUserCols(ctx, u, cols, false)
 }
 
 // UpdateUserColsNoAutoTime update user according special columns
 func UpdateUserColsNoAutoTime(ctx context.Context, u *User, cols ...string) error {
+	return updateUserCols(ctx, u, cols, true)
+}
+
+func updateUserCols(ctx context.Context, u *User, cols []string, noAutoTime bool) error {
 	if err := ValidateUser(u, cols...); err != nil {
 		return err
 	}
-
-	_, err := db.GetEngine(ctx).ID(u.ID).Cols(cols...).NoAutoTime().Update(u)
-	return err
+	update := func(ctx context.Context) error {
+		session := db.GetEngine(ctx).ID(u.ID).Cols(cols...)
+		if noAutoTime {
+			session = session.NoAutoTime()
+		}
+		_, err := session.Update(u)
+		return err
+	}
+	needsLock := needsSecurityAudit(cols) || slices.ContainsFunc(cols, func(column string) bool {
+		return slices.Contains([]string{"visibility", "is_active", "prohibit_login", "is_admin", "is_auditor", "is_restricted", "type"}, column)
+	})
+	if !needsLock {
+		return update(ctx)
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", u.ID), governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
+		before, err := GetUserByID(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		if len(cols) == 0 || slices.Contains(cols, "is_auditor") {
+			if before.IsAuditor != u.IsAuditor {
+				if err := appendAuditorAudit(ctx, u, before.IsAuditor); err != nil {
+					return err
+				}
+			}
+		}
+		if err := appendSecurityAudit(ctx, before, u, cols); err != nil {
+			return err
+		}
+		if slices.Contains(cols, "visibility") {
+			if err := governance_model.SyncNativeVisibility(ctx, u.ID, int(u.Visibility)); err != nil {
+				return err
+			}
+		}
+		return update(ctx)
+	})
 }
 
 // GetInactiveUsers gets all inactive users

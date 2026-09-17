@@ -230,7 +230,10 @@ func DeleteGPGKey(ctx context.Context, doer *user_model.User, id int64) (err err
 
 	return db.WithTx(ctx, func(ctx context.Context) error {
 		_, err = deleteGPGKey(ctx, key.KeyID)
-		return err
+		if err != nil {
+			return err
+		}
+		return AppendGPGKeyAudit(ctx, key, "revoked")
 	})
 }
 

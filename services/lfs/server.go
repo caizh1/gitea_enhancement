@@ -20,6 +20,7 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	perm_model "gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -320,20 +321,17 @@ func UploadHandler(ctx *context.Context) {
 	}
 
 	contentStore := lfs_module.NewContentStore()
-	exists, err := contentStore.Exists(p)
-	if err != nil {
-		log.Error("Unable to check if LFS OID[%s] exist. Error: %v", p.Oid, err)
-		writeStatus(ctx, http.StatusInternalServerError)
-		return
-	}
-
-	uploadOrVerify := func() error {
+	uploadOrVerify := func(lockCtx stdCtx.Context) error {
+		exists, err := contentStore.Exists(p)
+		if err != nil {
+			return err
+		}
 		if exists {
 			// The bytes already exist in the content store. Only skip proof of
 			// possession when the object is already linked to *this* repo; never
 			// trust cross-repo access (ctx.Doer is the repo owner for deploy keys),
 			// which would let a caller link an object it cannot produce.
-			meta, err := git_model.GetLFSMetaObjectByOid(ctx, repository.ID, p.Oid)
+			meta, err := git_model.GetLFSMetaObjectByOid(lockCtx, repository.ID, p.Oid)
 			if err != nil && err != git_model.ErrLFSObjectNotExist {
 				log.Error("Unable to get LFS MetaObject [%s]. Error: %v", p.Oid, err)
 				return err
@@ -359,12 +357,12 @@ func UploadHandler(ctx *context.Context) {
 			log.Error("Error putting LFS MetaObject [%s] into content store. Error: %v", p.Oid, err)
 			return err
 		}
-		_, err := git_model.NewLFSMetaObject(ctx, repository.ID, p)
+		_, err = git_model.NewLFSMetaObject(lockCtx, repository.ID, p)
 		return err
 	}
 
 	defer ctx.Req.Body.Close()
-	if err := uploadOrVerify(); err != nil {
+	if err := governance_model.WithLFSContentLocks(ctx, []string{p.Oid}, uploadOrVerify); err != nil {
 		if errors.Is(err, lfs_module.ErrSizeMismatch) || errors.Is(err, lfs_module.ErrHashMismatch) {
 			log.Error("Upload does not match LFS MetaObject [%s]. Error: %v", p.Oid, err)
 			writeStatusMessage(ctx, http.StatusUnprocessableEntity, err.Error())

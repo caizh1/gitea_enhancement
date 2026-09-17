@@ -85,10 +85,7 @@
 							<td>{{DateUtils.AbsoluteShort .UpdatedUnix}}</td>
 							<td>{{DateUtils.AbsoluteShort .CreatedUnix}}</td>
 							<td>
-								<a class="tw-text-red show-modal" href data-modal="#admin-repo-delete-modal"
-									data-modal-form.url="{{$.Link}}/delete?page={{$.Page.Paginater.Current}}&sort={{$.SortType}}&id={{.ID}}"
-									data-modal-repo-name="{{.Name}}"
-								>{{svg "octicon-trash"}}</a>
+								<a class="tw-text-red tw-inline-flex tw-items-center" href="{{AppSubUrl}}/governance/repositories/{{.ID}}/deletion" aria-label="项目删除与恢复" title="项目删除与恢复">{{svg "octicon-trash"}}</a>
 							</td>
 						</tr>
 					{{else}}
@@ -101,14 +98,6 @@
 		{{template "base/paginate" .}}
 	</div>
 
-<form class="ui small modal form-fetch-action" id="admin-repo-delete-modal" method="post">
-	<div class="header">{{svg "octicon-trash"}} {{ctx.Locale.Tr "repo.settings.delete"}}</div>
-	<div class="content">
-		<p>{{ctx.Locale.Tr "repo.settings.delete_desc"}}</p>
-		{{ctx.Locale.Tr "repo.settings.delete_notices_2" (HTMLFormat `<span class="%s"></span>` "repo-name")}}<br>
-		{{ctx.Locale.Tr "repo.settings.delete_notices_fork_1"}}<br>
-	</div>
-	{{template "base/modal_actions_confirm" .}}
-</form>
+
 
 {{template "admin/layout_footer" .}}

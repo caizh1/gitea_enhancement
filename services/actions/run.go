@@ -156,6 +156,9 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 				return err
 			}
 		}
+		if err := actions_model.AppendRunAudit(ctx, run, "actions.run_triggered"); err != nil {
+			return err
+		}
 
 		return nil
 	}); err != nil {

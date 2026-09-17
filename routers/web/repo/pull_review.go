@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	pull_model "gitea.dev/models/pull"
@@ -20,6 +21,7 @@ import (
 	"gitea.dev/services/context"
 	"gitea.dev/services/context/upload"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
 	user_service "gitea.dev/services/user"
@@ -244,6 +246,16 @@ func SubmitReview(ctx *context.Context) {
 	// can not approve/reject your own PR
 	case issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject:
 		if issue.IsPoster(ctx.Doer.ID) {
+			if reviewType == issues_model.ReviewTypeApprove {
+				settings, err := governance_model.ResolveApprovalSettings(ctx, ctx.Repo.Repository.ID, ctx.Repo.Repository.OwnerID)
+				if err != nil {
+					ctx.ServerError("读取审批设置", err)
+					return
+				}
+				if !settings.Settings.PreventAuthor {
+					break
+				}
+			}
 			var translated string
 			if reviewType == issues_model.ReviewTypeApprove {
 				translated = ctx.Locale.TrString("repo.issues.review.self.approval")
@@ -262,9 +274,12 @@ func SubmitReview(ctx *context.Context) {
 		attachments = form.Files
 	}
 
-	_, comm, err := pull_service.SubmitReview(ctx, ctx.Doer, ctx.Repo.GitRepo, issue, reviewType, form.Content, form.CommitID, attachments)
+	_, comm, err := pull_service.SubmitReview(ctx, ctx.Doer, ctx.Repo.GitRepo, issue, reviewType, form.Content, form.CommitID, attachments, governance_service.ReviewAuthentication{Password: form.ApprovalPassword, Actor: governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")})
 	if err != nil {
-		if issues_model.IsContentEmptyErr(err) {
+		if errors.Is(err, governance_model.ErrForbidden) || errors.Is(err, governance_model.ErrConflict) {
+			ctx.Flash.Error(err.Error())
+			ctx.JSONRedirect(fmt.Sprintf("%s/pulls/%d/files", ctx.Repo.RepoLink, issue.Index))
+		} else if issues_model.IsContentEmptyErr(err) {
 			ctx.Flash.Error(ctx.Tr("repo.issues.review.content.empty"))
 			ctx.JSONRedirect(fmt.Sprintf("%s/pulls/%d/files", ctx.Repo.RepoLink, issue.Index))
 		} else if errors.Is(err, pull_service.ErrSubmitReviewOnClosedPR) {
@@ -280,7 +295,7 @@ func SubmitReview(ctx *context.Context) {
 // DismissReview dismissing stale review by repo admin
 func DismissReview(ctx *context.Context) {
 	form := web.GetForm(ctx).(*forms.DismissReviewForm)
-	comm, err := pull_service.DismissReview(ctx, form.ReviewID, ctx.Repo.Repository.ID, form.Message, ctx.Doer, true, true)
+	comm, err := pull_service.DismissReview(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), form.ReviewID, ctx.Repo.Repository.ID, form.Message, ctx.Doer, true, true)
 	if err != nil {
 		if pull_service.IsErrDismissRequestOnClosedPR(err) {
 			ctx.Status(http.StatusForbidden)

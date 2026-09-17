@@ -15,7 +15,7 @@
 			<h4 class="ui top attached header tw-font-normal flex-text-block tw-flex-wrap tw-py-2">
 				{{if not $.Repo}}
 					<span class="file tw-flex-1">
-						<a rel="nofollow" href="{{$repo.Link}}">{{$repo.FullName}}</a>
+						<a rel="nofollow" href="{{$repo.Link}}">{{$repo.FullPath}}</a>
 						{{if $repo.IsArchived}}
 							<span class="ui basic label">{{ctx.Locale.Tr "repo.desc.archived"}}</span>
 						{{end}}

@@ -5,19 +5,45 @@ package pull
 
 import (
 	"context"
+	governance_model "gitea.dev/models/governance"
+	governance_service "gitea.dev/services/governance"
 
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
 )
 
 func CreateOrUpdateProtectedBranch(ctx context.Context, repo *repo_model.Repository,
-	protectBranch *git_model.ProtectedBranch, whitelistOptions git_model.WhitelistOptions,
+	protectBranch *git_model.ProtectedBranch, whitelistOptions git_model.WhitelistOptions, approvals ...governance_service.BranchApprovalUpdate,
 ) error {
-	err := git_model.UpdateProtectBranch(ctx, repo, protectBranch, whitelistOptions)
+	var err error
+	if len(approvals) > 0 {
+		err = governance_service.SaveBranchApprovals(ctx, governance_model.AuditActor(ctx), repo.ID, approvals[0], func(tx context.Context) (int64, error) {
+			err := git_model.UpdateProtectBranch(tx, repo, protectBranch, whitelistOptions)
+			return protectBranch.ID, err
+		})
+	} else {
+		err = git_model.UpdateProtectBranch(ctx, repo, protectBranch, whitelistOptions)
+	}
 	if err != nil {
 		return err
 	}
 
+	if err := RefreshProtectedBranch(ctx, repo, protectBranch); err != nil {
+		return &ProtectionSavedRefreshError{Err: err}
+	}
+	return nil
+}
+
+// ProtectionSavedRefreshError 表示权威配置已经提交，不能把刷新失败报告为保存回滚。
+type ProtectionSavedRefreshError struct{ Err error }
+
+func (e *ProtectionSavedRefreshError) Error() string {
+	return "配置已保存，PR 状态刷新尚未完成；最终合并仍读取已保存配置"
+}
+func (e *ProtectionSavedRefreshError) Unwrap() error { return e.Err }
+
+// RefreshProtectedBranch 只调度派生状态，失败不撤销已提交的权威配置。
+func RefreshProtectedBranch(ctx context.Context, repo *repo_model.Repository, protectBranch *git_model.ProtectedBranch) error {
 	isPlainRule := !git_model.IsRuleNameSpecial(protectBranch.RuleName)
 	var isBranchExist bool
 	if isPlainRule {

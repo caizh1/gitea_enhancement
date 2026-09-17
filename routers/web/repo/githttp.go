@@ -31,6 +31,7 @@ import (
 	"gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 
 	"github.com/go-chi/cors"
@@ -254,6 +255,7 @@ func httpBase(ctx *context.Context, optGitService ...string) *serviceHandler {
 	if !isPull {
 		// if not "pull", then must be "push", and doer must exist
 		environ = repo_module.DoerPushingEnvironment(ctx.Doer, repo, isWiki)
+		environ = append(environ, repo_module.EnvPusherRemoteAddr+"="+ctx.RemoteAddr(), repo_module.EnvPusherTransport+"=git_http")
 	}
 
 	return &serviceHandler{serviceType, repo, isWiki, environ}
@@ -343,6 +345,16 @@ func (h *serviceHandler) sendFile(ctx *context.Context, contentType, file string
 		return
 	}
 
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "git_http"), h.repo, "access.git_http", map[string]any{"operation": "dumb_file", "path": file, "wiki": h.isWiki})
+		if err != nil {
+			ctx.ServerError("Git 访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
+	}
 	fs := gitrepo.GetRepoFS(h.getStorageRepo())
 	ctx.Resp.Header().Set("Content-Type", contentType)
 	http.ServeFileFS(ctx.Resp, ctx.Req, fs, path.Clean(file))
@@ -372,6 +384,23 @@ func serviceRPC(ctx *context.Context, service string) {
 	h := httpBase(ctx, "git-"+service)
 	if h == nil {
 		return
+	}
+
+	auditStatus := 0
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "git_http"), h.repo, "access.git_http", map[string]any{"operation": service, "wiki": h.isWiki})
+		if err != nil {
+			ctx.ServerError("Git 访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() {
+				if auditStatus == 0 {
+					auditStatus = ctx.WrittenStatus()
+				}
+				finish(auditStatus)
+			}()
+		}
 	}
 
 	expectedContentType := fmt.Sprintf("application/x-git-%s-request", service)
@@ -417,6 +446,7 @@ func serviceRPC(ctx *context.Context, service string) {
 		WithStdinCopy(reqBody).
 		WithStdoutCopy(ctx.Resp),
 	); err != nil {
+		auditStatus = http.StatusInternalServerError
 		if !gitcmd.IsErrorCanceledOrKilled(err) {
 			log.Error("Fail to serve RPC(%s) in %s: %v", service, h.getStorageRepo().RelativePath(), err)
 		}
@@ -467,6 +497,17 @@ func GetInfoRefs(ctx *context.Context) {
 		}
 		h.sendFile(ctx, "text/plain; charset=utf-8", "info/refs")
 		return
+	}
+
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "git_http"), h.repo, "access.git_http", map[string]any{"operation": "advertise_refs", "service": h.serviceType, "wiki": h.isWiki})
+		if err != nil {
+			ctx.ServerError("Git 访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 
 	cmd := prepareGitCmdWithAllowedService(h.serviceType, []string{ServiceTypeUploadPack, ServiceTypeReceivePack})

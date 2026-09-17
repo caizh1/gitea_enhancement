@@ -15,6 +15,7 @@ import (
 
 // AdminCreateUserForm form for admin to create user
 type AdminCreateUserForm struct {
+	Auditor            bool
 	LoginType          string `binding:"Required"`
 	LoginName          string
 	UserName           string `binding:"Required;Username;MaxSize(40)"`
@@ -56,8 +57,19 @@ func (f *AdminCreateUserForm) Validate(req *http.Request, errs binding.Errors) b
 	return middleware.Validate(errs, ctx.Data, f, ctx.Locale)
 }
 
+// AdminRenameUserForm 账号改名单独提交，避免路径修改与账户设置部分成功。
+type AdminRenameUserForm struct {
+	UserName string `binding:"Required;Username;MaxSize(40)"`
+}
+
+func (f *AdminRenameUserForm) Validate(req *http.Request, errs binding.Errors) binding.Errors {
+	ctx := context.GetValidateContext(req)
+	return middleware.Validate(errs, ctx.Data, f, ctx.Locale)
+}
+
 // AdminEditUserForm form for admin to create user
 type AdminEditUserForm struct {
+	Auditor                 bool
 	LoginType               string `binding:"Required"`
 	UserName                string `binding:"Username;MaxSize(40)"`
 	LoginName               string

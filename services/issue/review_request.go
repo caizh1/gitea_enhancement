@@ -6,6 +6,8 @@ package issue
 import (
 	"context"
 
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
@@ -14,6 +16,7 @@ import (
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
+	governance_service "gitea.dev/services/governance"
 	notify_service "gitea.dev/services/notify"
 )
 
@@ -39,6 +42,92 @@ func ReviewRequest(ctx context.Context, issue *issues_model.Issue, doer *user_mo
 	}
 
 	return comment, err
+}
+
+// GovernanceReviewRequest 添加审批规则产生的原生待办；重复请求由模型层幂等忽略。
+func GovernanceReviewRequest(ctx context.Context, issue *issues_model.Issue, doer, reviewer *user_model.User) error {
+	comment, err := issues_model.AddGovernanceReviewRequest(ctx, issue, reviewer, doer)
+	if err != nil || comment == nil {
+		return err
+	}
+	if comment.Assignee != nil {
+		reviewer = comment.Assignee
+	}
+	notify_service.PullRequestReviewRequest(ctx, doer, issue, reviewer, true, comment)
+	return nil
+}
+
+// SyncGovernanceReviewRequests 为新增的合格审批人补原生待办，不删除任何人工或历史请求。
+func SyncGovernanceReviewRequests(ctx context.Context, pr *issues_model.PullRequest, doer *user_model.User) {
+	if pr == nil || doer == nil || pr.HasMerged {
+		return
+	}
+	if err := pr.LoadIssue(ctx); err != nil {
+		log.Error("Load pull issue for governance review requests: %v", err)
+		return
+	}
+	if pr.Issue.IsClosed || pr.IsWorkInProgress(ctx) {
+		return
+	}
+	ids, err := governance_service.PullApprovalRequestUserIDs(ctx, doer.ID, pr.ID)
+	if err != nil {
+		log.Error("PullApprovalRequestUserIDs: %v", err)
+		return
+	}
+	for _, id := range ids {
+		if id == pr.Issue.PosterID {
+			continue
+		}
+		reviewer, err := user_model.GetUserByID(ctx, id)
+		if err != nil {
+			log.Error("Get governance approval reviewer %d: %v", id, err)
+			continue
+		}
+		if err := GovernanceReviewRequest(ctx, pr.Issue, doer, reviewer); err != nil {
+			log.Error("GovernanceReviewRequest: %v", err)
+		}
+	}
+}
+
+// SyncRepositoryGovernanceReviewRequests 为项目规则或设置变化后的开放 PR 补发新出现的原生待办。
+func SyncRepositoryGovernanceReviewRequests(ctx context.Context, repoID int64, doer *user_model.User) {
+	if repoID <= 0 || doer == nil {
+		return
+	}
+	var pulls []*issues_model.PullRequest
+	if err := db.GetEngine(ctx).Where("base_repo_id = ? AND has_merged = ?", repoID, false).Find(&pulls); err != nil {
+		log.Error("Load repository pull requests for governance review requests: %v", err)
+		return
+	}
+	for _, pr := range pulls {
+		SyncGovernanceReviewRequests(ctx, pr, doer)
+	}
+}
+
+// SyncScopeGovernanceReviewRequests 为实例或组策略变化后的后代项目补发原生待办。
+func SyncScopeGovernanceReviewRequests(ctx context.Context, scope string, scopeID int64, doer *user_model.User) {
+	if doer == nil {
+		return
+	}
+	var repos []*repo_model.Repository
+	query := db.GetEngine(ctx)
+	if scope == "group" {
+		namespace, err := governance_model.GetNamespace(ctx, scopeID)
+		if err != nil {
+			log.Error("Load governance scope for review requests: %v", err)
+			return
+		}
+		query = query.Where("owner_namespace = ? OR owner_namespace LIKE ?", namespace.FullPath, namespace.FullPath+"/%")
+	} else if scope != "instance" {
+		return
+	}
+	if err := query.Find(&repos); err != nil {
+		log.Error("Load governance scope repositories for review requests: %v", err)
+		return
+	}
+	for _, repo := range repos {
+		SyncRepositoryGovernanceReviewRequests(ctx, repo.ID, doer)
+	}
 }
 
 // isValidReviewRequest Check permission for ReviewRequest

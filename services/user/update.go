@@ -8,11 +8,13 @@ import (
 	"fmt"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	password_module "gitea.dev/modules/auth/password"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/structs"
+	"gitea.dev/modules/util"
 )
 
 type UpdateOptionField[T any] struct {
@@ -45,6 +47,7 @@ type UpdateOptions struct {
 	AllowImportLocal             optional.Option[bool]
 	MaxRepoCreation              optional.Option[int]
 	IsRestricted                 optional.Option[bool]
+	IsAuditor                    optional.Option[bool]
 	Visibility                   optional.Option[structs.VisibleType]
 	KeepActivityPrivate          optional.Option[bool]
 	Language                     optional.Option[string]
@@ -60,6 +63,10 @@ type UpdateOptions struct {
 
 func UpdateUser(ctx context.Context, u *user_model.User, opts *UpdateOptions) error {
 	cols := make([]string, 0, 20)
+	if opts.IsAuditor.Has() {
+		u.IsAuditor = opts.IsAuditor.Value()
+		cols = append(cols, "is_auditor")
+	}
 
 	if opts.KeepEmailPrivate.Has() {
 		u.KeepEmailPrivate = opts.KeepEmailPrivate.Value()
@@ -183,10 +190,22 @@ func UpdateUser(ctx context.Context, u *user_model.User, opts *UpdateOptions) er
 		cols = append(cols, "last_login_unix")
 	}
 
-	return user_model.UpdateUserCols(ctx, u, cols...)
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
+		fresh, err := user_model.GetUserByID(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.IsActive && opts.IsActive.Has() && !opts.IsActive.Value() {
+			if err := governance_model.EnsureUserCanLoseOwnerAccess(ctx, u.ID); err != nil {
+				return err
+			}
+		}
+		return user_model.UpdateUserCols(ctx, u, cols...)
+	})
 }
 
 type UpdateAuthOptions struct {
+	RecoveryCode       optional.Option[string]
 	LoginSource        optional.Option[int64]
 	LoginName          optional.Option[string]
 	Password           optional.Option[string]
@@ -195,6 +214,45 @@ type UpdateAuthOptions struct {
 }
 
 func UpdateAuth(ctx context.Context, u *user_model.User, opts *UpdateAuthOptions) error {
+	prepared := *u
+	if err := prepareAuth(ctx, &prepared, opts); err != nil {
+		return err
+	}
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
+		current, err := user_model.GetUserByID(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		if current.LoginType != u.LoginType || current.LoginSource != u.LoginSource || (opts.Password.Has() && current.Passwd != u.Passwd) {
+			return governance_model.ErrConflict
+		}
+		if !current.ProhibitLogin && opts.ProhibitLogin.Has() && opts.ProhibitLogin.Value() {
+			if err := governance_model.EnsureUserCanLoseOwnerAccess(ctx, u.ID); err != nil {
+				return err
+			}
+		}
+		if opts.RecoveryCode.Has() {
+			tf, err := auth_model.GetTwoFactorByUID(ctx, u.ID)
+			if err != nil {
+				return err
+			}
+			used, err := tf.ConsumeScratchToken(ctx, opts.RecoveryCode.Value())
+			if err != nil {
+				return err
+			} else if !used {
+				return util.NewInvalidArgumentErrorf("恢复码无效或已使用")
+			}
+		}
+		return saveAuth(ctx, &prepared, opts)
+	})
+	if err == nil {
+		*u = prepared
+	}
+	return err
+}
+
+// prepareAuth 密码检查可能访问外部服务，必须在治理写锁之外完成。
+func prepareAuth(ctx context.Context, u *user_model.User, opts *UpdateAuthOptions) error {
 	if opts.LoginSource.Has() {
 		source, err := auth_model.GetSourceByID(ctx, opts.LoginSource.Value())
 		if err != nil {
@@ -208,7 +266,6 @@ func UpdateAuth(ctx context.Context, u *user_model.User, opts *UpdateAuthOptions
 		u.LoginName = opts.LoginName.Value()
 	}
 
-	deleteAuthTokens := false
 	if opts.Password.Has() && (u.IsLocal() || u.IsOAuth2()) {
 		password := opts.Password.Value()
 
@@ -225,8 +282,6 @@ func UpdateAuth(ctx context.Context, u *user_model.User, opts *UpdateAuthOptions
 		if err := u.SetPassword(password); err != nil {
 			return err
 		}
-
-		deleteAuthTokens = true
 	}
 
 	if opts.MustChangePassword.Has() {
@@ -236,12 +291,96 @@ func UpdateAuth(ctx context.Context, u *user_model.User, opts *UpdateAuthOptions
 		u.ProhibitLogin = opts.ProhibitLogin.Value()
 	}
 
-	if err := user_model.UpdateUserCols(ctx, u, "login_type", "login_source", "login_name", "passwd", "passwd_hash_algo", "salt", "must_change_password", "prohibit_login"); err != nil {
+	return nil
+}
+
+func saveAuth(ctx context.Context, u *user_model.User, opts *UpdateAuthOptions) error {
+	cols := make([]string, 0, 9)
+	if opts.LoginSource.Has() {
+		cols = append(cols, "login_type", "login_source")
+	}
+	if opts.LoginName.Has() {
+		cols = append(cols, "login_name")
+	}
+	passwordChanged := opts.Password.Has() && (u.IsLocal() || u.IsOAuth2())
+	if passwordChanged {
+		cols = append(cols, "passwd", "passwd_hash_algo", "salt")
+	}
+	if opts.MustChangePassword.Has() {
+		cols = append(cols, "must_change_password")
+	}
+	if opts.ProhibitLogin.Has() {
+		cols = append(cols, "prohibit_login")
+	}
+	if len(cols) == 0 {
+		return nil
+	}
+	if err := user_model.UpdateUserCols(ctx, u, cols...); err != nil {
 		return err
 	}
 
-	if deleteAuthTokens {
-		return auth_model.DeleteAuthTokensByUserID(ctx, u.ID)
+	if passwordChanged {
+		if err := auth_model.DeleteAuthTokensByUserID(ctx, u.ID); err != nil {
+			return err
+		}
+		return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{
+			Type: "credential.password_changed", Actor: governance_model.AuditActor(ctx),
+			ScopeType: "user", ScopeID: u.ID, ObjectType: "user", ObjectID: u.ID,
+			ObjectPath: u.Name, Result: "success",
+		})
 	}
 	return nil
+}
+
+// UpdateAdminUser 将同次管理操作的数据库变更作为一个事务保存。
+func UpdateAdminUser(ctx context.Context, u *user_model.User, authOpts *UpdateAuthOptions, opts *UpdateOptions, email optional.Option[string], reset2FA bool) error {
+	prepared := *u
+	if err := prepareAuth(ctx, &prepared, authOpts); err != nil {
+		return err
+	}
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", u.ID), governance_model.Resource("group", u.ID)}, func(ctx context.Context) error {
+		actor := governance_model.AuditActor(ctx)
+		if actor.Kind != "system" {
+			for _, id := range []int64{actor.ID, actor.EffectiveUserID()} {
+				admin, err := user_model.GetUserByID(ctx, id)
+				if err != nil {
+					return err
+				}
+				if !admin.IsAdmin || !admin.IsActive || admin.ProhibitLogin {
+					return governance_model.ErrForbidden
+				}
+			}
+		}
+		current, err := user_model.GetUserByID(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		if current.LoginType != u.LoginType || current.LoginSource != u.LoginSource || (authOpts.Password.Has() && current.Passwd != u.Passwd) {
+			return governance_model.ErrConflict
+		}
+		if err := saveAuth(ctx, &prepared, authOpts); err != nil {
+			return err
+		}
+		current, err = user_model.GetUserByID(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		prepared = *current
+		if email.Has() {
+			if err := ReplacePrimaryEmailAddress(ctx, &prepared, email.Value()); err != nil {
+				return err
+			}
+		}
+		if err := UpdateUser(ctx, &prepared, opts); err != nil {
+			return err
+		}
+		if reset2FA {
+			return auth_model.DeleteUserMFA(ctx, u.ID)
+		}
+		return nil
+	})
+	if err == nil {
+		*u = prepared
+	}
+	return err
 }

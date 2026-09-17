@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	"gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
@@ -23,6 +24,9 @@ import (
 
 // Init initialize model
 func Init(ctx context.Context) error {
+	if err := governance.InitializeLegacyNamespaces(ctx); err != nil {
+		return err
+	}
 	return unit.LoadUnitConfig()
 }
 

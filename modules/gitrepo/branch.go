@@ -6,6 +6,7 @@ package gitrepo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"gitea.dev/modules/git"
@@ -67,6 +68,11 @@ func IsBranchExist(ctx context.Context, repo Repository, name string) bool {
 
 // DeleteBranch delete a branch by name on repository.
 func DeleteBranch(ctx context.Context, repo Repository, name string, force bool) error {
+	return DeleteBranchWithEnv(ctx, repo, name, force, nil)
+}
+
+// DeleteBranchWithEnv 删除分支并向引用事务 Hook 传递可信写入身份。
+func DeleteBranchWithEnv(ctx context.Context, repo Repository, name string, force bool, env []string) error {
 	cmd := gitcmd.NewCommand("branch")
 
 	if force {
@@ -76,21 +82,50 @@ func DeleteBranch(ctx context.Context, repo Repository, name string, force bool)
 	}
 
 	cmd.AddDashesAndList(name)
-	_, _, err := RunCmdString(ctx, repo, cmd)
+	_, _, err := RunCmdStringWithEnv(ctx, repo, cmd, env)
+	return err
+}
+
+// DeleteBranchReferenceWithEnv 使用调用者已读取的旧提交原子删除引用，避免并发新推送被误删。
+func DeleteBranchReferenceWithEnv(ctx context.Context, repo Repository, name, expectedOld string, env []string) error {
+	_, _, err := RunCmdStringWithEnv(ctx, repo, gitcmd.NewCommand("update-ref", "-d").AddDynamicArguments(git.BranchPrefix+name, expectedOld), env)
 	return err
 }
 
 // CreateBranch create a new branch
 func CreateBranch(ctx context.Context, repo Repository, branch, oldbranchOrCommit string) error {
+	return CreateBranchWithEnv(ctx, repo, branch, oldbranchOrCommit, nil)
+}
+
+// CreateBranchWithEnv 创建分支并向引用事务 Hook 传递可信写入身份。
+func CreateBranchWithEnv(ctx context.Context, repo Repository, branch, oldbranchOrCommit string, env []string) error {
 	cmd := gitcmd.NewCommand("branch")
 	cmd.AddDashesAndList(branch, oldbranchOrCommit)
 
-	_, _, err := RunCmdString(ctx, repo, cmd)
+	_, _, err := RunCmdStringWithEnv(ctx, repo, cmd, env)
 	return err
 }
 
 // RenameBranch rename a branch
 func RenameBranch(ctx context.Context, repo Repository, from, to string) error {
-	_, _, err := RunCmdString(ctx, repo, gitcmd.NewCommand("branch", "-m").AddDynamicArguments(from, to))
+	return RenameBranchWithEnv(ctx, repo, from, to, nil)
+
+}
+
+// RenameBranchWithEnv 改名分支并向引用事务 Hook 传递可信写入身份。
+func RenameBranchWithEnv(ctx context.Context, repo Repository, from, to string, env []string) error {
+	_, _, err := RunCmdStringWithEnv(ctx, repo, gitcmd.NewCommand("branch", "-m").AddDynamicArguments(from, to), env)
+	return err
+}
+
+// RenameBranchReferencesWithEnv 以单个 update-ref 事务同时创建新引用并删除旧引用。
+// HEAD 是符号引用，由上层在同一持久业务操作中单独核对和更新。
+func RenameBranchReferencesWithEnv(ctx context.Context, repo Repository, from, to string, env []string) error {
+	commitID, err := GetBranchCommitID(ctx, repo, from)
+	if err != nil {
+		return err
+	}
+	input := fmt.Sprintf("start\ncreate %s%s %s\ndelete %s%s %s\nprepare\ncommit\n", git.BranchPrefix, to, commitID, git.BranchPrefix, from, commitID)
+	_, _, err = RunCmdStringWithEnv(ctx, repo, gitcmd.NewCommand("update-ref", "--stdin").WithStdinBytes([]byte(input)), env)
 	return err
 }

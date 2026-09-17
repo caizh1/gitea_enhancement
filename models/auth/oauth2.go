@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
@@ -212,8 +213,29 @@ func (app *OAuth2Application) GenerateClientSecret(ctx context.Context) (string,
 	if err != nil {
 		return "", err
 	}
-	app.ClientSecret = string(hashedSecret)
-	if _, err := db.GetEngine(ctx).ID(app.ID).Cols("client_secret").Update(app); err != nil {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, err := GetOAuth2ApplicationByID(ctx, app.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.UID != app.UID || fresh.ClientID != app.ClientID {
+			return ErrOAuthApplicationNotFound{ID: app.ID}
+		}
+		candidate := *fresh
+		candidate.ClientSecret = string(hashedSecret)
+		affected, err := db.GetEngine(ctx).ID(app.ID).Cols("client_secret").Update(&candidate)
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			return ErrOAuthApplicationNotFound{ID: app.ID}
+		}
+		if err := appendOAuthApplicationAudit(ctx, fresh, &candidate, "secret_rotated"); err != nil {
+			return err
+		}
+		*app = candidate
+		return nil
+	}); err != nil {
 		return "", err
 	}
 	return clientSecret, nil
@@ -242,8 +264,12 @@ func (app *OAuth2Application) CreateGrant(ctx context.Context, userID int64, sco
 		UserID:        userID,
 		Scope:         scope,
 	}
-	err := db.Insert(ctx, grant)
-	if err != nil {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := db.Insert(ctx, grant); err != nil {
+			return err
+		}
+		return appendOAuthGrantAudit(ctx, grant, "oauth.authorization_granted")
+	}); err != nil {
 		return nil, err
 	}
 	return grant, nil
@@ -292,7 +318,12 @@ func CreateOAuth2Application(ctx context.Context, opts CreateOAuth2ApplicationOp
 		ConfidentialClient:         opts.ConfidentialClient,
 		SkipSecondaryAuthorization: opts.SkipSecondaryAuthorization,
 	}
-	if err := db.Insert(ctx, app); err != nil {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := db.Insert(ctx, app); err != nil {
+			return err
+		}
+		return appendOAuthApplicationAudit(ctx, nil, app, "created")
+	}); err != nil {
 		return nil, err
 	}
 	return app, nil
@@ -310,31 +341,37 @@ type UpdateOAuth2ApplicationOptions struct {
 
 // UpdateOAuth2Application updates an oauth2 application
 func UpdateOAuth2Application(ctx context.Context, opts UpdateOAuth2ApplicationOptions) (*OAuth2Application, error) {
-	return db.WithTx2(ctx, func(ctx context.Context) (*OAuth2Application, error) {
+	var updated *OAuth2Application
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		app, err := GetOAuth2ApplicationByID(ctx, opts.ID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if app.UID != opts.UserID {
-			return nil, errors.New("UID mismatch")
+			return errors.New("UID mismatch")
 		}
 		builtinApps := BuiltinApplications()
 		if _, builtin := builtinApps[app.ClientID]; builtin {
-			return nil, fmt.Errorf("failed to edit OAuth2 application: application is locked: %s", app.ClientID)
+			return fmt.Errorf("failed to edit OAuth2 application: application is locked: %s", app.ClientID)
 		}
 
+		before := *app
 		app.Name = opts.Name
 		app.RedirectURIs = opts.RedirectURIs
 		app.ConfidentialClient = opts.ConfidentialClient
 		app.SkipSecondaryAuthorization = opts.SkipSecondaryAuthorization
 
 		if err = updateOAuth2Application(ctx, app); err != nil {
-			return nil, err
+			return err
 		}
 		app.ClientSecret = ""
-
-		return app, nil
+		if err = appendOAuthApplicationAudit(ctx, &before, app, "updated"); err != nil {
+			return err
+		}
+		updated = app
+		return nil
 	})
+	return updated, err
 }
 
 func updateOAuth2Application(ctx context.Context, app *OAuth2Application) error {
@@ -375,7 +412,7 @@ func deleteOAuth2Application(ctx context.Context, id, userid int64) error {
 
 // DeleteOAuth2Application deletes the application with the given id and the grants and auth codes related to it. It checks if the userid was the creator of the app.
 func DeleteOAuth2Application(ctx context.Context, id, userid int64) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		app, err := GetOAuth2ApplicationByID(ctx, id)
 		if err != nil {
 			return err
@@ -384,7 +421,19 @@ func DeleteOAuth2Application(ctx context.Context, id, userid int64) error {
 		if _, builtin := builtinApps[app.ClientID]; builtin {
 			return fmt.Errorf("failed to delete OAuth2 application: application is locked: %s", app.ClientID)
 		}
-		return deleteOAuth2Application(ctx, id, userid)
+		var grants []*OAuth2Grant
+		if err := db.GetEngine(ctx).Where("application_id = ?", id).Find(&grants); err != nil {
+			return err
+		}
+		if err := deleteOAuth2Application(ctx, id, userid); err != nil {
+			return err
+		}
+		for _, grant := range grants {
+			if err := appendOAuthGrantAudit(ctx, grant, "oauth.authorization_revoked"); err != nil {
+				return err
+			}
+		}
+		return appendOAuthApplicationAudit(ctx, app, nil, "deleted")
 	})
 }
 
@@ -526,7 +575,12 @@ func (grant *OAuth2Grant) GenerateNewAuthorizationCode(ctx context.Context, redi
 		CodeChallengeMethod: codeChallengeMethod,
 		ValidUntil:          timeutil.TimeStamp(validUntil.Unix()),
 	}
-	if err := db.Insert(ctx, code); err != nil {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := db.Insert(ctx, code); err != nil {
+			return err
+		}
+		return appendOAuthGrantAudit(ctx, grant, "oauth.authorization_code_issued")
+	}); err != nil {
 		return nil, err
 	}
 	return code, nil
@@ -534,19 +588,25 @@ func (grant *OAuth2Grant) GenerateNewAuthorizationCode(ctx context.Context, redi
 
 // IncreaseCounter increases the counter and updates the grant
 func (grant *OAuth2Grant) IncreaseCounter(ctx context.Context) error {
-	affected, err := db.GetEngine(ctx).
-		Where("id = ?", grant.ID).
-		And("counter = ?", grant.Counter).
-		Incr("counter").
-		Update(new(OAuth2Grant))
-	if err != nil {
-		return err
+	originalCounter := grant.Counter
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		affected, err := db.GetEngine(ctx).
+			Where("id = ?", grant.ID).
+			And("counter = ?", grant.Counter).
+			Incr("counter").
+			Update(new(OAuth2Grant))
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return ErrOAuth2GrantStaleCounter
+		}
+		return nil
+	})
+	if err == nil {
+		grant.Counter = originalCounter + 1
 	}
-	if affected == 0 {
-		return ErrOAuth2GrantStaleCounter
-	}
-	grant.Counter++
-	return nil
+	return err
 }
 
 // ScopeContains returns true if the grant scope contains the specified scope
@@ -605,8 +665,19 @@ func GetOAuth2GrantsByUserID(ctx context.Context, uid int64) ([]*OAuth2Grant, er
 
 // RevokeOAuth2Grant deletes the grant with grantID and userID
 func RevokeOAuth2Grant(ctx context.Context, grantID, userID int64) error {
-	_, err := db.GetEngine(ctx).Where(builder.Eq{"id": grantID, "user_id": userID}).Delete(&OAuth2Grant{})
-	return err
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		grant, err := GetOAuth2GrantByID(ctx, grantID)
+		if err != nil {
+			return err
+		}
+		if grant == nil || grant.UserID != userID {
+			return nil
+		}
+		if _, err := db.GetEngine(ctx).Where(builder.Eq{"id": grantID, "user_id": userID}).Delete(&OAuth2Grant{}); err != nil {
+			return err
+		}
+		return appendOAuthGrantAudit(ctx, grant, "oauth.authorization_revoked")
+	})
 }
 
 // ErrOAuthClientIDInvalid will be thrown if client id cannot be found
@@ -667,17 +738,54 @@ func GetActiveOAuth2SourceByAuthName(ctx context.Context, name string) (*Source,
 }
 
 func DeleteOAuth2RelictsByUserID(ctx context.Context, userID int64) error {
-	deleteCond := builder.Select("id").From("oauth2_grant").Where(builder.Eq{"oauth2_grant.user_id": userID})
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		var apps []*OAuth2Application
+		if err := db.GetEngine(ctx).Where("uid = ?", userID).Find(&apps); err != nil {
+			return err
+		}
+		var grants []*OAuth2Grant
+		appIDs := make([]int64, 0, len(apps))
+		for _, app := range apps {
+			appIDs = append(appIDs, app.ID)
+		}
+		var grantCond builder.Cond = builder.Eq{"user_id": userID}
+		if len(appIDs) > 0 {
+			grantCond = builder.Or(grantCond, builder.In("application_id", appIDs))
+		}
+		if err := db.GetEngine(ctx).Where(grantCond).Find(&grants); err != nil {
+			return err
+		}
+		for _, app := range apps {
+			if err := appendOAuthApplicationAudit(ctx, app, nil, "deleted"); err != nil {
+				return err
+			}
+		}
+		for _, grant := range grants {
+			if err := appendOAuthGrantAudit(ctx, grant, "oauth.authorization_revoked"); err != nil {
+				return err
+			}
+		}
+		return deleteOAuth2RelictsByUserID(ctx, userID)
+	})
+}
+
+func deleteOAuth2RelictsByUserID(ctx context.Context, userID int64) error {
+	ownedApps := builder.Select("id").From("oauth2_application").Where(builder.Eq{"uid": userID})
+	deleteCond := builder.Select("id").From("oauth2_grant").Where(
+		builder.Or(builder.Eq{"oauth2_grant.user_id": userID}, builder.In("oauth2_grant.application_id", ownedApps)),
+	)
 
 	if _, err := db.GetEngine(ctx).In("grant_id", deleteCond).
 		Delete(&OAuth2AuthorizationCode{}); err != nil {
 		return err
 	}
+	if _, err := db.GetEngine(ctx).Where(
+		builder.Or(builder.Eq{"user_id": userID}, builder.In("application_id", ownedApps)),
+	).Delete(&OAuth2Grant{}); err != nil {
+		return err
+	}
 
-	if err := db.DeleteBeans(ctx,
-		&OAuth2Application{UID: userID},
-		&OAuth2Grant{UserID: userID},
-	); err != nil {
+	if err := db.DeleteBeans(ctx, &OAuth2Application{UID: userID}); err != nil {
 		return fmt.Errorf("DeleteBeans: %w", err)
 	}
 

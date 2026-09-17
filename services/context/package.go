@@ -162,6 +162,15 @@ func determineAccessMode(ctx *Base, pkgOwner, doer *user_model.User) (perm.Acces
 		}
 	}
 
+	if doer != nil && doer.IsAuditor {
+		auditor, err := user_model.IsActiveAuditor(ctx, doer.ID)
+		if err != nil {
+			return perm.AccessModeNone, err
+		}
+		if auditor {
+			accessMode = max(accessMode, perm.AccessModeRead)
+		}
+	}
 	return accessMode, nil
 }
 

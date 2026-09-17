@@ -9,7 +9,9 @@ import (
 
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
+	user_model "gitea.dev/models/user"
 )
 
 // AddPrincipalKey adds new principal to database and authorized_principals file.
@@ -23,7 +25,10 @@ func AddPrincipalKey(ctx context.Context, ownerID int64, content string, authSou
 		LoginSourceID: authSourceID,
 	}
 
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if _, err := user_model.GetUserByID(ctx, ownerID); err != nil {
+			return err
+		}
 		// Principals cannot be duplicated.
 		has, err := db.GetEngine(ctx).
 			Where("content = ? AND type = ?", content, asymkey_model.KeyTypePrincipal).
@@ -39,10 +44,10 @@ func AddPrincipalKey(ctx context.Context, ownerID int64, content string, authSou
 		if err = db.Insert(ctx, key); err != nil {
 			return fmt.Errorf("addKey: %w", err)
 		}
-		return nil
+		return asymkey_model.AppendPublicKeyAudit(ctx, key, "credential.ssh_key_created")
 	}); err != nil {
 		return nil, err
 	}
 
-	return key, RewriteAllPrincipalKeys(ctx)
+	return key, SyncSSHKeyFiles(ctx)
 }

@@ -6,6 +6,7 @@ package issue
 import (
 	"testing"
 
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -33,6 +34,7 @@ func TestGetRefEndNamesAndURLs(t *testing.T) {
 
 func TestIssue_DeleteIssue(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	issueIDs, err := issues_model.GetIssueIDsByRepoID(t.Context(), 1)
 	assert.NoError(t, err)

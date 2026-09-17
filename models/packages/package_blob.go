@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -39,6 +40,19 @@ type PackageBlob struct {
 
 // GetOrInsertBlob inserts a blob. If the blob exists already the existing blob is returned
 func GetOrInsertBlob(ctx context.Context, pb *PackageBlob) (*PackageBlob, bool, error) {
+	var result *PackageBlob
+	var exists bool
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		return governance_model.WithPackageContentLocks(ctx, []string{pb.HashSHA256}, func(ctx context.Context) error {
+			var err error
+			result, exists, err = getOrInsertBlob(ctx, pb)
+			return err
+		})
+	})
+	return result, exists, err
+}
+
+func getOrInsertBlob(ctx context.Context, pb *PackageBlob) (*PackageBlob, bool, error) {
 	e := db.GetEngine(ctx)
 
 	existing := &PackageBlob{}

@@ -6,13 +6,16 @@ package setting
 
 import (
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	unit_model "gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -33,6 +36,7 @@ import (
 	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	"gitea.dev/services/migrations"
 	mirror_service "gitea.dev/services/mirror"
 	repo_service "gitea.dev/services/repository"
@@ -59,6 +63,13 @@ type selectOption struct {
 // SettingsCtxData is a middleware that sets all the general context data for the
 // settings template.
 func SettingsCtxData(ctx *context.Context) {
+	canManageProject, err := access_model.HasGovernanceAbility(ctx, ctx.Repo.Repository, ctx.Doer, governance_model.ManageProject)
+	if err != nil {
+		ctx.ServerError("HasGovernanceAbility", err)
+		return
+	}
+	ctx.Data["CanManageProject"] = canManageProject
+	ctx.Data["GovernanceManageProjectOnly"] = canManageProject && !ctx.Repo.Permission.IsAdmin()
 	ctx.Data["Title"] = ctx.Tr("repo.settings.options")
 	ctx.Data["PageIsSettingsOptions"] = true
 	ctx.Data["ForcePrivate"] = setting.Repository.ForcePrivate
@@ -74,6 +85,14 @@ func SettingsCtxData(ctx *context.Context) {
 	ctx.Data["SigningSettings"] = setting.Repository.Signing
 	ctx.Data["IsRepoIndexerEnabled"] = setting.Indexer.RepoIndexerEnabled
 	preparePullRequestSettings(ctx)
+	if targetID := ctx.FormInt64("transfer_preview_target"); targetID > 0 && ctx.Doer != nil && ctx.Repo.Permission.IsOwner() {
+		impact, err := repo_service.PreviewRepositoryTransfer(ctx, ctx.Doer.ID, ctx.Repo.Repository.ID, targetID)
+		if err != nil {
+			ctx.Data["TransferPreviewError"] = "项目或目标命名空间已变化，请重新预览。"
+		} else {
+			ctx.Data["TransferImpact"] = impact
+		}
+	}
 
 	if ctx.Doer.IsAdmin {
 		if setting.Indexer.RepoIndexerEnabled {
@@ -152,7 +171,12 @@ func SettingsPost(ctx *context.Context) {
 	ctx.Data["SigningSettings"] = setting.Repository.Signing
 	ctx.Data["IsRepoIndexerEnabled"] = setting.Indexer.RepoIndexerEnabled
 
-	switch ctx.FormString("action") {
+	action := ctx.FormString("action")
+	if !ctx.Repo.Permission.IsAdmin() && action != "update" {
+		ctx.NotFound(nil)
+		return
+	}
+	switch action {
 	case "update":
 		handleSettingsPostUpdate(ctx)
 	case "mirror":
@@ -181,6 +205,8 @@ func SettingsPost(ctx *context.Context) {
 		handleSettingsPostConvertFork(ctx)
 	case "transfer":
 		handleSettingsPostTransfer(ctx)
+	case "transfer_preview":
+		handleSettingsPostTransferPreview(ctx)
 	case "cancel_transfer":
 		handleSettingsPostCancelTransfer(ctx)
 	case "delete":
@@ -196,6 +222,35 @@ func SettingsPost(ctx *context.Context) {
 	default:
 		ctx.NotFound(nil)
 	}
+}
+
+func handleSettingsPostTransferPreview(ctx *context.Context) {
+	form := web.GetForm(ctx).(*forms.RepoSettingForm)
+	if !ctx.Repo.Permission.IsOwner() {
+		ctx.JSONErrorNotFound()
+		return
+	}
+	if ctx.Repo.Repository.Name != form.RepoName {
+		ctx.JSONError(ctx.Tr("form.enterred_invalid_repo_name"))
+		return
+	}
+	targetPath := strings.TrimSpace(ctx.FormString("new_owner_name"))
+	var target *user_model.User
+	var err error
+	if resource, resolveErr := governance_model.ResolvePath(ctx, targetPath); resolveErr == nil && (resource.Kind == "group" || resource.Kind == "user") {
+		target, err = user_model.GetUserByID(ctx, resource.ResourceID)
+	} else {
+		target, err = user_model.GetUserByName(ctx, targetPath)
+	}
+	if err != nil {
+		ctx.JSONError(ctx.Tr("form.enterred_invalid_owner_name"))
+		return
+	}
+	if _, err := repo_service.PreviewRepositoryTransfer(ctx, ctx.Doer.ID, ctx.Repo.Repository.ID, target.ID); err != nil {
+		ctx.JSONError(ctx.Tr("form.enterred_invalid_owner_name"))
+		return
+	}
+	ctx.JSONRedirect(fmt.Sprintf("%s/settings?transfer_preview_target=%d", ctx.Repo.Repository.Link(), target.ID))
 }
 
 func handleSettingsPostUpdate(ctx *context.Context) {
@@ -291,7 +346,7 @@ func handleSettingsPostMirror(ctx *context.Context) {
 	pullMirror.EnablePrune = form.EnablePrune
 	pullMirror.Interval = interval
 	pullMirror.ScheduleNextUpdate()
-	if err := repo_model.UpdateMirror(ctx, pullMirror); err != nil {
+	if err := mirror_service.UpdatePullMirrorConfiguration(ctx, pullMirror); err != nil {
 		ctx.ServerError("UpdateMirror", err)
 		return
 	}
@@ -353,7 +408,7 @@ func handleSettingsPostMirror(ctx *context.Context) {
 
 	pullMirror.LFS = form.LFS
 	pullMirror.LFSEndpoint = form.LFSEndpoint
-	if err := repo_model.UpdateMirror(ctx, pullMirror); err != nil {
+	if err := mirror_service.UpdatePullMirrorConfiguration(ctx, pullMirror); err != nil {
 		ctx.ServerError("UpdateMirror", err)
 		return
 	}
@@ -422,7 +477,7 @@ func handleSettingsPostPushMirrorUpdate(ctx *context.Context) {
 	}
 
 	m.Interval = interval
-	if err := repo_model.UpdatePushMirrorInterval(ctx, m); err != nil {
+	if err := mirror_service.UpdatePushMirrorInterval(ctx, m); err != nil {
 		ctx.ServerError("UpdatePushMirrorInterval", err)
 		return
 	}
@@ -457,13 +512,8 @@ func handleSettingsPostPushMirrorRemove(ctx *context.Context) {
 		return
 	}
 
-	if err := mirror_service.RemovePushMirrorRemote(ctx, m); err != nil {
-		ctx.ServerError("RemovePushMirrorRemote", err)
-		return
-	}
-
-	if err := repo_model.DeletePushMirrors(ctx, repo_model.PushMirrorOptions{ID: m.ID, RepoID: m.RepoID}); err != nil {
-		ctx.ServerError("DeletePushMirrorByID", err)
+	if err := mirror_service.DeletePushMirror(ctx, m); err != nil {
+		ctx.ServerError("DeletePushMirror", err)
 		return
 	}
 
@@ -518,16 +568,8 @@ func handleSettingsPostPushMirrorAdd(ctx *context.Context) {
 		Interval:      interval,
 		RemoteAddress: remoteAddress,
 	}
-	if err := db.Insert(ctx, m); err != nil {
-		ctx.ServerError("InsertPushMirror", err)
-		return
-	}
-
-	if err := mirror_service.AddPushMirrorRemote(ctx, m, address); err != nil {
-		if err := repo_model.DeletePushMirrors(ctx, repo_model.PushMirrorOptions{ID: m.ID, RepoID: m.RepoID}); err != nil {
-			log.Error("DeletePushMirrors %v", err)
-		}
-		ctx.ServerError("AddPushMirrorRemote", err)
+	if err := mirror_service.CreatePushMirror(ctx, m, address); err != nil {
+		ctx.ServerError("CreatePushMirror", err)
 		return
 	}
 
@@ -854,7 +896,7 @@ func handleSettingsPostTransfer(ctx *context.Context) {
 		return
 	}
 
-	newOwner, err := user_model.GetUserByName(ctx, ctx.FormString("new_owner_name"))
+	newOwner, err := user_model.GetUserByID(ctx, ctx.FormInt64("target_owner_id"))
 	if err != nil {
 		if user_model.IsErrUserNotExist(err) {
 			ctx.JSONError(ctx.Tr("form.enterred_invalid_owner_name"))
@@ -862,6 +904,15 @@ func handleSettingsPostTransfer(ctx *context.Context) {
 		}
 		ctx.ServerError("IsUserExist", err)
 		return
+	}
+	impact := &repo_service.RepositoryTransferImpact{
+		RepositoryID:      repo.ID,
+		SourceOwnerID:     ctx.FormInt64("source_owner_id"),
+		TargetOwnerID:     ctx.FormInt64("target_owner_id"),
+		SourceStatus:      repo_model.RepositoryStatus(ctx.FormInt("source_status")),
+		SourceName:        ctx.FormString("source_name"),
+		TargetOwnerName:   ctx.FormString("target_owner_name"),
+		ImpactFingerprint: ctx.FormString("impact_fingerprint"),
 	}
 
 	if newOwner.Type == user_model.UserTypeOrganization {
@@ -879,7 +930,7 @@ func handleSettingsPostTransfer(ctx *context.Context) {
 	}
 
 	oldFullname := repo.FullName()
-	if err := repo_service.StartRepositoryTransfer(ctx, ctx.Doer, newOwner, repo, nil); err != nil {
+	if err := repo_service.StartRepositoryTransferAfterPreview(ctx, ctx.Doer, newOwner, repo, nil, impact); err != nil {
 		if repo_model.IsErrRepoAlreadyExist(err) {
 			ctx.JSONError(ctx.Tr("repo.settings.new_owner_has_same_repo"))
 		} else if repo_model.IsErrRepoTransferInProgress(err) {
@@ -951,14 +1002,14 @@ func handleSettingsPostDelete(ctx *context.Context) {
 		ctx.Repo.GitRepo.Close()
 	}
 
-	if err := repo_service.DeleteRepository(ctx, ctx.Doer, ctx.Repo.Repository, true); err != nil {
+	if _, err := repo_service.ScheduleRepositoryDeletion(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), repo.ID, repo_service.DeletionOption{ConfirmationPath: repo.FullPath()}); err != nil {
 		ctx.ServerError("DeleteRepository", err)
 		return
 	}
 	log.Trace("Repository deleted: %s/%s", ctx.Repo.Owner.Name, repo.Name)
 
-	ctx.Flash.Success(ctx.Tr("repo.settings.deletion_success"))
-	ctx.JSONRedirect(ctx.Repo.Owner.DashboardLink())
+	ctx.Flash.Success("项目已进入可恢复的待删除状态。")
+	ctx.JSONRedirect(fmt.Sprintf("%s/governance/repositories/%d/deletion", setting.AppSubURL, repo.ID))
 }
 
 func handleSettingsPostDeleteWiki(ctx *context.Context) {
@@ -996,7 +1047,7 @@ func handleSettingsPostArchive(ctx *context.Context) {
 		return
 	}
 
-	if err := repo_model.SetArchiveRepoState(ctx, repo, true); err != nil {
+	if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), repo, true); err != nil {
 		log.Error("Tried to archive a repo: %s", err)
 		ctx.Flash.Error(ctx.Tr("repo.settings.archive.error"))
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings")
@@ -1023,7 +1074,7 @@ func handleSettingsPostUnarchive(ctx *context.Context) {
 		return
 	}
 
-	if err := repo_model.SetArchiveRepoState(ctx, repo, false); err != nil {
+	if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), repo, false); err != nil {
 		log.Error("Tried to unarchive a repo: %s", err)
 		ctx.Flash.Error(ctx.Tr("repo.settings.unarchive.error"))
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings")
@@ -1052,7 +1103,11 @@ func handleSettingsPostVisibility(ctx *context.Context) {
 		return
 	}
 
-	private := ctx.FormOptionalBool("private").ValueOrDefault(true) // default to true for privacy & safety
+	visibility := ctx.FormInt("visibility")
+	if visibility < repo_model.VisibilityPublic || visibility > repo_model.VisibilityPrivate {
+		visibility = repo_model.VisibilityPrivate // 未知输入按最安全的私有处理
+	}
+	private := visibility != repo_model.VisibilityPublic
 
 	// when ForcePrivate enabled, you could change public repo to private, but only admin users can change private to public
 	if !private && setting.Repository.ForcePrivate && !ctx.Doer.IsAdmin {
@@ -1064,7 +1119,7 @@ func handleSettingsPostVisibility(ctx *context.Context) {
 		return
 	}
 
-	err := repo_service.MakeRepoPrivate(ctx, repo, private)
+	err := repo_service.MakeRepoVisibility(ctx, repo, visibility)
 	if err != nil {
 		log.Error("Tried to change the visibility of the repo: %s", err)
 		ctx.JSONError(ctx.Tr("repo.settings.visibility.error"))

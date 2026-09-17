@@ -4,7 +4,7 @@
 			<div class="ui floating dropdown jump">
 				<span class="text">
 					{{ctx.AvatarUtils.Avatar .ContextUser 24 "tw-mr-1"}}
-					<span class="gt-ellipsis">{{.ContextUser.ShortName 40}}</span>
+					<span class="gt-ellipsis">{{.ContextUser.FullPath}}</span>
 					<span class="org-visibility">
 						{{if .ContextUser.Visibility.IsLimited}}<div class="ui basic tiny horizontal label">{{ctx.Locale.Tr "org.settings.visibility.limited_shortname"}}</div>{{end}}
 						{{if .ContextUser.Visibility.IsPrivate}}<div class="ui basic tiny horizontal label">{{ctx.Locale.Tr "org.settings.visibility.private_shortname"}}</div>{{end}}
@@ -25,9 +25,9 @@
 							</span>
 						</a>
 						{{range .Orgs}}
-							<a class="{{if eq $.ContextUser.ID .ID}}active selected{{end}} item" title="{{.Name}}" href="{{.OrganisationLink}}/{{if $.PageIsIssues}}issues{{else if $.PageIsPulls}}pulls{{else if $.PageIsMilestonesDashboard}}milestones{{else}}dashboard{{end}}">
+							<a class="{{if eq $.ContextUser.ID .ID}}active selected{{end}} item" title="{{.FullPath}}" href="{{.OrganisationLink}}/{{if $.PageIsIssues}}issues{{else if $.PageIsPulls}}pulls{{else if $.PageIsMilestonesDashboard}}milestones{{else}}dashboard{{end}}">
 								{{ctx.AvatarUtils.Avatar .}}
-								<span class="gt-ellipsis">{{.ShortName 40}}</span>
+								<span class="gt-ellipsis">{{.FullPath}}</span>
 								<span class="org-visibility">
 									{{if .Visibility.IsLimited}}<div class="ui basic tiny horizontal label">{{ctx.Locale.Tr "org.settings.visibility.limited_shortname"}}</div>{{end}}
 									{{if .Visibility.IsPrivate}}<div class="ui basic tiny horizontal label">{{ctx.Locale.Tr "org.settings.visibility.private_shortname"}}</div>{{end}}
@@ -65,7 +65,7 @@
 							</a>
 							{{range .Teams}}
 								{{if not .IncludesAllRepositories}}
-									<a class="{{if $.Team}}{{if eq $.Team.ID .ID}}active selected{{end}}{{end}} item" title="{{.Name}}" href="{{$.Org.OrganisationLink}}/{{if $.PageIsIssues}}issues{{else if $.PageIsPulls}}pulls{{else if $.PageIsMilestonesDashboard}}milestones{{else}}dashboard{{end}}/{{.Name}}">
+									<a class="{{if $.Team}}{{if eq $.Team.ID .ID}}active selected{{end}}{{end}} item" title="{{.FullPath}}" href="{{$.Org.OrganisationLink}}/{{if $.PageIsIssues}}issues{{else if $.PageIsPulls}}pulls{{else if $.PageIsMilestonesDashboard}}milestones{{else}}dashboard{{end}}/{{.Name}}">
 										{{.Name}}
 									</a>
 								{{end}}

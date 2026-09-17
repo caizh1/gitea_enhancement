@@ -5,6 +5,7 @@
 package admin
 
 import (
+	stdcontext "context"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/base"
 	"gitea.dev/modules/cache"
 	"gitea.dev/modules/graceful"
@@ -141,6 +143,7 @@ func Dashboard(ctx *context.Context) {
 	updateSystemStatus()
 	ctx.Data["SysStatus"] = sysStatus
 	ctx.Data["SSH"] = setting.SSH
+	ctx.Data["AuditHealth"] = governance_model.AuditHealthStatus()
 	prepareStartupProblemsAlert(ctx)
 	ctx.HTML(http.StatusOK, tplDashboard)
 }
@@ -161,25 +164,40 @@ func DashboardPost(ctx *context.Context) {
 
 	// Run operation.
 	if form.Op != "" {
+		actor := governance_model.AuditActor(ctx)
+		if form.Op != "sync_repo_branches" && form.Op != "sync_repo_tags" && cron.GetTask(form.Op) == nil {
+			ctx.Flash.Error(ctx.Tr("admin.dashboard.task.unknown", form.Op))
+			ctx.Redirect(setting.AppSubURL + "/-/admin")
+			return
+		} else if err := appendAdminTaskAudit(ctx, actor, "admin.task_triggered", form.Op, "success"); err != nil {
+			ctx.ServerError("AppendAdminTaskAudit", err)
+			return
+		}
 		switch form.Op {
 		case "sync_repo_branches":
 			go func() {
+				result := "success"
 				if err := repo_service.AddAllRepoBranchesToSyncQueue(graceful.GetManager().ShutdownContext()); err != nil {
+					result = "failure"
 					log.Error("AddAllRepoBranchesToSyncQueue: %v: %v", ctx.Doer.ID, err)
 				}
+				_ = appendAdminTaskAudit(graceful.GetManager().ShutdownContext(), actor, "admin.task_completed", form.Op, result)
 			}()
 			ctx.Flash.Success(ctx.Tr("admin.dashboard.sync_branch.started"))
 		case "sync_repo_tags":
 			go func() {
+				result := "success"
 				if err := release_service.AddAllRepoTagsToSyncQueue(graceful.GetManager().ShutdownContext()); err != nil {
+					result = "failure"
 					log.Error("AddAllRepoTagsToSyncQueue: %v: %v", ctx.Doer.ID, err)
 				}
+				_ = appendAdminTaskAudit(graceful.GetManager().ShutdownContext(), actor, "admin.task_completed", form.Op, result)
 			}()
 			ctx.Flash.Success(ctx.Tr("admin.dashboard.sync_tag.started"))
 		default:
 			task := cron.GetTask(form.Op)
 			if task != nil {
-				go task.RunWithUser(ctx.Doer, nil)
+				go task.RunWithAuditActor(ctx.Doer, actor, nil)
 				ctx.Flash.Success(ctx.Tr("admin.dashboard.task.started", ctx.Tr("admin.dashboard."+form.Op)))
 			} else {
 				ctx.Flash.Error(ctx.Tr("admin.dashboard.task.unknown", form.Op))
@@ -191,6 +209,14 @@ func DashboardPost(ctx *context.Context) {
 	} else {
 		ctx.Redirect(setting.AppSubURL + "/-/admin")
 	}
+}
+
+func appendAdminTaskAudit(ctx stdcontext.Context, actor governance_model.Actor, eventType, task, result string) error {
+	details, err := json.Marshal(map[string]any{"task": task})
+	if err != nil {
+		return err
+	}
+	return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: eventType, Actor: actor, ScopeType: "instance", ObjectType: "admin_task", ObjectPath: task, Result: result, Details: details})
 }
 
 func SelfCheck(ctx *context.Context) {

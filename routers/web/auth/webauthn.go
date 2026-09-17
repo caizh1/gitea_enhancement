@@ -15,6 +15,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -93,7 +94,7 @@ func WebAuthnPasskeyLogin(ctx *context.Context) {
 	if err != nil {
 		// Failed authentication attempt.
 		log.Info("Failed authentication attempt from %s: %v", ctx.RemoteAddr(), err)
-		ctx.Status(http.StatusForbidden)
+		rejectWebAuthnLogin(ctx, user, http.StatusForbidden)
 		return
 	}
 	cred, err := wa.WebAuthn.ValidateDiscoverableLogin(func(rawID, userHandle []byte) (webauthn.User, error) {
@@ -113,17 +114,17 @@ func WebAuthnPasskeyLogin(ctx *context.Context) {
 	if err != nil {
 		// Failed authentication attempt.
 		log.Info("Failed authentication attempt for passkey from %s: %v", ctx.RemoteAddr(), err)
-		ctx.Status(http.StatusForbidden)
+		rejectWebAuthnLogin(ctx, user, http.StatusForbidden)
 		return
 	}
 
 	if !cred.Flags.UserPresent {
-		ctx.Status(http.StatusBadRequest)
+		rejectWebAuthnLogin(ctx, user, http.StatusBadRequest)
 		return
 	}
 
 	if user == nil {
-		ctx.Status(http.StatusBadRequest)
+		rejectWebAuthnLogin(ctx, user, http.StatusBadRequest)
 		return
 	}
 
@@ -131,7 +132,7 @@ func WebAuthnPasskeyLogin(ctx *context.Context) {
 	// (This is set if the sign counter is less than the one we have stored.)
 	if cred.Authenticator.CloneWarning {
 		log.Info("Failed authentication attempt for %s from %s: cloned credential", user.Name, ctx.RemoteAddr())
-		ctx.Status(http.StatusForbidden)
+		rejectWebAuthnLogin(ctx, user, http.StatusForbidden)
 		return
 	}
 
@@ -155,6 +156,9 @@ func WebAuthnPasskeyLogin(ctx *context.Context) {
 
 	remember := false // TODO: implement remember me
 	handleSignInFull(ctx, user, remember)
+	if ctx.Written() {
+		return
+	}
 	ctx.JSONRedirect(consumeAuthRedirectLink(ctx))
 }
 
@@ -225,7 +229,7 @@ func WebAuthnLoginAssertionPost(ctx *context.Context) {
 	if err != nil {
 		// Failed authentication attempt.
 		log.Info("Failed authentication attempt for %s from %s: %v", user.Name, ctx.RemoteAddr(), err)
-		ctx.Status(http.StatusForbidden)
+		rejectWebAuthnLogin(ctx, user, http.StatusForbidden)
 		return
 	}
 
@@ -235,7 +239,7 @@ func WebAuthnLoginAssertionPost(ctx *context.Context) {
 	if err != nil {
 		// Failed authentication attempt.
 		log.Info("Failed authentication attempt for %s from %s: %v", user.Name, ctx.RemoteAddr(), err)
-		ctx.Status(http.StatusForbidden)
+		rejectWebAuthnLogin(ctx, user, http.StatusForbidden)
 		return
 	}
 
@@ -243,7 +247,7 @@ func WebAuthnLoginAssertionPost(ctx *context.Context) {
 	// (This is set if the sign counter is less than the one we have stored.)
 	if cred.Authenticator.CloneWarning {
 		log.Info("Failed authentication attempt for %s from %s: cloned credential", user.Name, ctx.RemoteAddr())
-		ctx.Status(http.StatusForbidden)
+		rejectWebAuthnLogin(ctx, user, http.StatusForbidden)
 		return
 	}
 
@@ -267,6 +271,21 @@ func WebAuthnLoginAssertionPost(ctx *context.Context) {
 
 	remember := ctx.Session.Get("twofaRemember").(bool)
 	handleSignInFull(ctx, user, remember)
+	if ctx.Written() {
+		return
+	}
 	_ = ctx.Session.Delete("twofaUid")
 	ctx.JSONRedirect(consumeAuthRedirectLink(ctx))
+}
+
+func rejectWebAuthnLogin(ctx *context.Context, user *user_model.User, status int) {
+	var targetID int64
+	if user != nil {
+		targetID = user.ID
+	}
+	if err := governance_service.RecordFailedLogin(ctx, targetID, "", ctx.RemoteAddr(), "webauthn"); err != nil {
+		ctx.ServerError("RecordLogin", err)
+		return
+	}
+	ctx.Status(status)
 }

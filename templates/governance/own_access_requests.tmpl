@@ -1,0 +1,16 @@
+{{template "base/head" .}}
+<div role="main" class="page-content governance own-access-requests">
+ <div class="ui container tw-py-6">
+  {{template "base/alert" .}}
+  <h2>我的访问申请</h2>
+  <p>这里显示申请时的资源名称。资源后来改名或转为私有，不影响撤回自己的待处理申请。</p>
+  {{range .Requests}}
+   <div class="ui segment">
+    <div class="tw-flex tw-items-center tw-justify-between tw-gap-2 tw-flex-wrap"><strong class="tw-break-all">{{.ScopePath}}</strong><span>{{DateUtils.FullTime .CreatedUnix}}</span></div>
+    <form class="tw-mt-3" method="post" action="{{AppSubUrl}}/governance/access-requests">{{$.CsrfTokenHtml}}<input type="hidden" name="request_id" value="{{.ID}}"><button class="ui button">撤回申请</button></form>
+   </div>
+  {{else}}<p>暂无待处理申请。</p>{{end}}
+  {{if .NextID}}<a class="ui button" href="?after_id={{.NextID}}">下一页申请</a>{{end}}
+ </div>
+</div>
+{{template "base/footer" .}}

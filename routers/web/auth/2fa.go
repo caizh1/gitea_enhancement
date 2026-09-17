@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/session"
 	"gitea.dev/modules/setting"
@@ -15,6 +16,7 @@ import (
 	"gitea.dev/modules/web"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 )
 
 var (
@@ -83,6 +85,10 @@ func TwoFactorPost(ctx *context.Context) {
 		return
 	}
 
+	if err := governance_service.RecordFailedLogin(ctx, id, "", ctx.RemoteAddr(), "totp"); err != nil {
+		ctx.ServerError("RecordLogin", err)
+		return
+	}
 	ctx.RenderWithErrDeprecated(ctx.Tr("auth.twofa_passcode_incorrect"), tplTwofa, forms.TwoFactorAuthForm{})
 }
 
@@ -122,25 +128,19 @@ func TwoFactorScratchPost(ctx *context.Context) {
 		return
 	}
 
-	// Validate the passcode with the stored TOTP secret.
-	if twofa.VerifyScratchToken(form.Token) {
-		// Invalidate the scratch token.
-		_, err = twofa.GenerateScratchToken()
-		if err != nil {
-			ctx.ServerError("UserSignIn", err)
-			return
-		}
-		if err = auth.UpdateTwoFactor(ctx, twofa); err != nil {
-			ctx.ServerError("UserSignIn", err)
-			return
-		}
-
+	u, err := user_model.GetUserByID(ctx, id)
+	if err != nil {
+		ctx.ServerError("UserSignIn", err)
+		return
+	}
+	actor := governance_service.RequestActor(u, ctx.RemoteAddr(), "web")
+	used, err := twofa.ConsumeScratchToken(governance_model.WithAuditActor(ctx, actor), form.Token)
+	if err != nil {
+		ctx.ServerError("UserSignIn", err)
+		return
+	}
+	if used {
 		remember := ctx.Session.Get("twofaRemember").(bool)
-		u, err := user_model.GetUserByID(ctx, id)
-		if err != nil {
-			ctx.ServerError("UserSignIn", err)
-			return
-		}
 
 		if err = completePendingLinks(ctx, u); err != nil {
 			ctx.ServerError("completePendingLinks", err)
@@ -156,5 +156,9 @@ func TwoFactorScratchPost(ctx *context.Context) {
 		return
 	}
 
+	if err := governance_service.RecordFailedLogin(ctx, id, "", ctx.RemoteAddr(), "recovery_code"); err != nil {
+		ctx.ServerError("RecordLogin", err)
+		return
+	}
 	ctx.RenderWithErrDeprecated(ctx.Tr("auth.twofa_scratch_token_incorrect"), tplTwofaScratch, forms.TwoFactorScratchAuthForm{})
 }

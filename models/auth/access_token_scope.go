@@ -24,6 +24,7 @@ const (
 	AccessTokenScopeCategoryIssue
 	AccessTokenScopeCategoryRepository
 	AccessTokenScopeCategoryUser
+	AccessTokenScopeCategoryGovernance
 )
 
 // AllAccessTokenScopeCategories contains all access token scope categories
@@ -37,6 +38,7 @@ var AllAccessTokenScopeCategories = []AccessTokenScopeCategory{
 	AccessTokenScopeCategoryIssue,
 	AccessTokenScopeCategoryRepository,
 	AccessTokenScopeCategoryUser,
+	AccessTokenScopeCategoryGovernance,
 }
 
 // AccessTokenScopeLevel represents the access levels without a given scope category
@@ -82,6 +84,9 @@ const (
 
 	AccessTokenScopeReadUser  AccessTokenScope = "read:user"
 	AccessTokenScopeWriteUser AccessTokenScope = "write:user"
+
+	AccessTokenScopeReadGovernance  AccessTokenScope = "read:governance"
+	AccessTokenScopeWriteGovernance AccessTokenScope = "write:governance"
 )
 
 // accessTokenScopeBitmap represents a bitmap of access token scopes.
@@ -93,7 +98,7 @@ const (
 	accessTokenScopeAllBits accessTokenScopeBitmap = accessTokenScopeWriteActivityPubBits |
 		accessTokenScopeWriteAdminBits | accessTokenScopeWriteMiscBits | accessTokenScopeWriteNotificationBits |
 		accessTokenScopeWriteOrganizationBits | accessTokenScopeWritePackageBits | accessTokenScopeWriteIssueBits |
-		accessTokenScopeWriteRepositoryBits | accessTokenScopeWriteUserBits
+		accessTokenScopeWriteRepositoryBits | accessTokenScopeWriteUserBits | accessTokenScopeWriteGovernanceBits
 
 	accessTokenScopePublicOnlyBits accessTokenScopeBitmap = 1 << iota
 
@@ -124,6 +129,9 @@ const (
 	accessTokenScopeReadUserBits  accessTokenScopeBitmap = 1 << iota
 	accessTokenScopeWriteUserBits accessTokenScopeBitmap = 1<<iota | accessTokenScopeReadUserBits
 
+	accessTokenScopeReadGovernanceBits  accessTokenScopeBitmap = 1 << iota
+	accessTokenScopeWriteGovernanceBits accessTokenScopeBitmap = 1<<iota | accessTokenScopeReadGovernanceBits
+
 	// The current implementation only supports up to 64 token scopes.
 	// If we need to support > 64 scopes,
 	// refactoring the whole implementation in this file (and only this file) is needed.
@@ -142,6 +150,7 @@ var allAccessTokenScopes = []AccessTokenScope{
 	AccessTokenScopeWriteIssue, AccessTokenScopeReadIssue,
 	AccessTokenScopeWriteRepository, AccessTokenScopeReadRepository,
 	AccessTokenScopeWriteUser, AccessTokenScopeReadUser,
+	AccessTokenScopeWriteGovernance, AccessTokenScopeReadGovernance,
 }
 
 // allAccessTokenScopeBits contains all access token scopes.
@@ -166,6 +175,8 @@ var allAccessTokenScopeBits = map[AccessTokenScope]accessTokenScopeBitmap{
 	AccessTokenScopeWriteRepository:   accessTokenScopeWriteRepositoryBits,
 	AccessTokenScopeReadUser:          accessTokenScopeReadUserBits,
 	AccessTokenScopeWriteUser:         accessTokenScopeWriteUserBits,
+	AccessTokenScopeReadGovernance:    accessTokenScopeReadGovernanceBits,
+	AccessTokenScopeWriteGovernance:   accessTokenScopeWriteGovernanceBits,
 }
 
 // readAccessTokenScopes maps a scope category to the read permission scope
@@ -180,6 +191,7 @@ var accessTokenScopes = map[AccessTokenScopeLevel]map[AccessTokenScopeCategory]A
 		AccessTokenScopeCategoryIssue:        AccessTokenScopeReadIssue,
 		AccessTokenScopeCategoryRepository:   AccessTokenScopeReadRepository,
 		AccessTokenScopeCategoryUser:         AccessTokenScopeReadUser,
+		AccessTokenScopeCategoryGovernance:   AccessTokenScopeReadGovernance,
 	},
 	Write: {
 		AccessTokenScopeCategoryActivityPub:  AccessTokenScopeWriteActivityPub,
@@ -191,6 +203,7 @@ var accessTokenScopes = map[AccessTokenScopeLevel]map[AccessTokenScopeCategory]A
 		AccessTokenScopeCategoryIssue:        AccessTokenScopeWriteIssue,
 		AccessTokenScopeCategoryRepository:   AccessTokenScopeWriteRepository,
 		AccessTokenScopeCategoryUser:         AccessTokenScopeWriteUser,
+		AccessTokenScopeCategoryGovernance:   AccessTokenScopeWriteGovernance,
 	},
 }
 
@@ -400,7 +413,7 @@ func (bitmap accessTokenScopeBitmap) toScope() AccessTokenScope {
 	scope := AccessTokenScope(strings.Join(scopes, ","))
 	scope = AccessTokenScope(strings.ReplaceAll(
 		string(scope),
-		"write:activitypub,write:admin,write:misc,write:notification,write:organization,write:package,write:issue,write:repository,write:user",
+		"write:activitypub,write:admin,write:misc,write:notification,write:organization,write:package,write:issue,write:repository,write:user,write:governance",
 		"all",
 	))
 	return scope

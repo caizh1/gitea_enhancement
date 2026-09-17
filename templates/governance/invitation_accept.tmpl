@@ -1,0 +1,16 @@
+{{template "base/head" .}}
+<div role="main" class="page-content governance invitation-accept"><div class="ui container tw-py-6" data-governance-invitation="{{.InvitationID}}" data-completed="{{if .Completed}}true{{else}}false{{end}}">
+ {{template "base/alert" .}}<h2>成员邀请</h2>
+ {{if .Completed}}<p class="ui positive message">{{.Outcome}}</p><a class="ui button" href="{{AppSubUrl}}/">返回首页</a>
+ {{else if .Invitation}}
+  <p>邀请时的资源：<strong class="tw-break-all">{{.Invitation.ScopePath}}</strong></p><p>邀请人：{{.Invitation.InviterName}} · 邮箱：{{.Invitation.Email}}</p>
+  <p>授权角色：{{index .RoleNames .Invitation.Role}}{{if .Invitation.CustomRoleID}} · 自定义角色 #{{.Invitation.CustomRoleID}}{{end}}</p>
+  <p>成员权限有效至：{{if .Invitation.MembershipExpiresUnix}}{{DateUtils.FullTime .Invitation.MembershipExpiresUnix}}{{else}}永久{{end}}</p>
+  <p>邀请到期：{{DateUtils.FullTime .Invitation.ExpiresUnix}}。接受时会重新检查邀请者权限和资源状态。</p>
+  <form method="post" action="{{.InvitationPath}}" class="tw-flex tw-flex-wrap tw-gap-2">{{.CsrfTokenHtml}}<input type="hidden" name="token" value="{{.Token}}"><button class="ui primary button" name="action" value="accept">接受邀请</button><button class="ui button" name="action" value="decline">拒绝邀请</button></form>
+ {{else if .IsSigned}}
+  <p>请使用已验证邀请邮箱的账号。浏览器通常会自动读取邮件中的邀请代码；未自动读取时，可从邮件复制代码到下方。</p>
+  <form class="ui form" method="post" action="{{.InvitationPath}}" data-invitation-preview>{{.CsrfTokenHtml}}<input type="hidden" name="action" value="preview"><div class="field"><label for="invitation-token">邀请代码</label><input id="invitation-token" name="token" type="password" autocomplete="off" required minlength="64" maxlength="64"></div><button class="ui primary button">查看邀请</button></form>
+ {{else}}<p>请先登录已验证邀请邮箱对应的账号，再决定是否接受邀请。</p><a class="ui primary button" href="{{.LoginPath}}">登录并查看邀请</a>{{end}}
+</div></div>
+{{template "base/footer" .}}

@@ -44,6 +44,26 @@ type PackageFile struct {
 
 // TryInsertFile inserts a file. If the file exists already ErrDuplicatePackageFile is returned
 func TryInsertFile(ctx context.Context, pf *PackageFile) (*PackageFile, error) {
+	var result *PackageFile
+	var resultErr error
+	err := withPackageVersionWrite(ctx, pf.VersionID, func(ctx context.Context) error {
+		if _, err := GetBlobByID(ctx, pf.BlobID); err != nil {
+			return err
+		}
+		result, resultErr = tryInsertFile(ctx, pf)
+		// 已存在是可处理回执，不能让事务助手回滚外层此前的写入。
+		if resultErr == ErrDuplicatePackageFile {
+			return nil
+		}
+		return resultErr
+	})
+	if err != nil {
+		return result, err
+	}
+	return result, resultErr
+}
+
+func tryInsertFile(ctx context.Context, pf *PackageFile) (*PackageFile, error) {
 	e := db.GetEngine(ctx)
 
 	existing := &PackageFile{}
@@ -130,8 +150,10 @@ func DeleteFilesByVersionID(ctx context.Context, versionID int64) error {
 }
 
 func UpdateFile(ctx context.Context, pf *PackageFile, cols []string) error {
-	_, err := db.GetEngine(ctx).ID(pf.ID).Cols(cols...).Update(pf)
-	return err
+	return withPackageReferenceWrite(ctx, PropertyTypeFile, pf.ID, func(ctx context.Context) error {
+		_, err := db.GetEngine(ctx).ID(pf.ID).Cols(cols...).Update(pf)
+		return err
+	})
 }
 
 // PackageFileSearchOptions are options for SearchXXX methods

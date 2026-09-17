@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	system_model "gitea.dev/models/system"
 	"gitea.dev/models/unit"
@@ -18,15 +19,34 @@ import (
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/graceful"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	repo_module "gitea.dev/modules/repository"
+	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	asymkey_service "gitea.dev/services/asymkey"
 	repo_service "gitea.dev/services/repository"
+
+	"github.com/google/uuid"
 )
 
 func getWikiWorkingLockKey(repoID int64) string {
 	return fmt.Sprintf("wiki_working_%d", repoID)
+}
+
+func wikiGovernanceEnv(repo *repo_model.Repository, event string, name WebPath) ([]string, error) {
+	details, err := json.Marshal(map[string]any{"after": map[string]any{"name": string(name)}})
+	if event == "wiki.deleted" {
+		details, err = json.Marshal(map[string]any{"before": map[string]any{"name": string(name)}})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"GITEA_GOVERNANCE_CONTENT_EVENT=" + event,
+		"GITEA_GOVERNANCE_CONTENT_PATH=" + repo.FullPath() + "/wiki/" + string(name),
+		"GITEA_GOVERNANCE_CONTENT_DETAILS=" + string(details),
+	}, nil
 }
 
 // InitWiki initializes a wiki for repository,
@@ -218,16 +238,29 @@ func updateWikiPage(ctx context.Context, doer *user_model.User, repo *repo_model
 		return err
 	}
 
+	if !setting.IsInTesting {
+		if err := gitrepo.InstallReferenceTransactionHook(ctx, repo.WikiStorageRepo()); err != nil {
+			return fmt.Errorf("安装 Wiki 引用事务入口: %w", err)
+		}
+	}
+	event := "wiki.updated"
+	if isNew {
+		event = "wiki.created"
+	}
+	governanceEnv, err := wikiGovernanceEnv(repo, event, newWikiName)
+	if err != nil {
+		return err
+	}
 	if err := gitrepo.PushFromLocal(ctx, basePath, repo.WikiStorageRepo(), git.PushOptions{
 		Branch: fmt.Sprintf("%s:%s%s", commitHash.String(), git.BranchPrefix, repo.DefaultWikiBranch),
-		Env: repo_module.FullPushingEnvironment(
+		Env: append(repo_module.FullPushingEnvironment(
 			doer,
 			doer,
 			repo,
 			repo.Name+".wiki",
 			0,
 			0,
-		),
+		), governanceEnv...),
 	}); err != nil {
 		log.Error("Push failed: %v", err)
 		if git.IsErrPushOutOfDate(err) || git.IsErrPushRejected(err) {
@@ -342,16 +375,25 @@ func DeleteWikiPage(ctx context.Context, doer *user_model.User, repo *repo_model
 		return err
 	}
 
+	if !setting.IsInTesting {
+		if err := gitrepo.InstallReferenceTransactionHook(gitRepo.Ctx, repo.WikiStorageRepo()); err != nil {
+			return fmt.Errorf("安装 Wiki 引用事务入口: %w", err)
+		}
+	}
+	governanceEnv, err := wikiGovernanceEnv(repo, "wiki.deleted", wikiName)
+	if err != nil {
+		return err
+	}
 	if err := gitrepo.PushFromLocal(gitRepo.Ctx, basePath, repo.WikiStorageRepo(), git.PushOptions{
 		Branch: fmt.Sprintf("%s:%s%s", commitHash.String(), git.BranchPrefix, repo.DefaultWikiBranch),
-		Env: repo_module.FullPushingEnvironment(
+		Env: append(repo_module.FullPushingEnvironment(
 			doer,
 			doer,
 			repo,
 			repo.Name+".wiki",
 			0,
 			0,
-		),
+		), governanceEnv...),
 	}); err != nil {
 		if git.IsErrPushOutOfDate(err) || git.IsErrPushRejected(err) {
 			return err
@@ -383,28 +425,48 @@ func ChangeDefaultWikiBranch(ctx context.Context, repo *repo_model.Repository, n
 	if !git.IsValidRefPattern(newBranch) {
 		return fmt.Errorf("invalid branch name: %s", newBranch)
 	}
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	hasWiki := repo_service.HasWiki(ctx, repo)
+	oldDefBranch := ""
+	var env []string
+	if hasWiki {
+		var err error
+		oldDefBranch, err = gitrepo.GetDefaultBranch(ctx, repo.WikiStorageRepo())
+		if err != nil {
+			return fmt.Errorf("unable to get default branch: %w", err)
+		}
+		if oldDefBranch != newBranch {
+			if !setting.IsInTesting {
+				actor := governance_model.AuditActor(ctx)
+				doer, err := user_model.GetUserByID(ctx, actor.EffectiveUserID())
+				if err != nil {
+					return err
+				}
+				env = repo_module.FullPushingEnvironment(doer, doer, repo, repo.Name+".wiki", 0, 0)
+			}
+			operationID := ""
+			if installed, installErr := gitrepo.ReferenceTransactionHookInstalled(repo.WikiStorageRepo()); installErr == nil && installed {
+				operationID = uuid.NewString()
+				env = append(env, repo_module.EnvReferenceOperationID+"="+operationID, repo_module.EnvReferenceOperation+"=wiki_default_branch_rename", repo_module.EnvReferenceOldBranch+"="+oldDefBranch, repo_module.EnvReferenceNewBranch+"="+newBranch, repo_module.EnvReferenceUpdateHEAD+"=true")
+			}
+			if err := gitrepo.RenameBranchReferencesWithEnv(ctx, repo.WikiStorageRepo(), oldDefBranch, newBranch, env); err != nil {
+				return fmt.Errorf("unable to rename default branch: %w", err)
+			}
+			if operationID != "" {
+				return repo_service.ApplyReferenceBusinessOperation(ctx, operationID)
+			}
+		}
+	}
+	err := db.WithTx(ctx, func(ctx context.Context) error {
 		repo.DefaultWikiBranch = newBranch
 		if err := repo_model.UpdateRepositoryColsNoAutoTime(ctx, repo, "default_wiki_branch"); err != nil {
 			return fmt.Errorf("unable to update database: %w", err)
 		}
-
-		if !repo_service.HasWiki(ctx, repo) {
-			return nil
-		}
-
-		oldDefBranch, err := gitrepo.GetDefaultBranch(ctx, repo.WikiStorageRepo())
-		if err != nil {
-			return fmt.Errorf("unable to get default branch: %w", err)
-		}
-		if oldDefBranch == newBranch {
-			return nil
-		}
-
-		err = gitrepo.RenameBranch(ctx, repo.WikiStorageRepo(), oldDefBranch, newBranch)
-		if err != nil {
-			return fmt.Errorf("unable to rename default branch: %w", err)
-		}
 		return nil
 	})
+	if err != nil && hasWiki && oldDefBranch != newBranch {
+		if rollbackErr := gitrepo.RenameBranchReferencesWithEnv(ctx, repo.WikiStorageRepo(), newBranch, oldDefBranch, env); rollbackErr != nil {
+			log.Error("回滚 Wiki 默认分支改名失败，需恢复核对: repo=%d err=%v", repo.ID, rollbackErr)
+		}
+	}
+	return err
 }

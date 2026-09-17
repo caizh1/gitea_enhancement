@@ -8,11 +8,13 @@ import (
 	"net/http"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/auth/httpauth"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 )
 
 // GetCurrentToken returns metadata about the currently authenticated token.
@@ -68,7 +70,7 @@ func DeleteCurrentToken(ctx *context.APIContext) {
 	}
 
 	// Delete the token
-	err = auth_model.DeleteAccessTokenByID(ctx, accessToken.ID, accessToken.UID)
+	err = auth_model.DeleteAccessTokenByID(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), accessToken.ID, accessToken.UID)
 	if err != nil && !errors.Is(err, util.ErrNotExist) {
 		ctx.APIErrorAuto(err)
 		return

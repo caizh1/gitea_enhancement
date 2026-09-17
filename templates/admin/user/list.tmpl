@@ -82,6 +82,7 @@
 							<td>{{.ID}}</td>
 							<td>
 								<a href="{{.HomeLink}}">{{.Name}}</a>
+								{{if .IsAuditor}}<span class="ui mini label">全站审计员</span>{{end}}
 								{{if .IsAdmin}}
 									<span class="ui mini label">{{ctx.Locale.Tr "admin.users.admin"}}</span>
 								{{else if eq 2 .Type}}{{/* Reserved user */}}

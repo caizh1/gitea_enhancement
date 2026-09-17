@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
@@ -63,7 +64,13 @@ func (pcr *PackageCleanupRule) CompiledPattern() error {
 }
 
 func InsertCleanupRule(ctx context.Context, pcr *PackageCleanupRule) (*PackageCleanupRule, error) {
-	return pcr, db.Insert(ctx, pcr)
+	err := withPackageOwnerWrite(ctx, pcr.OwnerID, func(ctx context.Context) error {
+		if err := db.Insert(ctx, pcr); err != nil {
+			return err
+		}
+		return appendCleanupRuleAudit(ctx, pcr, "package.cleanup_rule_created", []string{"created"})
+	})
+	return pcr, err
 }
 
 func GetCleanupRuleByID(ctx context.Context, id int64) (*PackageCleanupRule, error) {
@@ -80,8 +87,23 @@ func GetCleanupRuleByID(ctx context.Context, id int64) (*PackageCleanupRule, err
 }
 
 func UpdateCleanupRule(ctx context.Context, pcr *PackageCleanupRule) error {
-	_, err := db.GetEngine(ctx).ID(pcr.ID).AllCols().Update(pcr)
-	return err
+	return withPackageOwnerWrite(ctx, pcr.OwnerID, func(ctx context.Context) error {
+		fresh, err := GetCleanupRuleByID(ctx, pcr.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.OwnerID != pcr.OwnerID || fresh.Type != pcr.Type {
+			return governance_model.ErrConflict
+		}
+		affected, err := db.GetEngine(ctx).ID(pcr.ID).AllCols().Update(pcr)
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			return ErrPackageCleanupRuleNotExist
+		}
+		return appendCleanupRuleAudit(ctx, pcr, "package.cleanup_rule_updated", []string{"enabled", "keep_count", "keep_pattern", "remove_days", "remove_pattern", "match_full_name"})
+	})
 }
 
 func GetCleanupRulesByOwner(ctx context.Context, ownerID int64) ([]*PackageCleanupRule, error) {
@@ -90,8 +112,22 @@ func GetCleanupRulesByOwner(ctx context.Context, ownerID int64) ([]*PackageClean
 }
 
 func DeleteCleanupRuleByID(ctx context.Context, ruleID int64) error {
-	_, err := db.GetEngine(ctx).ID(ruleID).Delete(&PackageCleanupRule{})
-	return err
+	rule, err := GetCleanupRuleByID(ctx, ruleID)
+	if err != nil {
+		return err
+	}
+	return withPackageOwnerWrite(ctx, rule.OwnerID, func(ctx context.Context) error {
+		fresh, err := GetCleanupRuleByID(ctx, ruleID)
+		if err != nil {
+			return err
+		}
+		if count, err := db.GetEngine(ctx).ID(ruleID).Delete(&PackageCleanupRule{}); err != nil {
+			return err
+		} else if count != 1 {
+			return ErrPackageCleanupRuleNotExist
+		}
+		return appendCleanupRuleAudit(ctx, fresh, "package.cleanup_rule_deleted", []string{"deleted"})
+	})
 }
 
 func HasOwnerCleanupRuleForPackageType(ctx context.Context, ownerID int64, packageType Type) (bool, error) {

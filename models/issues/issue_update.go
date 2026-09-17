@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -49,6 +50,16 @@ func (err ErrIssueIsClosed) Error() string {
 }
 
 func SetIssueAsClosed(ctx context.Context, issue *Issue, doer *user_model.User, isMergePull bool) (*Comment, error) {
+	var result *Comment
+	err := governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		var txErr error
+		result, txErr = setIssueAsClosed(ctx, issue, doer, isMergePull)
+		return txErr
+	})
+	return result, err
+}
+
+func setIssueAsClosed(ctx context.Context, issue *Issue, doer *user_model.User, isMergePull bool) (*Comment, error) {
 	if issue.IsClosed {
 		return nil, ErrIssueIsClosed{
 			ID:     issue.ID,
@@ -82,7 +93,14 @@ func SetIssueAsClosed(ctx context.Context, issue *Issue, doer *user_model.User, 
 		return nil, ErrIssueAlreadyChanged
 	}
 
-	return updateIssueNumbers(ctx, issue, doer, util.Iif(isMergePull, CommentTypeMergePull, CommentTypeClose))
+	comment, err := updateIssueNumbers(ctx, issue, doer, util.Iif(isMergePull, CommentTypeMergePull, CommentTypeClose))
+	if err != nil {
+		return nil, err
+	}
+	if err := appendIssueAudit(ctx, "closed", issue, map[string]any{"after": map[string]any{"state": "closed", "title": issue.Title}}); err != nil {
+		return nil, err
+	}
+	return comment, nil
 }
 
 // ErrIssueIsOpen is used when reopen an opened issue
@@ -118,7 +136,14 @@ func setIssueAsReopen(ctx context.Context, issue *Issue, doer *user_model.User) 
 		return nil, ErrIssueAlreadyChanged
 	}
 
-	return updateIssueNumbers(ctx, issue, doer, CommentTypeReopen)
+	comment, err := updateIssueNumbers(ctx, issue, doer, CommentTypeReopen)
+	if err != nil {
+		return nil, err
+	}
+	if err := appendIssueAudit(ctx, "reopened", issue, map[string]any{"after": map[string]any{"state": "open", "title": issue.Title}}); err != nil {
+		return nil, err
+	}
+	return comment, nil
 }
 
 func updateIssueNumbers(ctx context.Context, issue *Issue, doer *user_model.User, cmtType CommentType) (*Comment, error) {
@@ -172,9 +197,15 @@ func CloseIssue(ctx context.Context, issue *Issue, doer *user_model.User) (*Comm
 		return nil, err
 	}
 
-	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
-		return SetIssueAsClosed(ctx, issue, doer, false)
+	var result *Comment
+	err := governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		var txErr error
+		result, txErr = db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+			return setIssueAsClosed(ctx, issue, doer, false)
+		})
+		return txErr
 	})
+	return result, err
 }
 
 // ReopenIssue changes issue status to open.
@@ -186,35 +217,53 @@ func ReopenIssue(ctx context.Context, issue *Issue, doer *user_model.User) (*Com
 		return nil, err
 	}
 
-	return db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
-		return setIssueAsReopen(ctx, issue, doer)
+	var result *Comment
+	err := governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		var txErr error
+		result, txErr = db.WithTx2(ctx, func(ctx context.Context) (*Comment, error) {
+			return setIssueAsReopen(ctx, issue, doer)
+		})
+		return txErr
 	})
+	return result, err
 }
 
 // ChangeIssueTitle changes the title of this issue, as the given user.
 func ChangeIssueTitle(ctx context.Context, issue *Issue, doer *user_model.User, oldTitle string) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		issue.Title = util.EllipsisDisplayString(issue.Title, 255)
-		if err = UpdateIssueCols(ctx, issue, "name"); err != nil {
-			return fmt.Errorf("updateIssueCols: %w", err)
-		}
+	_ = oldTitle // 兼容既有调用；审计前值必须在治理锁内从数据库读取。
+	return governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			newTitle := util.EllipsisDisplayString(issue.Title, 255)
+			current, err := GetIssueByID(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			oldTitle = current.Title
+			issue.Title = newTitle
+			if err = UpdateIssueCols(ctx, issue, "name"); err != nil {
+				return fmt.Errorf("updateIssueCols: %w", err)
+			}
 
-		if err = issue.LoadRepo(ctx); err != nil {
-			return fmt.Errorf("loadRepo: %w", err)
-		}
+			if err = issue.LoadRepo(ctx); err != nil {
+				return fmt.Errorf("loadRepo: %w", err)
+			}
 
-		opts := &CreateCommentOptions{
-			Type:     CommentTypeChangeTitle,
-			Doer:     doer,
-			Repo:     issue.Repo,
-			Issue:    issue,
-			OldTitle: oldTitle,
-			NewTitle: issue.Title,
-		}
-		if _, err = CreateComment(ctx, opts); err != nil {
-			return fmt.Errorf("createComment: %w", err)
-		}
-		return issue.AddCrossReferences(ctx, doer, true)
+			opts := &CreateCommentOptions{
+				Type:     CommentTypeChangeTitle,
+				Doer:     doer,
+				Repo:     issue.Repo,
+				Issue:    issue,
+				OldTitle: oldTitle,
+				NewTitle: issue.Title,
+			}
+			if _, err = CreateComment(ctx, opts); err != nil {
+				return fmt.Errorf("createComment: %w", err)
+			}
+			if err := issue.AddCrossReferences(ctx, doer, true); err != nil {
+				return err
+			}
+			return appendIssueAudit(ctx, "updated", issue, map[string]any{"before": map[string]any{"title": oldTitle}, "after": map[string]any{"title": issue.Title}, "changed_fields": []string{"title"}})
+		})
 	})
 }
 
@@ -314,38 +363,40 @@ func UpdateIssueAttachments(ctx context.Context, issueID int64, uuids []string) 
 
 // ChangeIssueContent changes issue content, as the given user.
 func ChangeIssueContent(ctx context.Context, issue *Issue, doer *user_model.User, content string, contentVersion int) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		hasContentHistory, err := HasIssueContentHistory(ctx, issue.ID, 0)
-		if err != nil {
-			return fmt.Errorf("HasIssueContentHistory: %w", err)
-		}
-		if !hasContentHistory {
-			if err = SaveIssueContentHistory(ctx, issue.PosterID, issue.ID, 0,
-				issue.CreatedUnix, issue.Content, true); err != nil {
+	return governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			hasContentHistory, err := HasIssueContentHistory(ctx, issue.ID, 0)
+			if err != nil {
+				return fmt.Errorf("HasIssueContentHistory: %w", err)
+			}
+			if !hasContentHistory {
+				if err = SaveIssueContentHistory(ctx, issue.PosterID, issue.ID, 0,
+					issue.CreatedUnix, issue.Content, true); err != nil {
+					return fmt.Errorf("SaveIssueContentHistory: %w", err)
+				}
+			}
+
+			issue.Content = content
+			issue.ContentVersion = contentVersion + 1
+
+			affected, err := db.GetEngine(ctx).ID(issue.ID).Cols("content", "content_version").Where("content_version = ?", contentVersion).Update(issue)
+			if err != nil {
+				return err
+			}
+			if affected == 0 {
+				return ErrIssueAlreadyChanged
+			}
+
+			if err = SaveIssueContentHistory(ctx, doer.ID, issue.ID, 0,
+				timeutil.TimeStampNow(), issue.Content, false); err != nil {
 				return fmt.Errorf("SaveIssueContentHistory: %w", err)
 			}
-		}
 
-		issue.Content = content
-		issue.ContentVersion = contentVersion + 1
-
-		affected, err := db.GetEngine(ctx).ID(issue.ID).Cols("content", "content_version").Where("content_version = ?", contentVersion).Update(issue)
-		if err != nil {
-			return err
-		}
-		if affected == 0 {
-			return ErrIssueAlreadyChanged
-		}
-
-		if err = SaveIssueContentHistory(ctx, doer.ID, issue.ID, 0,
-			timeutil.TimeStampNow(), issue.Content, false); err != nil {
-			return fmt.Errorf("SaveIssueContentHistory: %w", err)
-		}
-
-		if err = issue.AddCrossReferences(ctx, doer, true); err != nil {
-			return fmt.Errorf("addCrossReferences: %w", err)
-		}
-		return nil
+			if err = issue.AddCrossReferences(ctx, doer, true); err != nil {
+				return fmt.Errorf("addCrossReferences: %w", err)
+			}
+			return appendIssueAudit(ctx, "updated", issue, map[string]any{"changed_fields": []string{"description"}, "after": map[string]any{"title": issue.Title}})
+		})
 	})
 }
 
@@ -452,27 +503,32 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 // NewIssue creates new issue with labels for repository.
 // The title will be cut off at 255 characters if it's longer than 255 characters.
 func NewIssue(ctx context.Context, repo *repo_model.Repository, issue *Issue, labelIDs []int64, uuids []string) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
-		if err != nil {
-			return fmt.Errorf("generate issue index failed: %w", err)
-		}
-
-		issue.Index = idx
-		issue.Title = util.EllipsisDisplayString(issue.Title, 255)
-
-		if err = NewIssueWithIndex(ctx, issue.Poster, NewIssueOptions{
-			Repo:        repo,
-			Issue:       issue,
-			LabelIDs:    labelIDs,
-			Attachments: uuids,
-		}); err != nil {
-			if repo_model.IsErrUserDoesNotHaveAccessToRepo(err) {
-				return err
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
+			if err != nil {
+				return fmt.Errorf("generate issue index failed: %w", err)
 			}
-			return fmt.Errorf("newIssue: %w", err)
-		}
-		return nil
+
+			issue.Index = idx
+			issue.Title = util.EllipsisDisplayString(issue.Title, 255)
+
+			if err = NewIssueWithIndex(ctx, issue.Poster, NewIssueOptions{
+				Repo:        repo,
+				Issue:       issue,
+				LabelIDs:    labelIDs,
+				Attachments: uuids,
+			}); err != nil {
+				if repo_model.IsErrUserDoesNotHaveAccessToRepo(err) {
+					return err
+				}
+				return fmt.Errorf("newIssue: %w", err)
+			}
+			if !issue.IsPull {
+				return appendIssueAudit(ctx, "created", issue, map[string]any{"after": map[string]any{"state": "open", "title": issue.Title, "label_ids": labelIDs, "milestone_id": issue.MilestoneID}})
+			}
+			return nil
+		})
 	})
 }
 

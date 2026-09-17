@@ -14,12 +14,14 @@ import (
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/models/webhook"
 	"gitea.dev/modules/setting"
 
 	_ "image/jpeg" // Needed for jpeg support
@@ -71,6 +73,9 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 	}
 	// ***** END: Follow *****
 
+	if err := auth_model.DeleteUserMFA(ctx, u.ID); err != nil {
+		return err
+	}
 	if err = db.DeleteBeans(ctx,
 		&auth_model.AccessToken{UID: u.ID},
 		&repo_model.Collaboration{UserID: u.ID},
@@ -96,8 +101,6 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 		&user_model.Blocking{BlockeeID: u.ID},
 		&actions_model.ActionRunnerToken{OwnerID: u.ID},
 		&actions_model.ActionScopedWorkflowSource{OwnerID: u.ID},
-		&auth_model.TwoFactor{UID: u.ID},
-		&auth_model.WebAuthnCredential{UserID: u.ID},
 		&activities_model.Notification{UserID: u.ID},
 		&issues_model.IssueWatch{UserID: u.ID},
 	); err != nil {
@@ -160,6 +163,15 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 	// ***** END: Branch Protections *****
 
 	// ***** START: PublicKey *****
+	publicKeys, err := db.Find[asymkey_model.PublicKey](ctx, asymkey_model.FindPublicKeyOptions{OwnerID: u.ID})
+	if err != nil {
+		return err
+	}
+	for _, key := range publicKeys {
+		if err := asymkey_model.AppendPublicKeyAudit(ctx, key, "credential.ssh_key_revoked"); err != nil {
+			return err
+		}
+	}
 	if _, err = db.DeleteByBean(ctx, &asymkey_model.PublicKey{OwnerID: u.ID}); err != nil {
 		return fmt.Errorf("deletePublicKeys: %w", err)
 	}
@@ -174,6 +186,9 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 	}
 	// Delete GPGKeyImport(s).
 	for _, key := range keys {
+		if err := asymkey_model.AppendGPGKeyAudit(ctx, key, "revoked"); err != nil {
+			return err
+		}
 		if _, err = db.DeleteByBean(ctx, &asymkey_model.GPGKeyImport{KeyID: key.KeyID}); err != nil {
 			return fmt.Errorf("deleteGPGKeyImports: %w", err)
 		}
@@ -182,6 +197,10 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 		return fmt.Errorf("deleteGPGKeys: %w", err)
 	}
 	// ***** END: GPGPublicKey *****
+
+	if err := webhook.DeleteOwnerWebhooks(ctx, u.ID); err != nil {
+		return err
+	}
 
 	// Clear assignee.
 	if _, err = db.DeleteByBean(ctx, &issues_model.IssueAssignees{AssigneeID: u.ID}); err != nil {
@@ -198,6 +217,16 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 		return fmt.Errorf("DeleteAuthTokensByUserID: %w", err)
 	}
 
+	if err = governance_model.DeleteNativeNamespace(ctx, u.ID); err != nil {
+		return err
+	}
+	freshUser, err := user_model.GetUserByID(ctx, u.ID)
+	if err != nil {
+		return err
+	}
+	if err = user_model.AppendLifecycleAudit(ctx, freshUser, "user.deleted"); err != nil {
+		return err
+	}
 	if _, err = db.DeleteByID[user_model.User](ctx, u.ID); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	}

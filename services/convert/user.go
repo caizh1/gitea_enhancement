@@ -48,6 +48,7 @@ func ToUserWithAccessMode(ctx context.Context, user *user_model.User, accessMode
 // signed shall only be set if requester is logged in. authed shall only be set if user is site admin or user himself
 func toUser(ctx context.Context, user *user_model.User, signed, authed bool) *api.User {
 	result := &api.User{
+		FullPath:    user.FullPath(),
 		ID:          user.ID,
 		UserName:    user.Name,
 		FullName:    user.FullName,
@@ -75,6 +76,7 @@ func toUser(ctx context.Context, user *user_model.User, signed, authed bool) *ap
 	// only site admin will get these information and possibly user himself
 	if authed {
 		result.IsAdmin = user.IsAdmin
+		result.IsAuditor = user.IsAuditor
 		result.LoginName = user.LoginName
 		result.SourceID = user.LoginSource
 		result.LastLogin = user.LastLoginUnix.AsTime()

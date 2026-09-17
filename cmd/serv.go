@@ -7,12 +7,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	asymkey_model "gitea.dev/models/asymkey"
@@ -134,7 +136,7 @@ func getAccessMode(verb, lfsVerb string) (mode perm.AccessMode, ok bool) {
 	return perm.AccessModeNone, false
 }
 
-func runServ(ctx context.Context, c *cli.Command) error {
+func runServ(ctx context.Context, c *cli.Command) (returnErr error) {
 	// FIXME: This needs to internationalised
 	setup(ctx, c.Bool("debug"))
 
@@ -202,13 +204,13 @@ func runServ(ctx context.Context, c *cli.Command) error {
 	}
 
 	repoPath := strings.TrimPrefix(sshCmdArgs[1], "/")
-	repoPathFields := strings.SplitN(repoPath, "/", 2)
-	if len(repoPathFields) != 2 {
+	separator := strings.LastIndexByte(repoPath, '/')
+	if separator <= 0 || separator == len(repoPath)-1 {
 		return fail(ctx, "Invalid repository path", "Invalid repository path: %v", repoPath)
 	}
 
-	username := repoPathFields[0]
-	reponame := strings.TrimSuffix(repoPathFields[1], ".git") // “the-repo-name" or "the-repo-name.wiki"
+	username := repoPath[:separator]
+	reponame := strings.TrimSuffix(repoPath[separator+1:], ".git") // “the-repo-name" or "the-repo-name.wiki"
 
 	if !repo_model.IsValidSSHAccessRepoName(reponame) {
 		return fail(ctx, "Invalid repo name", "Invalid repo name: %s", reponame)
@@ -259,8 +261,30 @@ func runServ(ctx context.Context, c *cli.Command) error {
 		return fail(ctx, extra.UserMsg, "ServCommand failed: %s", extra.Error)
 	}
 
+	if results.AccessAudit != nil {
+		defer func() {
+			panicValue := recover()
+			result := "success"
+			if panicValue != nil || ctx.Err() != nil {
+				result = "unknown"
+			} else if returnErr != nil {
+				result = "failure"
+			}
+			auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if extra := private.CompleteServAudit(auditCtx, results.AccessAudit, result); extra.HasError() {
+				log.Error("SSH 访问完成审计保存失败，开始事件 %s 待核对：%v", results.AccessAudit.EventID, extra.Error)
+			}
+			if panicValue != nil {
+				panic(panicValue)
+			}
+		}()
+	}
+
 	// because the original repoPath maybe redirected, we need to use the returned actual repository information
-	if results.IsWiki {
+	if results.StorageRelativePath != "" {
+		repoPath = results.StorageRelativePath
+	} else if results.IsWiki {
 		repoPath = repo_model.RelativeWikiPath(results.OwnerName, results.RepoName)
 	} else {
 		repoPath = repo_model.RelativePath(results.OwnerName, results.RepoName)
@@ -328,6 +352,8 @@ func runServ(ctx context.Context, c *cli.Command) error {
 		repo_module.EnvPusherName+"="+results.UserName,
 		repo_module.EnvPusherEmail+"="+results.UserEmail,
 		repo_module.EnvPusherID+"="+strconv.FormatInt(results.UserID, 10),
+		repo_module.EnvPusherRemoteAddr+"="+sshRemoteAddress(os.Getenv("SSH_CONNECTION")),
+		repo_module.EnvPusherTransport+"=git_ssh",
 		repo_module.EnvRepoID+"="+strconv.FormatInt(results.RepoID, 10),
 		repo_module.EnvPRID+"="+strconv.Itoa(0),
 		repo_module.EnvDeployKeyID+"="+strconv.FormatInt(results.DeployKeyID, 10),
@@ -350,4 +376,17 @@ func runServ(ctx context.Context, c *cli.Command) error {
 	}
 
 	return nil
+}
+
+// sshRemoteAddress 仅接受 SSH 服务端给出的标准连接四元组，不采用客户端转发头。
+func sshRemoteAddress(connection string) string {
+	fields := strings.Fields(connection)
+	if len(fields) != 4 || net.ParseIP(fields[0]) == nil {
+		return ""
+	}
+	port, err := strconv.Atoi(fields[1])
+	if err != nil || port < 1 || port > 65535 {
+		return ""
+	}
+	return net.JoinHostPort(fields[0], fields[1])
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/cache"
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
@@ -84,11 +85,15 @@ func Check(w http.ResponseWriter, r *http.Request) {
 	if setting.InstallLock {
 		statuses = append(statuses, checkDatabase(r.Context(), rsp.Checks))
 		statuses = append(statuses, checkCache(rsp.Checks))
+		statuses = append(statuses, checkAuditPersistence(rsp.Checks))
 	}
 	for _, s := range statuses {
-		if s != pass {
+		if s == fail {
 			rsp.Status = fail
 			break
+		}
+		if s == warn {
+			rsp.Status = warn
 		}
 	}
 
@@ -96,6 +101,18 @@ func Check(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(rsp.Status.ToHTTPStatus())
 	_, _ = w.Write(data)
+}
+
+func checkAuditPersistence(checks checks) status {
+	health := governance_model.AuditHealthStatus()
+	healthy, _ := health["healthy"].(bool)
+	st := componentStatus{Status: pass, Time: getCheckTime()}
+	if !healthy {
+		st.Status = warn
+		st.Output = "治理审计保存曾失败，需要管理员核对"
+	}
+	checks["governance:audit-persistence"] = []componentStatus{st}
+	return st.Status
 }
 
 // database checks gitea database status

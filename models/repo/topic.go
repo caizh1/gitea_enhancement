@@ -7,9 +7,11 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -221,60 +223,70 @@ func GetRepoTopicByName(ctx context.Context, repoID int64, topicName string) (*T
 
 // AddTopic adds a topic name to a repository (if it does not already have it)
 func AddTopic(ctx context.Context, repoID int64, topicName string) (*Topic, error) {
-	return db.WithTx2(ctx, func(ctx context.Context) (*Topic, error) {
+	var result *Topic
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repoID)}, func(ctx context.Context) error {
+		before, err := repositoryTopicNames(ctx, repoID)
+		if err != nil {
+			return err
+		}
 		topic, err := GetRepoTopicByName(ctx, repoID, topicName)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if topic != nil {
-			// Repo already have topic
-			return topic, nil
+			result = topic
+			return nil
 		}
 
 		topic, err = addTopicByNameToRepo(ctx, repoID, topicName)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if err = syncTopicsInRepository(ctx, repoID); err != nil {
-			return nil, err
+			return err
 		}
-		return topic, nil
+		result = topic
+		return appendTopicsAudit(ctx, repoID, before)
 	})
+	return result, err
 }
 
 // DeleteTopic removes a topic name from a repository (if it has it)
 func DeleteTopic(ctx context.Context, repoID int64, topicName string) (*Topic, error) {
-	topic, err := GetRepoTopicByName(ctx, repoID, topicName)
-	if err != nil {
-		return nil, err
-	}
-	if topic == nil {
-		// Repo doesn't have topic, can't be removed
-		return nil, nil //nolint:nilnil // return nil to indicate that the topic does not exist
-	}
-
-	return db.WithTx2(ctx, func(ctx context.Context) (*Topic, error) {
+	var result *Topic
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repoID)}, func(ctx context.Context) error {
+		before, err := repositoryTopicNames(ctx, repoID)
+		if err != nil {
+			return err
+		}
+		topic, err := GetRepoTopicByName(ctx, repoID, topicName)
+		if err != nil || topic == nil {
+			return err
+		}
 		if err = removeTopicFromRepo(ctx, repoID, topic); err != nil {
-			return nil, err
+			return err
 		}
 		if err = syncTopicsInRepository(ctx, repoID); err != nil {
-			return nil, err
+			return err
 		}
-		return topic, nil
+		result = topic
+		return appendTopicsAudit(ctx, repoID, before)
 	})
+	return result, err
 }
 
 // SaveTopics save topics to a repository
 func SaveTopics(ctx context.Context, repoID int64, topicNames ...string) error {
-	topics, err := db.Find[Topic](ctx, &FindTopicOptions{
-		RepoID: repoID,
-	})
-	if err != nil {
-		return err
-	}
-
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repoID)}, func(ctx context.Context) error {
+		topics, err := db.Find[Topic](ctx, &FindTopicOptions{RepoID: repoID})
+		if err != nil {
+			return err
+		}
+		before := make([]string, 0, len(topics))
+		for _, topic := range topics {
+			before = append(before, topic.Name)
+		}
 		var addedTopicNames []string
 		for _, topicName := range topicNames {
 			if strings.TrimSpace(topicName) == "" {
@@ -321,7 +333,35 @@ func SaveTopics(ctx context.Context, repoID int64, topicNames ...string) error {
 			}
 		}
 
-		return syncTopicsInRepository(ctx, repoID)
+		if err := syncTopicsInRepository(ctx, repoID); err != nil {
+			return err
+		}
+		return appendTopicsAudit(ctx, repoID, before)
+	})
+}
+
+func repositoryTopicNames(ctx context.Context, repoID int64) ([]string, error) {
+	topics, err := db.Find[Topic](ctx, &FindTopicOptions{RepoID: repoID})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(topics))
+	for _, topic := range topics {
+		names = append(names, topic.Name)
+	}
+	return names, nil
+}
+
+func appendTopicsAudit(ctx context.Context, repoID int64, before []string) error {
+	after, err := repositoryTopicNames(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	if slices.Equal(before, after) {
+		return nil
+	}
+	return AppendContentAudit(ctx, "repository.updated", repoID, "repository", repoID, "", map[string]any{
+		"before": map[string]any{"topics": before}, "after": map[string]any{"topics": after}, "changed_fields": []string{"topics"},
 	})
 }
 

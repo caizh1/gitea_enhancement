@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/httplib"
@@ -24,6 +25,22 @@ const (
 
 // HookOptions represents the options for the Hook calls
 type HookOptions struct {
+	RepositoryID                    int64
+	PusherRemoteAddr                string
+	PusherTransport                 string
+	MergeAuthorizationID            string
+	ReferenceWriterID               string
+	ReferenceActor                  string
+	ReferenceOperationID            string
+	ReferenceOperation              string
+	ReferenceOldBranch              string
+	ReferenceNewBranch              string
+	ReferenceUpdateHEAD             bool
+	ReferenceState                  string
+	ContentEvent                    string
+	ContentObjectPath               string
+	ContentDetails                  []byte
+	IsInternal                      bool
 	OldCommitIDs                    []string
 	NewCommitIDs                    []string
 	RefFullNames                    []git.RefName
@@ -115,4 +132,13 @@ func SSHLog(ctx context.Context, isErr bool, msg string) error {
 	req := newInternalRequestAPI(ctx, reqURL, "POST", &SSHLogOption{IsError: isErr, Message: msg})
 	_, extra := requestJSONResp(req, &ResponseText{})
 	return extra.Error
+}
+
+// HookReferenceTransaction 复用受内部令牌保护的 Hook 通道。
+func HookReferenceTransaction(ctx context.Context, ownerName, repoName string, opts HookOptions) ResponseExtra {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req := newInternalRequestAPIForHooks(ctx, "reference-transaction", ownerName, repoName, opts)
+	_, extra := requestJSONResp(req, &ResponseText{})
+	return extra
 }

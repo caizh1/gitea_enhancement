@@ -1,0 +1,14 @@
+# 固定官方 Linux amd64 基线，替换同标签源码构建出的原生程序。
+FROM docker.io/gitea/gitea:1.27.3@sha256:d584940b7143982682ac4541509dd628506c2b568221e6af41e5a2ead1de4fe7
+
+COPY --chmod=755 gitea /usr/local/bin/gitea
+
+# 构建缓存不能把本机程序带入 Linux 镜像，先核对 ELF 和 x86-64 标识。
+RUN test "$(dd if=/usr/local/bin/gitea bs=1 count=6 2>/dev/null | od -An -tx1 | tr -d ' \n')" = "7f454c460201" \
+    && test "$(dd if=/usr/local/bin/gitea bs=1 skip=18 count=2 2>/dev/null | od -An -tx1 | tr -d ' \n')" = "3e00" \
+    && /usr/local/bin/gitea --version
+
+LABEL org.opencontainers.image.title="Gitea 原生企业治理开发镜像" \
+      org.opencontainers.image.base.name="docker.io/gitea/gitea:1.27.3" \
+      io.gitea.governance.stage="native-development" \
+      io.gitea.governance.production-ready="false"

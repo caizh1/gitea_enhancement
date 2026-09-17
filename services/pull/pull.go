@@ -17,6 +17,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -35,6 +36,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	git_service "gitea.dev/services/git"
+	governance_service "gitea.dev/services/governance"
 	issue_service "gitea.dev/services/issue"
 	notify_service "gitea.dev/services/notify"
 )
@@ -99,62 +101,64 @@ func NewPullRequest(ctx context.Context, opts *NewPullRequestOptions) error {
 	assigneeCommentMap := make(map[int64]*issues_model.Comment)
 	assignees := make(map[int64]*user_model.User)
 	var reviewNotifiers []*issue_service.ReviewRequestNotifier
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
-		if err := issues_model.NewPullRequest(ctx, repo, issue, labelIDs, uuids, pr); err != nil {
-			return err
-		}
-
-		for _, assigneeID := range assigneeIDs {
-			assignee, err := user_model.GetUserByID(ctx, assigneeID)
-			if err != nil {
-				log.Error("GetUserByID: %v", err)
-				continue
-			}
-			comment, err := issue_service.AddAssigneeIfNotAssigned(ctx, issue, issue.Poster, assignee)
-			if err != nil {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			if err := issues_model.NewPullRequest(ctx, repo, issue, labelIDs, uuids, pr); err != nil {
 				return err
 			}
-			assignees[assigneeID] = assignee
-			assigneeCommentMap[assigneeID] = comment
-		}
 
-		if len(opts.ProjectIDs) > 0 && canAssignProject {
-			if err := issues_model.IssueAssignOrRemoveProject(ctx, issue, issue.Poster, opts.ProjectIDs); err != nil {
-				return err
+			for _, assigneeID := range assigneeIDs {
+				assignee, err := user_model.GetUserByID(ctx, assigneeID)
+				if err != nil {
+					log.Error("GetUserByID: %v", err)
+					continue
+				}
+				comment, err := issue_service.AddAssigneeIfNotAssigned(ctx, issue, issue.Poster, assignee)
+				if err != nil {
+					return err
+				}
+				assignees[assigneeID] = assignee
+				assigneeCommentMap[assigneeID] = comment
 			}
-		}
 
-		pr.Issue = issue
-		issue.PullRequest = pr
+			if len(opts.ProjectIDs) > 0 && canAssignProject {
+				if err := issues_model.IssueAssignOrRemoveProject(ctx, issue, issue.Poster, opts.ProjectIDs); err != nil {
+					return err
+				}
+			}
 
-		var err error
-		if pr.Flow == issues_model.PullRequestFlowGithub {
-			err = PushToBaseRepo(ctx, pr)
-		} else {
-			err = UpdateRef(ctx, pr)
-		}
-		if err != nil {
-			return err
-		}
+			pr.Issue = issue
+			issue.PullRequest = pr
 
-		// Update Commit Divergence
-		err = syncCommitDivergence(ctx, pr)
-		if err != nil {
-			return err
-		}
-
-		// add first push codes comment
-		if _, _, err := CreatePushPullComment(ctx, issue.Poster, pr, git.BranchPrefix+pr.BaseBranch, pr.GetGitHeadRefName(), false); err != nil {
-			return err
-		}
-
-		if !pr.IsWorkInProgress(ctx) {
-			reviewNotifiers, err = issue_service.PullRequestCodeOwnersReview(ctx, pr)
+			var err error
+			if pr.Flow == issues_model.PullRequestFlowGithub {
+				err = PushToBaseRepo(ctx, pr)
+			} else {
+				err = UpdateRef(ctx, pr)
+			}
 			if err != nil {
 				return err
 			}
-		}
-		return nil
+
+			// Update Commit Divergence
+			err = syncCommitDivergence(ctx, pr)
+			if err != nil {
+				return err
+			}
+
+			// add first push codes comment
+			if _, _, err := CreatePushPullComment(ctx, issue.Poster, pr, git.BranchPrefix+pr.BaseBranch, pr.GetGitHeadRefName(), false); err != nil {
+				return err
+			}
+
+			if !pr.IsWorkInProgress(ctx) {
+				reviewNotifiers, err = issue_service.PullRequestCodeOwnersReview(ctx, pr)
+				if err != nil {
+					return err
+				}
+			}
+			return issues_model.AppendContentAudit(ctx, "pull.created", issue, "pull", pr.ID, map[string]any{"after": map[string]any{"state": "open", "title": issue.Title, "label_ids": labelIDs, "milestone_id": issue.MilestoneID, "base_branch": pr.BaseBranch, "head_branch": pr.HeadBranch}})
+		})
 	}); err != nil {
 		// cleanup: this will only remove the reference, the real commit will be clean up when next GC
 		if err1 := gitrepo.RemoveRef(ctx, pr.BaseRepo, pr.GetGitHeadRefName()); err1 != nil {
@@ -164,6 +168,7 @@ func NewPullRequest(ctx context.Context, opts *NewPullRequestOptions) error {
 	}
 
 	issue_service.ReviewRequestNotify(ctx, issue, issue.Poster, reviewNotifiers)
+	issue_service.SyncGovernanceReviewRequests(ctx, pr, issue.Poster)
 
 	// Request reviews, these should be requested before other notifications because they will add request reviews record
 	// on database
@@ -224,6 +229,9 @@ func (err ErrPullRequestHasMerged) Error() string {
 
 // ChangeTargetBranch changes the target branch of this pull request, as the given user.
 func ChangeTargetBranch(ctx context.Context, pr *issues_model.PullRequest, doer *user_model.User, targetBranch string) (err error) {
+	if governance_model.AuditActor(ctx).Kind == "system" {
+		ctx = governance_model.WithAuditActor(ctx, governance_service.RequestActor(doer, "", "internal"))
+	}
 	releaser, err := globallock.Lock(ctx, getPullWorkingLockKey(pr.ID))
 	if err != nil {
 		log.Error("lock.Lock(): %v", err)
@@ -310,8 +318,15 @@ func ChangeTargetBranch(ctx context.Context, pr *issues_model.PullRequest, doer 
 		pr.Status = issues_model.PullRequestStatusMergeable
 	}
 
+	snapshot, err := governance_service.CapturePullApprovalSnapshot(ctx, pr, targetBranch)
+	if err != nil {
+		return err
+	}
 	// add first push codes comment
 	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := governance_service.ApplyPullApprovalSnapshot(ctx, snapshot); err != nil {
+			return err
+		}
 		// The UPDATE acquires the transaction lock, if the UPDATE succeeds, it should have updated one row (the "base_branch" is changed)
 		// If no row is updated, it means the PR has been merged or closed in the meantime
 		updated, err := pr.UpdateColsIfNotMerged(ctx, "merge_base", "status", "conflicted_files", "changed_protected_files", "base_branch")

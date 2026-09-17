@@ -98,6 +98,10 @@ func setTemplateIfExists(ctx *context.Context, ctxDataKey string, possibleFiles 
 
 // NewIssue render creating issue page
 func NewIssue(ctx *context.Context) {
+	if !ctx.Repo.Permission.CanParticipateInIssuesOrPulls(false) {
+		ctx.HTTPError(http.StatusForbidden, "全站审计员身份不能创建 Issue")
+		return
+	}
 	issueConfig, _ := issue_service.GetTemplateConfigFromDefaultBranch(ctx.Repo.Repository, ctx.Repo.GitRepo)
 	hasTemplates := issue_service.HasTemplatesOrContactLinks(ctx.Repo.Repository, ctx.Repo.GitRepo)
 
@@ -183,6 +187,10 @@ func renderErrorOfTemplates(ctx *context.Context, errs map[string]error) templat
 
 // NewIssueChooseTemplate render creating issue from template page
 func NewIssueChooseTemplate(ctx *context.Context) {
+	if !ctx.Repo.Permission.CanParticipateInIssuesOrPulls(false) {
+		ctx.HTTPError(http.StatusForbidden, "全站审计员身份不能创建 Issue")
+		return
+	}
 	ctx.Data["Title"] = ctx.Tr("repo.issues.new")
 	ctx.Data["PageIsIssueList"] = true
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 import {nextTick, defineComponent} from 'vue';
 import {SvgIcon} from '../svg.ts';
+import GroupNavigationPanel from './GroupNavigationPanel.vue';
 import {GET} from '../modules/fetch.ts';
 import {fomanticQuery} from '../modules/fomantic/base.ts';
 import type {SvgName} from '../svg.ts';
@@ -11,6 +12,7 @@ type DashboardRepo = {
   id: number,
   link: string,
   full_name: string,
+  full_path?: string,
   archived: boolean,
   fork: boolean,
   mirror: boolean,
@@ -42,7 +44,7 @@ const commitStatus: CommitStatusMap = {
 };
 
 export default defineComponent({
-  components: {SvgIcon},
+  components: {SvgIcon, GroupNavigationPanel},
   data() {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('repo-search-tab') || 'repos';
@@ -84,7 +86,7 @@ export default defineComponent({
       } as Record<string, {searchMode: string}>,
       textArchivedFilterTitles: {} as Record<string, string>,
       textPrivateFilterTitles: {} as Record<string, string>,
-      organizations: [] as Array<{name: string, full_name: string, num_repos: number, org_visibility: string}>,
+      organizations: [] as Array<{name: string, full_name: string, full_path: string, num_repos: number, org_visibility: string}>,
       isOrganization: true,
       canCreateOrganization: false,
       organizationsTotalCount: 0,
@@ -399,7 +401,7 @@ export default defineComponent({
   <div>
     <div v-if="!isOrganization" class="ui two item menu">
       <a :class="{item: true, active: tab === 'repos'}" @click="changeTab('repos')">{{ textRepository }}</a>
-      <a :class="{item: true, active: tab === 'organizations'}" @click="changeTab('organizations')">{{ textOrganization }}</a>
+      <a :class="{item: true, active: tab === 'organizations'}" @click="changeTab('organizations')">群组</a>
     </div>
     <div v-show="tab === 'repos'" class="ui tab active list dashboard-repos">
       <h4 class="ui top attached header tw-flex tw-items-center">
@@ -479,7 +481,7 @@ export default defineComponent({
           <li class="tw-flex tw-items-center tw-py-2" v-for="(repo, index) in repos" :class="{'active': index === activeIndex}" :key="repo.id">
             <a class="repo-list-link muted" :href="repo.link">
               <svg-icon :name="repoIcon(repo)" :size="16" class="repo-list-icon"/>
-              <div class="tw-inline-block tw-truncate">{{ repo.full_name }}</div>
+              <div class="tw-inline-block tw-truncate">{{ repo.full_path || repo.full_name }}</div>
               <div v-if="repo.archived">
                 <svg-icon name="octicon-archive" :size="16"/>
               </div>
@@ -523,39 +525,14 @@ export default defineComponent({
       </div>
     </div>
     <div v-if="!isOrganization" v-show="tab === 'organizations'" class="ui tab active list dashboard-orgs">
-      <h4 class="ui top attached header tw-flex tw-items-center">
-        <div class="tw-flex-1 tw-flex tw-items-center">
-          {{ textMyOrgs }}
-          <span class="ui grey label tw-ml-2">{{ organizationsTotalCount }}</span>
-        </div>
-        <a class="tw-flex tw-items-center muted" v-if="canCreateOrganization" :href="subUrl + '/org/create'" :data-tooltip-content="textNewOrg">
-          <svg-icon name="octicon-plus"/>
-        </a>
-      </h4>
-      <div v-if="!organizations.length" class="ui attached segment">
-        <div class="empty-repo-or-org">
-          <svg-icon name="octicon-organization" :size="24"/>
-          <p>{{ textNoOrg }}</p>
-        </div>
-      </div>
-      <div v-else class="ui attached table segment tw-rounded-b">
-        <ul class="repo-owner-name-list">
-          <li class="tw-flex tw-items-center tw-py-2" v-for="org in organizations" :key="org.name">
-            <a class="repo-list-link muted" :href="subUrl + '/' + encodeURIComponent(org.name)">
-              <svg-icon name="octicon-organization" :size="16" class="repo-list-icon"/>
-              <div class="tw-inline-block tw-truncate">{{ org.full_name ? `${org.full_name} (${org.name})` : org.name }}</div>
-              <div><!-- div to prevent underline of label on hover -->
-                <span class="ui tiny basic label" v-if="org.org_visibility !== 'public'">
-                  {{ org.org_visibility === 'limited' ? textOrgVisibilityLimited: textOrgVisibilityPrivate }}
-                </span>
-              </div>
-            </a>
-            <div class="tw-text-grey-light tw-flex tw-items-center tw-ml-2">
-              {{ org.num_repos }}
-              <svg-icon name="octicon-repo" :size="16" class="tw-ml-1 tw-mt-0.5"/>
-            </div>
-          </li>
-        </ul>
+      <div class="ui segment">
+        <h4 class="tw-flex tw-items-center tw-justify-between">
+          我的群组
+          <a v-if="canCreateOrganization" class="ui green icon button" :href="subUrl + '/governance/groups?create=1'" aria-label="创建顶级群组"><svg-icon name="octicon-plus"/></a>
+        </h4>
+        <GroupNavigationPanel compact/>
+        <div class="ui divider"/>
+        <a :href="subUrl + '/governance/groups'" class="tw-flex tw-items-center tw-gap-2">查看全部群组 <svg-icon name="octicon-chevron-right"/></a>
       </div>
     </div>
   </div>

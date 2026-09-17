@@ -11,6 +11,8 @@ import (
 	"time"
 
 	asymkey_model "gitea.dev/models/asymkey"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
@@ -20,6 +22,9 @@ import (
 // Note: db.GetEngine(ctx).Iterate does not get latest data after insert/delete, so we have to call this function
 // outside any session scope independently.
 func RewriteAllPublicKeys(ctx context.Context) error {
+	if db.InTransaction(ctx) {
+		return governance_model.QueueSSHKeyFileSync(ctx, false)
+	}
 	// Don't rewrite key if internal server
 	if setting.SSH.StartBuiltinServer || !setting.SSH.CreateAuthorizedKeysFile {
 		return nil
@@ -74,6 +79,11 @@ func rewriteAllPublicKeys(ctx context.Context) error {
 		return err
 	}
 
-	t.Close()
-	return util.Rename(tmpPath, fPath)
+	if err := t.Sync(); err != nil {
+		return err
+	}
+	if err := t.Close(); err != nil {
+		return err
+	}
+	return replaceSSHKeyFile(tmpPath, fPath)
 }

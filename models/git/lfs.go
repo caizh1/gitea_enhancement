@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -104,6 +105,19 @@ var ErrLFSObjectNotExist = db.ErrNotExist{Resource: "LFS Meta object"}
 // NewLFSMetaObject stores a given populated LFSMetaObject structure in the database
 // if it is not already present.
 func NewLFSMetaObject(ctx context.Context, repoID int64, p lfs.Pointer) (*LFSMetaObject, error) {
+	var result *LFSMetaObject
+	err := governance_model.WithLFSContentLocks(ctx, []string{p.Oid}, func(ctx context.Context) error {
+		var err error
+		result, err = newLFSMetaObject(ctx, repoID, p)
+		return err
+	})
+	return result, err
+}
+
+func newLFSMetaObject(ctx context.Context, repoID int64, p lfs.Pointer) (*LFSMetaObject, error) {
+	if err := lockLFSTargetRepository(ctx, repoID); err != nil {
+		return nil, err
+	}
 	m, exist, err := db.Get[LFSMetaObject](ctx, builder.Eq{"repository_id": repoID, "oid": p.Oid})
 	if err != nil {
 		return nil, err
@@ -210,7 +224,14 @@ func ExistsLFSObject(ctx context.Context, oid string) (bool, error) {
 
 // LFSAutoAssociate auto associates accessible LFSMetaObjects
 func LFSAutoAssociate(ctx context.Context, metas []*LFSMetaObject, user *user_model.User, repoID int64) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	ids := make([]string, 0, len(metas))
+	for _, meta := range metas {
+		ids = append(ids, meta.Oid)
+	}
+	return governance_model.WithLFSContentLocks(ctx, ids, func(ctx context.Context) error {
+		if err := lockLFSTargetRepository(ctx, repoID); err != nil {
+			return err
+		}
 		oids := make([]any, len(metas))
 		oidMap := make(map[string]*LFSMetaObject, len(metas))
 		for i, meta := range metas {
@@ -259,15 +280,24 @@ func CopyLFS(ctx context.Context, newRepo, oldRepo *repo_model.Repository) error
 		return err
 	}
 
-	for _, v := range lfsObjects {
-		v.ID = 0
-		v.RepositoryID = newRepo.ID
-		if err := db.Insert(ctx, v); err != nil {
+	ids := make([]string, 0, len(lfsObjects))
+	for _, item := range lfsObjects {
+		ids = append(ids, item.Oid)
+	}
+	return governance_model.WithLFSContentLocks(ctx, ids, func(ctx context.Context) error {
+		if err := lockLFSTargetRepository(ctx, newRepo.ID); err != nil {
 			return err
 		}
-	}
+		for _, v := range lfsObjects {
+			v.ID = 0
+			v.RepositoryID = newRepo.ID
+			if err := db.Insert(ctx, v); err != nil {
+				return err
+			}
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // GetRepoLFSSize return a repository's lfs files size
@@ -370,4 +400,16 @@ func MarkLFSMetaObject(ctx context.Context, id int64) error {
 		log.Error("Unexpectedly updated %d LFSMetaObjects with ID: %d", count, id)
 	}
 	return err
+}
+
+// lockLFSTargetRepository 与仓库删除锁同一行，持有到引用事务提交。
+func lockLFSTargetRepository(ctx context.Context, repoID int64) error {
+	affected, err := db.GetEngine(ctx).NoAutoTime().ID(repoID).Incr("num_watches", 0).Update(new(repo_model.Repository))
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return repo_model.ErrRepoNotExist{ID: repoID}
+	}
+	return nil
 }

@@ -69,6 +69,7 @@ import (
 	"strings"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -82,6 +83,7 @@ import (
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/activitypub"
 	"gitea.dev/routers/api/v1/admin"
+	"gitea.dev/routers/api/v1/governance"
 	"gitea.dev/routers/api/v1/misc"
 	"gitea.dev/routers/api/v1/notify"
 	"gitea.dev/routers/api/v1/org"
@@ -95,6 +97,7 @@ import (
 	"gitea.dev/services/auth"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 
 	_ "gitea.dev/routers/api/v1/swagger" // for swagger generation
 
@@ -122,7 +125,9 @@ func sudo() func(ctx *context.APIContext) {
 					return
 				}
 				log.Trace("Sudo from (%s) to: %s", ctx.Doer.Name, user.Name)
+				ctx.AuthenticatedUser = ctx.Doer
 				ctx.Doer = user
+				ctx.SetContextValue(governance_model.AuditActorContextKey, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()))
 			} else {
 				ctx.JSON(http.StatusForbidden, map[string]string{
 					"message": "Only administrators allowed to sudo.",
@@ -210,6 +215,13 @@ func repoAssignment() func(ctx *context.APIContext) {
 			}
 		}
 
+		if ctx.Repo.Permission.HasAuditorRead() && !context.AuditorReadRequest(ctx.Base, true) {
+			ctx.Repo.Permission = ctx.Repo.Permission.ForMutation()
+			if !ctx.Repo.Permission.HasAnyUnitAccessOrPublicAccess() {
+				ctx.APIError(http.StatusForbidden, "当前身份没有此项目的写入授权")
+				return
+			}
+		}
 		if !ctx.Repo.Permission.HasAnyUnitAccessOrPublicAccess() {
 			ctx.APIErrorNotFound()
 			return
@@ -445,6 +457,22 @@ func reqAdmin() func(ctx *context.APIContext) {
 	}
 }
 
+func reqAdminOrGovernanceAbility(ability string) func(ctx *context.APIContext) {
+	return func(ctx *context.APIContext) {
+		if ctx.IsUserRepoAdmin() || ctx.IsUserSiteAdmin() {
+			return
+		}
+		allowed, err := access_model.HasGovernanceAbility(ctx, ctx.Repo.Repository, ctx.Doer, ability)
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if !allowed {
+			ctx.APIError(http.StatusForbidden, "user lacks the required repository governance ability")
+		}
+	}
+}
+
 // reqRepoWriter user should have a permission to write to a repo, or be a site admin
 func reqRepoWriter(unitTypes ...unit.Type) func(ctx *context.APIContext) {
 	return func(ctx *context.APIContext) {
@@ -602,6 +630,16 @@ func reqTeamMembership() func(ctx *context.APIContext) {
 // reqOrgMembership user should be an organization member, or a site admin
 func reqOrgMembership() func(ctx *context.APIContext) {
 	return func(ctx *context.APIContext) {
+		if ctx.Doer != nil && ctx.Doer.IsAuditor && (ctx.Req.Method == http.MethodGet || ctx.Req.Method == http.MethodHead) {
+			auditor, err := user_model.IsActiveAuditor(ctx, ctx.Doer.ID)
+			if err != nil {
+				ctx.APIErrorInternal(err)
+				return
+			}
+			if auditor {
+				return
+			}
+		}
 		if ctx.IsUserSiteAdmin() {
 			return
 		}
@@ -859,6 +897,7 @@ func apiAuth(authMethod auth.Method) func(*context.APIContext) {
 		ctx.Doer = ar.Doer
 		ctx.IsSigned = ar.Doer != nil
 		ctx.IsBasicAuth = ar.IsBasicAuth
+		ctx.SetContextValue(governance_model.AuditActorContextKey, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "api"))
 	}
 }
 
@@ -944,6 +983,7 @@ func Routes() *web.Router {
 
 	// redirect HEAD requests to GET if no HEAD handler is defined (RFC 9110 §9.3.2)
 	m.BeforeRouting(chi_middleware.GetHead)
+	m.BeforeRouting(governance_service.NamespaceRouting(true))
 
 	if setting.CORSConfig.Enabled {
 		m.BeforeRouting(cors.Handler(cors.Options{
@@ -1001,6 +1041,78 @@ func Routes() *web.Router {
 	}
 
 	m.Group("", func() {
+		m.Get("/governance/navigation/groups/{id}", reqExploreSignIn(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryGovernance), rejectPublicOnly(), governance.NavigationGroup)
+		m.Group("/governance", func() {
+			m.Get("/navigation/groups", governance.NavigationGroups)
+			m.Get("/capabilities", governance.Capabilities)
+			m.Get("/{scope}/{id}/invitations", governance.Invitations)
+			m.Post("/{scope}/{id}/invitations", bind(governance.InvitationOption{}), governance.CreateInvitation)
+			m.Delete("/{scope}/{id}/invitations/{invitation_id}", governance.RevokeInvitation)
+			m.Post("/invitations/{id}/preview", bind(governance.InvitationTokenOption{}), governance.PreviewInvitation)
+			m.Post("/invitations/{id}/accept", bind(governance.InvitationTokenOption{}), governance.AcceptInvitation)
+			m.Post("/invitations/{id}/decline", bind(governance.InvitationTokenOption{}), governance.DeclineInvitation)
+			m.Get("/access-requests", governance.OwnAccessRequests)
+			m.Delete("/access-requests/{request_id}", governance.WithdrawOwnAccessRequest)
+			m.Get("/{scope}/{id}/access-requests", governance.AccessRequests)
+			m.Post("/{scope}/{id}/access-requests", governance.CreateAccessRequest)
+			m.Post("/{scope}/{id}/access-requests/{request_id}/approve", bind(governance.GroupMemberOption{}), governance.ApproveAccessRequest)
+			m.Delete("/{scope}/{id}/access-requests/{request_id}", governance.RejectAccessRequest)
+			m.Put("/{scope}/{id}/access-requests/settings", bind(governance.AccessRequestSettingOption{}), governance.SaveAccessRequestSetting)
+			m.Get("/repositories/{id}/members", governance.RepositoryMembers)
+			m.Put("/repositories/{id}/members/{user_id}", bind(governance.GroupMemberOption{}), governance.SetRepositoryMember)
+			m.Delete("/repositories/{id}/members/{user_id}", governance.RemoveRepositoryMember)
+			m.Get("/repositories/{id}/deletion", governance.RepositoryDeletionState)
+			m.Post("/repositories/{id}/deletion", bind(governance.RepositoryDeletionOption{}), governance.ScheduleRepositoryDeletion)
+			m.Post("/repositories/{id}/restore", bind(governance.RepositoryDeletionOption{}), governance.RestoreRepositoryDeletion)
+			m.Post("/repositories/{id}/delete-permanently", bind(governance.RepositoryDeletionOption{}), governance.DeletePendingRepository)
+			m.Get("/approval-settings/{scope}/{scope_id}", governance.ScopeApprovalSettings)
+			m.Put("/approval-settings/{scope}/{scope_id}", bind(governance.ScopeApprovalSettingsOption{}), governance.UpdateScopeApprovalSettings)
+			m.Delete("/approval-settings/{scope}/{scope_id}", governance.RemoveScopeApprovalSettings)
+			m.Get("/approval-policies/{scope}/{scope_id}", governance.ApprovalPolicies)
+			m.Post("/approval-policies/{scope}/{scope_id}", bind(governance.ApprovalRuleOption{}), governance.CreateApprovalPolicy)
+			m.Put("/approval-policies/{scope}/{scope_id}/{rule_id}", bind(governance.ApprovalRuleOption{}), governance.UpdateApprovalPolicy)
+			m.Delete("/approval-policies/{scope}/{scope_id}/{rule_id}", governance.RemoveApprovalPolicy)
+			m.Get("/groups", governance.Groups)
+			m.Post("/groups", bind(governance.GroupOption{}), governance.CreateGroup)
+			m.Get("/groups/{id}", governance.Group)
+			m.Post("/groups/{id}/deletion", bind(governance.GroupDeletionOption{}), governance.ScheduleGroupDeletion)
+			m.Post("/groups/{id}/restore", bind(governance.GroupDeletionOption{}), governance.RestoreGroupDeletion)
+			m.Post("/groups/{id}/delete-permanently", bind(governance.GroupDeletionOption{}), governance.DeletePendingGroup)
+			m.Get("/groups/{id}/archive", governance.GroupArchiveImpact)
+			m.Put("/groups/{id}/archive", bind(governance.GroupArchiveOption{}), governance.ArchiveGroup)
+			m.Get("/groups/{id}/members", governance.GroupMembers)
+			m.Get("/groups/{id}/shares", governance.GroupShares)
+			m.Get("/groups/{id}/roles", governance.GroupRoles)
+			m.Post("/groups/{id}/roles", bind(governance.GroupRoleOption{}), governance.SaveGroupRole)
+			m.Put("/groups/{id}/roles/{role_id}", bind(governance.GroupRoleOption{}), governance.UpdateGroupRole)
+			m.Delete("/groups/{id}/roles/{role_id}", governance.RemoveGroupRole)
+			m.Put("/groups/{id}/shares/{group_id}", bind(governance.GroupShareOption{}), governance.SetGroupShare)
+			m.Delete("/groups/{id}/shares/{group_id}", governance.RemoveGroupShare)
+			m.Post("/groups/{id}/move", bind(governance.GroupOption{}), governance.MoveGroup)
+			m.Put("/groups/{id}/members/{user_id}", bind(governance.GroupMemberOption{}), governance.SetGroupMember)
+			m.Delete("/groups/{id}/members/{user_id}", governance.RemoveGroupMember)
+			m.Put("/repositories/{id}/approval-settings", bind(governance.ApprovalSettingsOption{}), governance.UpdateRepositoryApprovalSettings)
+			m.Get("/pulls/{id}/approval-state", governance.PullApprovalState)
+			m.Get("/pulls/{id}/approval-rules", governance.PullApprovalRules)
+			m.Put("/pulls/{id}/approval-rules", bind(governance.PullApprovalRuleOption{}), governance.SavePullApprovalRule)
+			m.Get("/repositories/{id}/approval-rules", governance.RepositoryApprovalRules)
+			m.Put("/repositories/{id}/approval-configuration", bind(governance.BranchApprovalUpdate{}), governance.RepositoryApprovalConfiguration)
+			m.Post("/repositories/{id}/approval-rules", bind(governance.ApprovalRuleOption{}), governance.CreateRepositoryApprovalRule)
+			m.Put("/repositories/{id}/approval-rules/{rule_id}", bind(governance.ApprovalRuleOption{}), governance.UpdateRepositoryApprovalRule)
+			m.Delete("/repositories/{id}/approval-rules/{rule_id}", governance.RemoveRepositoryApprovalRule)
+			m.Post("/repositories/{id}/reference-hook", governance.InstallRepositoryReferenceHook)
+			m.Get("/repositories/{id}/shares", governance.RepositoryShares)
+			m.Put("/repositories/{id}/shares/{group_id}", bind(governance.GroupShareOption{}), governance.SetRepositoryShare)
+			m.Delete("/repositories/{id}/shares/{group_id}", governance.RemoveRepositoryShare)
+			m.Get("/audit-events", governance.AuditEvents)
+			m.Post("/audit-exports", bind(governance.AuditExportOption{}), governance.CreateExport)
+			m.Get("/audit-exports/{id}", governance.GetExport)
+			m.Get("/audit-exports/{id}/download", governance.DownloadExport)
+			m.Get("/audit-streams", governance.AuditStreams)
+			m.Post("/audit-streams", bind(governance.AuditStreamOption{}), governance.CreateAuditStream)
+			m.Put("/audit-streams/{id}", bind(governance.AuditStreamOption{}), governance.UpdateAuditStream)
+			m.Post("/audit-streams/{id}/test", bind(governance.AuditRevisionOption{}), governance.TestAuditStream)
+		}, reqToken(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryGovernance), rejectPublicOnly())
 		// Miscellaneous (no scope required)
 		if setting.API.EnableSwagger {
 			m.Get("/swagger", func(ctx *context.APIContext) {
@@ -1239,7 +1351,7 @@ func Routes() *web.Router {
 
 				m.Combo("").Get(reqAnyRepoReader(), repo.Get).
 					Delete(reqToken(), reqOwner(), repo.Delete).
-					Patch(reqToken(), reqAdmin(), bind(api.EditRepoOption{}), repo.Edit)
+					Patch(reqToken(), reqAdminOrGovernanceAbility(governance_model.ManageProject), bind(api.EditRepoOption{}), repo.Edit)
 				m.Post("/generate", reqToken(), reqRepoReader(unit.TypeCode), bind(api.GenerateRepoOption{}), repo.Generate)
 				m.Group("/transfer", func() {
 					m.Post("", reqOwner(), bind(api.TransferRepoOption{}), repo.Transfer)

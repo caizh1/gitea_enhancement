@@ -23,7 +23,7 @@
 		</div>
 		<div class="meta">
 			<span class="tw-text-grey-light muted-links">
-				{{if not $.Page.Repository}}{{.Repo.FullName}}{{end}}#{{.Index}}
+				{{if not $.Page.Repository}}{{.Repo.FullPath}}{{end}}#{{.Index}}
 				{{$timeStr := DateUtils.TimeSince .GetLastEventTimestamp}}
 				{{if .OriginalAuthor}}
 					{{ctx.Locale.Tr .GetLastEventLabelFake $timeStr .OriginalAuthor}}

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	activities_model "gitea.dev/models/activities"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -49,10 +51,20 @@ func TestTransferOwnership(t *testing.T) {
 
 	exist, err := util.IsExist(repo_model.RepoPath("org3", "repo3"))
 	assert.NoError(t, err)
-	assert.False(t, exist)
+	assert.True(t, exist)
 	exist, err = util.IsExist(repo_model.RepoPath("user1", "repo3"))
 	assert.NoError(t, err)
-	assert.True(t, exist)
+	assert.False(t, exist)
+	assert.Equal(t, "org3", transferredRepo.GovernanceStorageOwner)
+	assert.Equal(t, "repo3", transferredRepo.GovernanceStorageName)
+	assert.Equal(t, repo_model.RepoPath("org3", "repo3"), transferredRepo.RepoPath())
+	unadopted, _, err := ListUnadoptedRepositories(t.Context(), "org3/repo3", &db.ListOptions{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	assert.NotContains(t, unadopted, "org3/repo3")
+	oldOwner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 3})
+	assert.ErrorIs(t, DeleteUnadoptedRepository(t.Context(), doer, oldOwner, "repo3"), repo_model.ErrRepoAlreadyExist{Uname: "org3", Name: "repo3"})
+	_, err = AdoptRepository(t.Context(), doer, oldOwner, CreateRepoOptions{Name: "repo3"})
+	assert.ErrorIs(t, err, repo_model.ErrRepoAlreadyExist{Uname: "org3", Name: "repo3"})
 	unittest.AssertExistsAndLoadBean(t, &activities_model.Action{
 		OpType:    activities_model.ActionTransferRepo,
 		ActUserID: 1,
@@ -82,6 +94,82 @@ func TestStartRepositoryTransferSetPermission(t *testing.T) {
 	assert.True(t, hasAccess)
 
 	unittest.CheckConsistencyFor(t, &repo_model.Repository{}, &user_model.User{}, &organization.Team{})
+}
+
+func TestRepositoryTransferPreviewRejectsChangedTarget(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	target := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
+	require.NoError(t, repo.LoadOwner(t.Context()))
+
+	impact, err := PreviewRepositoryTransfer(t.Context(), doer.ID, repo.ID, target.ID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, impact.OldPath)
+	assert.NotEmpty(t, impact.NewPath)
+
+	_, err = db.GetEngine(t.Context()).ID(target.ID).Cols("name").Update(&user_model.User{Name: "target-renamed"})
+	require.NoError(t, err)
+	freshTarget := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: target.ID})
+	err = StartRepositoryTransferAfterPreview(t.Context(), doer, freshTarget, repo, nil, impact)
+	require.ErrorIs(t, err, governance_model.ErrConflict)
+	unchanged := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+	assert.EqualValues(t, repo.OwnerID, unchanged.OwnerID)
+}
+
+func TestRepositoryTransferPreviewRejectsChangedRelevantGovernance(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	target := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
+	require.NoError(t, repo.LoadOwner(t.Context()))
+	impact, err := PreviewRepositoryTransfer(t.Context(), doer.ID, repo.ID, target.ID)
+	require.NoError(t, err)
+	_, err = db.GetEngine(t.Context()).ID(repo.OwnerID).Incr("revision").Update(new(governance_model.Namespace))
+	require.NoError(t, err)
+	err = StartRepositoryTransferAfterPreview(t.Context(), doer, target, repo, nil, impact)
+	require.ErrorIs(t, err, governance_model.ErrConflict)
+}
+
+func TestAcceptRepositoryTransferUsesRecipientAuditActor(t *testing.T) {
+	registerNotifier()
+	require.NoError(t, unittest.PrepareTestDatabase())
+
+	source := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	recipient := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
+	require.NoError(t, repo.LoadOwner(t.Context()))
+	require.NoError(t, StartRepositoryTransfer(t.Context(), source, recipient, repo, nil))
+
+	ctx := governance_model.WithAuditActor(t.Context(), governance_model.Actor{ID: recipient.ID, Name: recipient.Name, Kind: "user", Transport: "api", RequestID: "accept-transfer"})
+	require.NoError(t, AcceptTransferOwnership(ctx, repo, recipient))
+	transferred := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+	assert.EqualValues(t, recipient.ID, transferred.OwnerID)
+}
+
+func TestAcceptRepositoryTransferRejectsRevokedSourceOwner(t *testing.T) {
+	registerNotifier()
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	source := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	recipient := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 3})
+	require.NoError(t, repo.LoadOwner(t.Context()))
+	require.NoError(t, repo_model.DeleteRepositoryTransfer(t.Context(), repo.ID))
+	require.NoError(t, StartRepositoryTransfer(t.Context(), source, recipient, repo, nil))
+
+	// 接受前撤销原申请人在原群组的 Owners 团队资格。
+	_, err := db.GetEngine(t.Context()).Where("org_id = ? AND uid = ?", repo.OwnerID, source.ID).Delete(new(organization.TeamUser))
+	require.NoError(t, err)
+	require.NoError(t, access_model.RecalculateAccesses(t.Context(), repo))
+	ctx := governance_model.WithAuditActor(t.Context(), governance_model.Actor{ID: recipient.ID, Name: recipient.Name, Kind: "user", Transport: "api", RequestID: "accept-after-revoke"})
+	err = AcceptTransferOwnership(ctx, repo, recipient)
+	require.Error(t, err)
+	unittest.AssertExistsAndLoadBean(t, &repo_model.RepoTransfer{RepoID: repo.ID})
+	unchanged := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+	assert.EqualValues(t, 3, unchanged.OwnerID)
 }
 
 func TestRepositoryTransfer(t *testing.T) {

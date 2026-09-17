@@ -13,6 +13,7 @@ import (
 
 	"gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
 	repo_model "gitea.dev/models/repo"
@@ -125,6 +126,7 @@ func NewUserPost(ctx *context.Context) {
 	}
 
 	u := &user_model.User{
+		IsAuditor: form.Auditor,
 		Name:      form.UserName,
 		Email:     form.Email,
 		Passwd:    form.Password,
@@ -171,6 +173,8 @@ func NewUserPost(ctx *context.Context) {
 
 	if err := user_model.AdminCreateUser(ctx, u, &user_model.Meta{}, overwriteDefault); err != nil {
 		switch {
+		case errors.Is(err, governance_model.ErrForbidden):
+			ctx.HTTPError(http.StatusForbidden, "管理员权限已失效，不能授予全站审计员身份")
 		case user_model.IsErrUserAlreadyExist(err):
 			ctx.Data["Err_UserName"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("form.username_been_taken"), tplUserNew, &form)
@@ -341,6 +345,98 @@ func EditUserPost(ctx *context.Context) {
 		return
 	}
 
+	if form.UserName != "" && form.UserName != u.Name {
+		ctx.HTTPError(http.StatusBadRequest, "请使用独立的账号改名表单；本次账户设置尚未保存")
+		return
+	}
+
+	authOpts := &user_service.UpdateAuthOptions{
+		Password:  optional.FromNonDefault(form.Password),
+		LoginName: optional.Some(form.LoginName),
+	}
+
+	// skip self Prohibit Login
+	if ctx.Doer.ID == u.ID {
+		authOpts.ProhibitLogin = optional.Some(false)
+	} else {
+		authOpts.ProhibitLogin = optional.Some(form.ProhibitLogin)
+	}
+
+	fields := strings.Split(form.LoginType, "-")
+	if len(fields) == 2 {
+		authSource, _ := strconv.ParseInt(fields[1], 10, 64)
+
+		authOpts.LoginSource = optional.Some(authSource)
+	}
+
+	opts := &user_service.UpdateOptions{
+		FullName:                optional.Some(form.FullName),
+		Website:                 optional.Some(form.Website),
+		Location:                optional.Some(form.Location),
+		IsActive:                optional.Some(form.Active),
+		IsAdmin:                 user_service.UpdateOptionFieldFromValue(form.Admin),
+		IsAuditor:               optional.Some(form.Auditor),
+		AllowGitHook:            optional.Some(form.AllowGitHook),
+		AllowImportLocal:        optional.Some(form.AllowImportLocal),
+		MaxRepoCreation:         optional.Some(form.MaxRepoCreation),
+		AllowCreateOrganization: optional.Some(form.AllowCreateOrganization),
+		IsRestricted:            optional.Some(form.Restricted),
+		Visibility:              optional.Some(form.Visibility),
+		Language:                optional.Some(form.Language),
+	}
+
+	if err := user_service.UpdateAdminUser(ctx, u, authOpts, opts, optional.FromNonDefault(form.Email), form.Reset2FA); err != nil {
+		switch {
+		case errors.Is(err, governance_model.ErrForbidden):
+			ctx.HTTPError(http.StatusForbidden, "管理员权限已失效，不能修改账户")
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.HTTPError(http.StatusConflict, "账户认证方式或授权状态已变化，请重新加载")
+		case errors.Is(err, password.ErrMinLength):
+			ctx.Data["Err_Password"] = true
+			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_too_short", setting.MinPasswordLength), tplUserEdit, &form)
+		case errors.Is(err, password.ErrComplexity):
+			ctx.Data["Err_Password"] = true
+			ctx.RenderWithErrDeprecated(password.BuildComplexityError(ctx.Locale), tplUserEdit, &form)
+		case errors.Is(err, password.ErrIsPwned):
+			ctx.Data["Err_Password"] = true
+			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_pwned", "https://haveibeenpwned.com/Passwords"), tplUserEdit, &form)
+		case password.IsErrIsPwnedRequest(err):
+			ctx.Data["Err_Password"] = true
+			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_pwned_err"), tplUserEdit, &form)
+		case user_model.IsErrEmailCharIsNotSupported(err), user_model.IsErrEmailInvalid(err):
+			ctx.Data["Err_Email"] = true
+			ctx.RenderWithErrDeprecated(ctx.Tr("form.email_invalid"), tplUserEdit, &form)
+		case user_model.IsErrEmailAlreadyUsed(err):
+			ctx.Data["Err_Email"] = true
+			ctx.RenderWithErrDeprecated(ctx.Tr("form.email_been_used"), tplUserEdit, &form)
+		case user_model.IsErrDeleteLastAdminUser(err):
+			ctx.RenderWithErrDeprecated(ctx.Tr("auth.last_admin"), tplUserEdit, &form)
+		default:
+			ctx.ServerError("UpdateUser", err)
+		}
+		return
+	}
+	if form.Email != "" && !user_model.IsEmailDomainAllowed(form.Email) {
+		ctx.Flash.Warning(ctx.Tr("form.email_domain_is_not_allowed", form.Email))
+	}
+	log.Trace("Account profile updated by admin (%s): %s", ctx.Doer.Name, u.Name)
+
+	ctx.Flash.Success(ctx.Tr("admin.users.update_profile_success"))
+	ctx.Redirect(setting.AppSubURL + "/-/admin/users/" + url.PathEscape(ctx.PathParam("userid")))
+}
+
+// RenameUserPost 将账号路径变更与安全设置保存分开提交。
+func RenameUserPost(ctx *context.Context) {
+	editUserCommon(ctx)
+	u := prepareUserInfo(ctx)
+	if ctx.Written() {
+		return
+	}
+	form := web.GetForm(ctx).(*forms.AdminRenameUserForm)
+	if ctx.HasError() {
+		ctx.HTML(http.StatusOK, tplUserEdit)
+		return
+	}
 	if form.UserName != "" {
 		if err := user_service.RenameUser(ctx, u, form.UserName, ctx.Doer); err != nil {
 			switch {
@@ -366,115 +462,7 @@ func EditUserPost(ctx *context.Context) {
 		}
 	}
 
-	authOpts := &user_service.UpdateAuthOptions{
-		Password:  optional.FromNonDefault(form.Password),
-		LoginName: optional.Some(form.LoginName),
-	}
-
-	// skip self Prohibit Login
-	if ctx.Doer.ID == u.ID {
-		authOpts.ProhibitLogin = optional.Some(false)
-	} else {
-		authOpts.ProhibitLogin = optional.Some(form.ProhibitLogin)
-	}
-
-	fields := strings.Split(form.LoginType, "-")
-	if len(fields) == 2 {
-		authSource, _ := strconv.ParseInt(fields[1], 10, 64)
-
-		authOpts.LoginSource = optional.Some(authSource)
-	}
-
-	if err := user_service.UpdateAuth(ctx, u, authOpts); err != nil {
-		switch {
-		case errors.Is(err, password.ErrMinLength):
-			ctx.Data["Err_Password"] = true
-			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_too_short", setting.MinPasswordLength), tplUserEdit, &form)
-		case errors.Is(err, password.ErrComplexity):
-			ctx.Data["Err_Password"] = true
-			ctx.RenderWithErrDeprecated(password.BuildComplexityError(ctx.Locale), tplUserEdit, &form)
-		case errors.Is(err, password.ErrIsPwned):
-			ctx.Data["Err_Password"] = true
-			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_pwned", "https://haveibeenpwned.com/Passwords"), tplUserEdit, &form)
-		case password.IsErrIsPwnedRequest(err):
-			ctx.Data["Err_Password"] = true
-			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_pwned_err"), tplUserEdit, &form)
-		default:
-			ctx.ServerError("UpdateUser", err)
-		}
-		return
-	}
-
-	if form.Email != "" {
-		if err := user_service.ReplacePrimaryEmailAddress(ctx, u, form.Email); err != nil {
-			switch {
-			case user_model.IsErrEmailCharIsNotSupported(err), user_model.IsErrEmailInvalid(err):
-				ctx.Data["Err_Email"] = true
-				ctx.RenderWithErrDeprecated(ctx.Tr("form.email_invalid"), tplUserEdit, &form)
-			case user_model.IsErrEmailAlreadyUsed(err):
-				ctx.Data["Err_Email"] = true
-				ctx.RenderWithErrDeprecated(ctx.Tr("form.email_been_used"), tplUserEdit, &form)
-			default:
-				ctx.ServerError("AddOrSetPrimaryEmailAddress", err)
-			}
-			return
-		}
-		if !user_model.IsEmailDomainAllowed(form.Email) {
-			ctx.Flash.Warning(ctx.Tr("form.email_domain_is_not_allowed", form.Email))
-		}
-	}
-
-	opts := &user_service.UpdateOptions{
-		FullName:                optional.Some(form.FullName),
-		Website:                 optional.Some(form.Website),
-		Location:                optional.Some(form.Location),
-		IsActive:                optional.Some(form.Active),
-		IsAdmin:                 user_service.UpdateOptionFieldFromValue(form.Admin),
-		AllowGitHook:            optional.Some(form.AllowGitHook),
-		AllowImportLocal:        optional.Some(form.AllowImportLocal),
-		MaxRepoCreation:         optional.Some(form.MaxRepoCreation),
-		AllowCreateOrganization: optional.Some(form.AllowCreateOrganization),
-		IsRestricted:            optional.Some(form.Restricted),
-		Visibility:              optional.Some(form.Visibility),
-		Language:                optional.Some(form.Language),
-	}
-
-	if err := user_service.UpdateUser(ctx, u, opts); err != nil {
-		if user_model.IsErrDeleteLastAdminUser(err) {
-			ctx.RenderWithErrDeprecated(ctx.Tr("auth.last_admin"), tplUserEdit, &form)
-		} else {
-			ctx.ServerError("UpdateUser", err)
-		}
-		return
-	}
-	log.Trace("Account profile updated by admin (%s): %s", ctx.Doer.Name, u.Name)
-
-	if form.Reset2FA {
-		tf, err := auth.GetTwoFactorByUID(ctx, u.ID)
-		if err != nil && !auth.IsErrTwoFactorNotEnrolled(err) {
-			ctx.ServerError("auth.GetTwoFactorByUID", err)
-			return
-		} else if tf != nil {
-			if err := auth.DeleteTwoFactorByID(ctx, tf.ID, u.ID); err != nil {
-				ctx.ServerError("auth.DeleteTwoFactorByID", err)
-				return
-			}
-		}
-
-		wn, err := auth.GetWebAuthnCredentialsByUID(ctx, u.ID)
-		if err != nil {
-			ctx.ServerError("auth.GetTwoFactorByUID", err)
-			return
-		}
-		for _, cred := range wn {
-			if _, err := auth.DeleteCredential(ctx, cred.ID, u.ID); err != nil {
-				ctx.ServerError("auth.DeleteCredential", err)
-				return
-			}
-		}
-	}
-
-	ctx.Flash.Success(ctx.Tr("admin.users.update_profile_success"))
+	ctx.Flash.Success("账号名称已修改，其他账户设置未变更。")
 	ctx.Redirect(setting.AppSubURL + "/-/admin/users/" + url.PathEscape(ctx.PathParam("userid")))
 }
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
@@ -27,15 +28,23 @@ func NewAttachment(ctx context.Context, attach *repo_model.Attachment, file io.R
 		return nil, fmt.Errorf("attachment %s should belong to a repository", attach.Name)
 	}
 
-	err := db.WithTx(ctx, func(ctx context.Context) error {
-		attach.UUID = uuid.New().String()
-		size, err := storage.Attachments.Save(attach.RelativePath(), file, size)
-		if err != nil {
-			return fmt.Errorf("Attachments.Save: %w", err)
-		}
-		attach.Size = size
-		return db.Insert(ctx, attach)
+	attach.UUID = uuid.New().String()
+	savedSize, err := storage.Attachments.Save(attach.RelativePath(), file, size)
+	if err != nil {
+		return nil, fmt.Errorf("Attachments.Save: %w", err)
+	}
+	attach.Size = savedSize
+	err = governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", attach.RepoID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			if err := db.Insert(ctx, attach); err != nil {
+				return err
+			}
+			return repo_model.AppendContentAudit(ctx, "attachment.created", attach.RepoID, "attachment", attach.ID, "/attachments/"+attach.Name, map[string]any{"after": map[string]any{"filename": attach.Name, "size": attach.Size}})
+		})
 	})
+	if err != nil {
+		_ = storage.Attachments.Delete(attach.RelativePath())
+	}
 
 	return attach, err
 }

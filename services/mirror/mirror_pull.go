@@ -6,6 +6,7 @@ package mirror
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ import (
 )
 
 // UpdateAddress writes new address to Git repository and database
-func UpdateAddress(ctx context.Context, m *repo_model.Mirror, addr string) error {
+func UpdateAddress(ctx context.Context, m *repo_model.Mirror, addr string) (retErr error) {
 	u, err := giturl.ParseGitURL(addr)
 	if err != nil {
 		return fmt.Errorf("invalid addr: %v", err)
@@ -39,6 +40,49 @@ func UpdateAddress(ctx context.Context, m *repo_model.Mirror, addr string) error
 
 	remoteName := m.GetRemoteName()
 	repo := m.GetRepository(ctx)
+	oldRemote, err := gitrepo.GitRemoteGetURL(ctx, repo, remoteName)
+	oldRemoteValue := ""
+	if err == nil {
+		oldRemoteValue = oldRemote.String()
+	} else if !git.IsRemoteNotExistError(err) {
+		return err
+	}
+	oldPublicURL := repo.OriginalURL
+	u.User = nil
+	newPublicURL := u.String()
+	hasWiki := repo_service.HasWiki(ctx, repo)
+	oldWikiRemoteValue, newWikiRemoteValue := "", ""
+	if hasWiki {
+		if oldWikiRemote, wikiErr := gitrepo.GitRemoteGetURL(ctx, repo.WikiStorageRepo(), remoteName); wikiErr == nil {
+			oldWikiRemoteValue = oldWikiRemote.String()
+		} else if !git.IsRemoteNotExistError(wikiErr) {
+			return wikiErr
+		}
+		newWikiRemoteValue = repo_module.WikiRemoteURL(ctx, addr)
+	}
+	operation, err := beginPullMirrorOperation(ctx, m, oldRemoteValue, addr, oldWikiRemoteValue, newWikiRemoteValue, oldPublicURL, newPublicURL, hasWiki)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		compensateMirrorOperation(ctx, operation, func(recoveryCtx context.Context) bool {
+			removeErr := gitrepo.GitRemoteRemove(recoveryCtx, repo, remoteName)
+			compensated := removeErr == nil || git.IsRemoteNotExistError(removeErr)
+			if oldRemoteValue != "" {
+				compensated = gitrepo.GitRemoteAdd(recoveryCtx, repo, remoteName, oldRemoteValue, gitrepo.RemoteOptionMirrorFetch) == nil && compensated
+			}
+			if hasWiki {
+				compensated = gitrepo.GitRemoteRemove(recoveryCtx, repo.WikiStorageRepo(), remoteName) == nil && compensated
+				if oldWikiRemoteValue != "" {
+					compensated = gitrepo.GitRemoteAdd(recoveryCtx, repo.WikiStorageRepo(), remoteName, oldWikiRemoteValue, gitrepo.RemoteOptionMirrorFetch) == nil && compensated
+				}
+			}
+			return compensated
+		})
+	}()
 	// Remove old remote
 	err = gitrepo.GitRemoteRemove(ctx, repo, remoteName)
 	if err != nil && !git.IsRemoteNotExistError(err) {
@@ -64,15 +108,31 @@ func UpdateAddress(ctx context.Context, m *repo_model.Mirror, addr string) error
 		}
 	}
 
-	// erase authentication before storing in database
-	u.User = nil
-	m.Repo.OriginalURL = u.String()
-	return repo_model.UpdateRepositoryColsNoAutoTime(ctx, m.Repo, "original_url")
+	return completePullMirrorOperation(ctx, operation, repo)
 }
 
-func pruneBrokenReferences(ctx context.Context, m *repo_model.Mirror, gitRepo gitrepo.Repository, timeout time.Duration) error {
+func safeMirrorURL(raw string) string {
+	u, err := giturl.ParseGitURL(raw)
+	if err != nil {
+		return ""
+	}
+	u.User, u.RawQuery, u.Fragment = nil, "", ""
+	return u.String()
+}
+
+func mirrorReferenceEnvironment(repo *repo_model.Repository, isWiki bool) []string {
+	return []string{
+		repo_module.EnvRepoID + "=" + strconv.FormatInt(repo.ID, 10),
+		repo_module.EnvRepoIsWiki + "=" + strconv.FormatBool(isWiki),
+		repo_module.EnvIsInternal + "=true",
+		repo_module.EnvPusherTransport + "=mirror",
+		repo_module.EnvReferenceActor + "=mirror",
+	}
+}
+
+func pruneBrokenReferences(ctx context.Context, m *repo_model.Mirror, gitRepo gitrepo.Repository, timeout time.Duration, isWiki bool) error {
 	// Never follow HTTP redirects, see cmdFetch in runSync.
-	cmd := gitcmd.NewCommand("remote", "prune").AddDynamicArguments(m.GetRemoteName()).WithTimeout(timeout)
+	cmd := gitcmd.NewCommand("remote", "prune").AddDynamicArguments(m.GetRemoteName()).WithTimeout(timeout).WithEnv(mirrorReferenceEnvironment(m.Repo, isWiki))
 	git.HandleGitCmdHTTPRedirection(cmd, m.GetRemoteName())
 	stdout, _, pruneErr := gitrepo.RunCmdString(ctx, gitRepo, cmd)
 	if pruneErr != nil {
@@ -125,7 +185,7 @@ func runSync(ctx context.Context, m *repo_model.Mirror) ([]*repo_module.SyncResu
 			return nil, false
 		}
 	}
-	envs := proxy.EnvWithProxy(remoteURL.URL)
+	envs := append(proxy.EnvWithProxy(remoteURL.URL), mirrorReferenceEnvironment(m.Repo, false)...)
 	timeout := time.Duration(setting.Git.Timeout.Mirror) * time.Second
 
 	// use fetch but not remote update because git fetch support --tags but remote update doesn't
@@ -150,7 +210,7 @@ func runSync(ctx context.Context, m *repo_model.Mirror) ([]*repo_module.SyncResu
 			log.Warn("SyncMirrors [repo: %-v]: failed to update mirror repository due to broken references:\nStdout: %s\nStderr: %s\nErr: %v\nAttempting Prune", m.Repo, stdoutMessage, stderrMessage, err)
 			err = nil
 			// Attempt prune
-			pruneErr := pruneBrokenReferences(ctx, m, m.Repo, timeout)
+			pruneErr := pruneBrokenReferences(ctx, m, m.Repo, timeout, false)
 			if pruneErr == nil {
 				// Successful prune - reattempt mirror
 				fetchStdout, fetchStderr, err = gitrepo.RunCmdString(ctx, m.Repo, cmdFetch())
@@ -212,7 +272,8 @@ func runSync(ctx context.Context, m *repo_model.Mirror) ([]*repo_module.SyncResu
 	}
 
 	cmdRemoteUpdatePrune := func() *gitcmd.Command {
-		cmd := gitcmd.NewCommand("remote", "update", "--prune").AddDynamicArguments(m.GetRemoteName()).WithTimeout(timeout).WithEnv(envs)
+		wikiEnvs := append(proxy.EnvWithProxy(remoteURL.URL), mirrorReferenceEnvironment(m.Repo, true)...)
+		cmd := gitcmd.NewCommand("remote", "update", "--prune").AddDynamicArguments(m.GetRemoteName()).WithTimeout(timeout).WithEnv(wikiEnvs)
 		git.HandleGitCmdHTTPRedirection(cmd, m.GetRemoteName())
 		return cmd
 	}
@@ -232,7 +293,7 @@ func runSync(ctx context.Context, m *repo_model.Mirror) ([]*repo_module.SyncResu
 				err = nil
 
 				// Attempt prune
-				pruneErr := pruneBrokenReferences(ctx, m, m.Repo.WikiStorageRepo(), timeout)
+				pruneErr := pruneBrokenReferences(ctx, m, m.Repo.WikiStorageRepo(), timeout, true)
 				if pruneErr == nil {
 					// Successful prune - reattempt mirror
 					stdout, stderr, err = gitrepo.RunCmdString(ctx, m.Repo.WikiStorageRepo(), cmdRemoteUpdatePrune())

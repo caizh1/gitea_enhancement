@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
@@ -30,7 +31,7 @@ func ReplacePrimaryEmailAddress(ctx context.Context, u *user_model.User, emailSt
 		return err
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		// Check if address exists already
 		email, err := user_model.GetEmailAddressByEmail(ctx, emailStr)
 		if err != nil && !errors.Is(err, util.ErrNotExist) {
@@ -53,66 +54,78 @@ func ReplacePrimaryEmailAddress(ctx context.Context, u *user_model.User, emailSt
 		}
 
 		// Insert new primary address
-		if _, err := user_model.InsertEmailAddress(ctx, &user_model.EmailAddress{
+		newPrimary := &user_model.EmailAddress{
 			UID:         u.ID,
 			Email:       emailStr,
 			IsActivated: true,
 			IsPrimary:   true,
-		}); err != nil {
+		}
+		if _, err := user_model.InsertEmailAddress(ctx, newPrimary); err != nil {
 			return err
 		}
 
 		u.Email = emailStr
-		return user_model.UpdateUserCols(ctx, u, "email")
+		if err := user_model.UpdateUserCols(ctx, u, "email"); err != nil {
+			return err
+		}
+		return user_model.AppendPrimaryEmailChangedAudit(ctx, u, primary, newPrimary)
 	})
 }
 
 func AddEmailAddresses(ctx context.Context, u *user_model.User, emails []string) error {
-	for _, emailStr := range emails {
-		if err := user_model.ValidateEmail(emailStr); err != nil {
-			return err
-		}
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		for _, emailStr := range emails {
+			if err := user_model.ValidateEmail(emailStr); err != nil {
+				return err
+			}
 
-		// Check if address exists already
-		email, err := user_model.GetEmailAddressByEmail(ctx, emailStr)
-		if err != nil && !errors.Is(err, util.ErrNotExist) {
-			return err
-		}
-		if email != nil {
-			return user_model.ErrEmailAlreadyUsed{Email: emailStr}
-		}
+			// Check if address exists already
+			email, err := user_model.GetEmailAddressByEmail(ctx, emailStr)
+			if err != nil && !errors.Is(err, util.ErrNotExist) {
+				return err
+			}
+			if email != nil {
+				return user_model.ErrEmailAlreadyUsed{Email: emailStr}
+			}
 
-		// Insert new address
-		email = &user_model.EmailAddress{
-			UID:         u.ID,
-			Email:       emailStr,
-			IsActivated: !setting.Service.RegisterEmailConfirm,
-			IsPrimary:   false,
+			// Insert new address
+			email = &user_model.EmailAddress{
+				UID:         u.ID,
+				Email:       emailStr,
+				IsActivated: !setting.Service.RegisterEmailConfirm,
+				IsPrimary:   false,
+			}
+			if _, err := user_model.InsertEmailAddress(ctx, email); err != nil {
+				return err
+			}
+			if err := user_model.AppendEmailAudit(ctx, u, email, "credential.email_created"); err != nil {
+				return err
+			}
 		}
-		if _, err := user_model.InsertEmailAddress(ctx, email); err != nil {
-			return err
-		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func DeleteEmailAddresses(ctx context.Context, u *user_model.User, emails []string) error {
-	for _, emailStr := range emails {
-		// Check if address exists
-		email, err := user_model.GetEmailAddressOfUser(ctx, emailStr, u.ID)
-		if err != nil {
-			return err
-		}
-		if email.IsPrimary {
-			return user_model.ErrPrimaryEmailCannotDelete{Email: emailStr}
-		}
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		for _, emailStr := range emails {
+			// Check if address exists
+			email, err := user_model.GetEmailAddressOfUser(ctx, emailStr, u.ID)
+			if err != nil {
+				return err
+			}
+			if email.IsPrimary {
+				return user_model.ErrPrimaryEmailCannotDelete{Email: emailStr}
+			}
 
-		// Remove address
-		if _, err := db.DeleteByID[user_model.EmailAddress](ctx, email.ID); err != nil {
-			return err
+			// Remove address
+			if _, err := db.DeleteByID[user_model.EmailAddress](ctx, email.ID); err != nil {
+				return err
+			}
+			if err := user_model.AppendEmailAudit(ctx, u, email, "credential.email_deleted"); err != nil {
+				return err
+			}
 		}
-	}
-
-	return nil
+		return nil
+	})
 }

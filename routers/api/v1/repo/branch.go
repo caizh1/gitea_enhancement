@@ -5,8 +5,13 @@
 package repo
 
 import (
+	stdcontext "context"
 	"errors"
+	governance_model "gitea.dev/models/governance"
+	"gitea.dev/modules/json"
+	governance_service "gitea.dev/services/governance"
 	"net/http"
+	"slices"
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
@@ -14,7 +19,6 @@ import (
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
-	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/optional"
 	repo_module "gitea.dev/modules/repository"
 	api "gitea.dev/modules/structs"
@@ -580,7 +584,7 @@ func GetBranchProtection(ctx *context.APIContext) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, convert.ToBranchProtection(ctx, bp, repo))
+	writeBranchProtectionResponse(ctx, http.StatusOK, bp, repo)
 }
 
 // ListBranchProtections list branch protections for a repo
@@ -614,6 +618,16 @@ func ListBranchProtections(ctx *context.APIContext) {
 	apiBps := make([]*api.BranchProtection, len(bps))
 	for i := range bps {
 		apiBps[i] = convert.ToBranchProtection(ctx, bps[i], repo)
+		state, err := governance_service.ReadBranchApprovals(ctx, ctx.Doer.ID, repo.ID, bps[i].ID)
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		apiBps[i].ApprovalConfiguration, err = json.Marshal(state)
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
 	}
 
 	ctx.JSON(http.StatusOK, apiBps)
@@ -805,8 +819,18 @@ func CreateBranchProtection(ctx *context.APIContext) {
 		UnprotectedFilePatterns:       form.UnprotectedFilePatterns,
 		BlockOnOutdatedBranch:         form.BlockOnOutdatedBranch,
 		BlockAdminMergeOverride:       form.BlockAdminMergeOverride,
+		RequireGovernanceApproval:     form.RequireGovernanceApproval,
 	}
 
+	var approvalUpdates []governance_service.BranchApprovalUpdate
+	if len(form.ApprovalConfiguration) > 0 {
+		var update governance_service.BranchApprovalUpdate
+		if err := json.Unmarshal(form.ApprovalConfiguration, &update); err != nil || update.ProtectionID != 0 {
+			ctx.APIError(http.StatusUnprocessableEntity, "审批配置格式无效")
+			return
+		}
+		approvalUpdates = append(approvalUpdates, update)
+	}
 	if err := pull_service.CreateOrUpdateProtectedBranch(ctx, ctx.Repo.Repository, protectBranch, git_model.WhitelistOptions{
 		UserIDs:          whitelistUsers,
 		TeamIDs:          whitelistTeams,
@@ -818,9 +842,14 @@ func CreateBranchProtection(ctx *context.APIContext) {
 		ApprovalsTeamIDs: approvalsWhitelistTeams,
 		BypassUserIDs:    bypassAllowlistUsers,
 		BypassTeamIDs:    bypassAllowlistTeams,
-	}); err != nil {
-		ctx.APIErrorInternal(err)
-		return
+	}, approvalUpdates...); err != nil {
+		var saved *pull_service.ProtectionSavedRefreshError
+		if errors.As(err, &saved) {
+			ctx.Resp.Header().Set("X-Gitea-Protection-Refresh", "pending")
+		} else {
+			branchApprovalAPIError(ctx, err)
+			return
+		}
 	}
 
 	// Reload from db to get all whitelists
@@ -834,7 +863,7 @@ func CreateBranchProtection(ctx *context.APIContext) {
 		return
 	}
 
-	ctx.JSON(http.StatusCreated, convert.ToBranchProtection(ctx, bp, repo))
+	writeBranchProtectionResponse(ctx, http.StatusCreated, bp, repo)
 }
 
 // EditBranchProtection edits a branch protection for a repo
@@ -990,6 +1019,9 @@ func EditBranchProtection(ctx *context.APIContext) {
 		protectBranch.BlockOnOutdatedBranch = *form.BlockOnOutdatedBranch
 	}
 
+	if form.RequireGovernanceApproval != nil {
+		protectBranch.RequireGovernanceApproval = *form.RequireGovernanceApproval
+	}
 	if form.BlockAdminMergeOverride != nil {
 		protectBranch.BlockAdminMergeOverride = *form.BlockAdminMergeOverride
 	}
@@ -1134,7 +1166,7 @@ func EditBranchProtection(ctx *context.APIContext) {
 		bypassAllowlistTeams = nil
 	}
 
-	err = git_model.UpdateProtectBranch(ctx, ctx.Repo.Repository, protectBranch, git_model.WhitelistOptions{
+	whitelistOptions := git_model.WhitelistOptions{
 		UserIDs:          whitelistUsers,
 		TeamIDs:          whitelistTeams,
 		ForcePushUserIDs: forcePushAllowlistUsers,
@@ -1145,51 +1177,80 @@ func EditBranchProtection(ctx *context.APIContext) {
 		ApprovalsTeamIDs: approvalsWhitelistTeams,
 		BypassUserIDs:    bypassAllowlistUsers,
 		BypassTeamIDs:    bypassAllowlistTeams,
-	})
-	if err != nil {
-		ctx.APIErrorInternal(err)
-		return
 	}
-
-	isPlainRule := !git_model.IsRuleNameSpecial(bpName)
-	var isBranchExist bool
-	if isPlainRule {
-		isBranchExist, err = git_model.IsBranchExist(ctx, ctx.Repo.Repository.ID, bpName)
+	// 旧客户端省略的审批字段必须在写锁内取当前值，不能用请求早期的旧副本覆盖统一配置。
+	saveProtection := func(tx stdcontext.Context) (int64, error) {
+		fresh, err := git_model.GetProtectedBranchRuleByID(tx, repo.ID, protectBranch.ID)
 		if err != nil {
-			ctx.APIErrorInternal(err)
-			return
+			return 0, err
 		}
+		if fresh == nil {
+			return 0, governance_model.ErrNotFound
+		}
+		if form.RequiredApprovals == nil {
+			protectBranch.RequiredApprovals = fresh.RequiredApprovals
+		}
+		if form.EnableApprovalsWhitelist == nil {
+			protectBranch.EnableApprovalsWhitelist = fresh.EnableApprovalsWhitelist
+		}
+		if form.IgnoreStaleApprovals == nil {
+			protectBranch.IgnoreStaleApprovals = fresh.IgnoreStaleApprovals
+		}
+		if form.DismissStaleApprovals == nil {
+			protectBranch.DismissStaleApprovals = fresh.DismissStaleApprovals
+		}
+		if form.ApprovalsWhitelistUsernames == nil {
+			whitelistOptions.ApprovalsUserIDs = fresh.ApprovalsWhitelistUserIDs
+		}
+		if form.ApprovalsWhitelistTeams == nil {
+			whitelistOptions.ApprovalsTeamIDs = fresh.ApprovalsWhitelistTeamIDs
+		}
+		err = git_model.UpdateProtectBranch(tx, repo, protectBranch, whitelistOptions)
+		return protectBranch.ID, err
 	}
 
-	if isBranchExist {
-		if err = pull_service.CheckPRsForBaseBranch(ctx, ctx.Repo.Repository, bpName); err != nil {
-			ctx.APIErrorInternal(err)
+	if len(form.ApprovalConfiguration) > 0 {
+		var update governance_service.BranchApprovalUpdate
+		if decodeErr := json.Unmarshal(form.ApprovalConfiguration, &update); decodeErr != nil || update.ProtectionID != protectBranch.ID {
+			ctx.APIError(http.StatusUnprocessableEntity, "审批配置格式无效")
 			return
 		}
-	} else {
-		if !isPlainRule {
-			if ctx.Repo.GitRepo == nil {
-				ctx.Repo.GitRepo, err = gitrepo.RepositoryFromRequestContextOrOpen(ctx, ctx.Repo.Repository)
+		for _, change := range update.Rules {
+			nativeID := change.Rule.NativeProtectionID
+			if change.Rule.ID > 0 {
+				previous, has, err := db.GetByID[governance_model.ApprovalRule](ctx, change.Rule.ID)
 				if err != nil {
 					ctx.APIErrorInternal(err)
 					return
 				}
-			}
-
-			// FIXME: since we only need to recheck files protected rules, we could improve this
-			matchedBranches, err := git_model.FindAllMatchedBranches(ctx, ctx.Repo.Repository.ID, protectBranch.RuleName)
-			if err != nil {
-				ctx.APIErrorInternal(err)
-				return
-			}
-
-			for _, branchName := range matchedBranches {
-				if err = pull_service.CheckPRsForBaseBranch(ctx, ctx.Repo.Repository, branchName); err != nil {
-					ctx.APIErrorInternal(err)
-					return
+				if has && previous.ScopeType == "repository" && previous.ScopeID == repo.ID {
+					nativeID = previous.NativeProtectionID
 				}
 			}
+			if nativeID == protectBranch.ID && (form.RequiredApprovals != nil && int64(change.Rule.Required) != *form.RequiredApprovals || form.EnableApprovalsWhitelist != nil && change.Rule.AllEligible == *form.EnableApprovalsWhitelist ||
+				form.IgnoreStaleApprovals != nil && change.Rule.NativeIgnoreStale != *form.IgnoreStaleApprovals ||
+				form.DismissStaleApprovals != nil && change.Rule.NativeDismissStale != *form.DismissStaleApprovals ||
+				form.ApprovalsWhitelistUsernames != nil && !sameApprovalIDs(change.Rule.UserIDs, approvalsWhitelistUsers) ||
+				form.ApprovalsWhitelistTeams != nil && !sameApprovalIDs(change.Rule.TeamIDs, approvalsWhitelistTeams)) {
+				ctx.APIError(http.StatusUnprocessableEntity, "新旧审批字段相互冲突")
+				return
+			}
 		}
+		err = governance_service.SaveBranchApprovals(ctx, governance_model.AuditActor(ctx), repo.ID, update, saveProtection)
+	} else {
+		err = governance_service.WithActorWrite(ctx, governance_model.AuditActor(ctx), []string{governance_model.Resource("repository", repo.ID)}, func(tx stdcontext.Context) error {
+			_, err := saveProtection(tx)
+			return err
+		})
+	}
+
+	if err != nil {
+		branchApprovalAPIError(ctx, err)
+		return
+	}
+
+	if err := pull_service.RefreshProtectedBranch(ctx, repo, protectBranch); err != nil {
+		ctx.Resp.Header().Set("X-Gitea-Protection-Refresh", "pending")
 	}
 
 	// Reload from db to ensure get all whitelists
@@ -1203,7 +1264,7 @@ func EditBranchProtection(ctx *context.APIContext) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, convert.ToBranchProtection(ctx, bp, repo))
+	writeBranchProtectionResponse(ctx, http.StatusOK, bp, repo)
 }
 
 // DeleteBranchProtection deletes a branch protection for a repo
@@ -1344,4 +1405,41 @@ func MergeUpstream(ctx *context.APIContext) {
 		return
 	}
 	ctx.JSON(http.StatusOK, &api.MergeUpstreamResponse{MergeStyle: mergeStyle})
+}
+
+func branchApprovalAPIError(ctx *context.APIContext, err error) {
+	if errors.Is(err, governance_model.ErrConflict) {
+		ctx.APIError(http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, governance_model.ErrForbidden) {
+		ctx.APIError(http.StatusForbidden, err.Error())
+		return
+	}
+	if errors.Is(err, governance_model.ErrInvalid) {
+		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	ctx.APIErrorInternal(err)
+}
+func writeBranchProtectionResponse(ctx *context.APIContext, status int, bp *git_model.ProtectedBranch, repo *repo_model.Repository) {
+	state, err := governance_service.ReadBranchApprovals(ctx, ctx.Doer.ID, repo.ID, bp.ID)
+	if err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
+	result := convert.ToBranchProtection(ctx, bp, repo)
+	result.ApprovalConfiguration, err = json.Marshal(state)
+	if err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
+	ctx.JSON(status, result)
+}
+
+func sameApprovalIDs(a, b []int64) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(slices.Compact(a), slices.Compact(b))
 }

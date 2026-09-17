@@ -71,6 +71,12 @@
 				</div>
 
 				<!-- Send register notify e-mail -->
+				<div class="inline field">
+					<div class="ui checkbox">
+						<label><strong>全站审计员</strong>：读取所有群组、项目和审计记录；已有资源授权独立生效。</label>
+						<input name="auditor" type="checkbox" {{if .auditor}}checked{{end}}>
+					</div>
+				</div>
 				{{if .CanSendEmail}}
 					<div class="inline field">
 						<div class="ui checkbox">

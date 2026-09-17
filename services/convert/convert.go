@@ -202,6 +202,7 @@ func ToBranchProtection(ctx context.Context, bp *git_model.ProtectedBranch, repo
 		ProtectedFilePatterns:         bp.ProtectedFilePatterns,
 		UnprotectedFilePatterns:       bp.UnprotectedFilePatterns,
 		BlockAdminMergeOverride:       bp.BlockAdminMergeOverride,
+		RequireGovernanceApproval:     bp.RequireGovernanceApproval,
 		Created:                       bp.CreatedUnix.AsTime(),
 		Updated:                       bp.UpdatedUnix.AsTime(),
 	}
@@ -853,6 +854,7 @@ func ToDeployKey(apiLink string, key *asymkey_model.DeployKey) *api.DeployKey {
 // ToOrganization convert user_model.User to api.Organization
 func ToOrganization(ctx context.Context, org *organization.Organization) *api.Organization {
 	return &api.Organization{
+		FullPath:                  org.AsUser().FullPath(),
 		ID:                        org.ID,
 		AvatarURL:                 org.AsUser().AvatarLink(ctx),
 		Name:                      org.Name,

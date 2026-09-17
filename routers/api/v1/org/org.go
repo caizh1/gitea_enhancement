@@ -7,18 +7,15 @@ package org
 import (
 	gocontext "context"
 	"errors"
-	"fmt"
 	"net/http"
 
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
-	system_model "gitea.dev/models/system"
 	user_model "gitea.dev/models/user"
-	"gitea.dev/modules/graceful"
-	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
@@ -28,6 +25,7 @@ import (
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	feed_service "gitea.dev/services/feed"
+	governance_service "gitea.dev/services/governance"
 	"gitea.dev/services/org"
 	repo_service "gitea.dev/services/repository"
 	user_service "gitea.dev/services/user"
@@ -428,7 +426,7 @@ func Edit(ctx *context.APIContext) {
 func Delete(ctx *context.APIContext) {
 	// swagger:operation DELETE /orgs/{org} organization orgDelete
 	// ---
-	// summary: Delete an organization
+	// summary: 安排组织延迟删除，保留期内可恢复
 	// produces:
 	// - application/json
 	// parameters:
@@ -443,10 +441,23 @@ func Delete(ctx *context.APIContext) {
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	if err := org.DeleteOrganization(ctx, ctx.Org.Organization, false); err != nil {
+	namespace, err := governance_model.GetNamespace(ctx, ctx.Org.Organization.ID)
+	if err != nil {
 		ctx.APIErrorInternal(err)
 		return
 	}
+	actor := governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())
+	if _, err := governance_service.ScheduleGroupDeletion(ctx, actor, namespace.ID, governance_service.GroupDeletionOption{Revision: namespace.Revision, ConfirmationPath: namespace.FullPath}); err != nil {
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
+		} else if errors.Is(err, governance_model.ErrNotFound) || errors.Is(err, governance_model.ErrForbidden) {
+			ctx.APIError(http.StatusForbidden, "无权删除此群组")
+		} else {
+			ctx.APIErrorInternal(err)
+		}
+		return
+	}
+	ctx.Resp.Header().Set("X-Gitea-Deletion-State", "scheduled")
 	ctx.Status(http.StatusNoContent)
 }
 
@@ -517,36 +528,10 @@ func ListOrgActivityFeeds(ctx *context.APIContext) {
 	ctx.JSON(http.StatusOK, convert.ToActivities(ctx, feeds, ctx.Doer))
 }
 
-func deleteOrgReposBackground(ctx gocontext.Context, org *organization.Organization, repoIDs []int64, doer *user_model.User) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error("panic during org repo deletion: %v, stack: %v", r, log.Stack(2))
-		}
-	}()
-
-	for _, repoID := range repoIDs {
-		repo, err := repo_model.GetRepositoryByID(ctx, repoID)
-		if err != nil {
-			desc := fmt.Sprintf("Failed to get repository ID %d in org %s: %v", repoID, org.Name, err)
-			_ = system_model.CreateNotice(ctx, system_model.NoticeRepository, desc)
-			log.Error("GetRepositoryByID failed: %v", desc)
-			continue
-		}
-		if err := repo_service.DeleteRepository(ctx, doer, repo, true); err != nil {
-			desc := fmt.Sprintf("Failed to delete repository %s (ID: %d) in org %s: %v", repo.Name, repo.ID, org.Name, err)
-			_ = system_model.CreateNotice(ctx, system_model.NoticeRepository, desc)
-			log.Error("DeleteRepository failed: %v", desc)
-			continue
-		}
-		log.Info("Successfully deleted repository %s (ID: %d) in org %s", repo.Name, repo.ID, org.Name)
-	}
-	log.Info("Completed deletion of repositories in org %s", org.Name)
-}
-
 func DeleteOrgRepos(ctx *context.APIContext) {
 	// swagger:operation DELETE /orgs/{org}/repos organization orgDeleteRepos
 	// ---
-	// summary: Delete all repositories in an organization
+	// summary: 持久化组织全部项目的可恢复删除计划
 	// produces:
 	// - application/json
 	// parameters:
@@ -565,21 +550,48 @@ func DeleteOrgRepos(ctx *context.APIContext) {
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	// Intentionally it only loads repository IDs to avoid loading too much data into memory
-	// There is no need to do pagination here as the number of repositories is expected to be manageable
-	repoIDs, err := repo_model.GetOrgRepositoryIDs(ctx, ctx.Org.Organization.ID)
+	actor := governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())
+	count := 0
+	// 请求返回前持久化全部计划，实际删除由保留期任务负责，进程退出不会丢失未落库的后台工作。
+	err := governance_model.WithWrite(ctx, nil, func(txctx gocontext.Context) error {
+		ids, err := repo_model.GetOrgRepositoryIDs(txctx, ctx.Org.Organization.ID)
+		if err != nil {
+			return err
+		}
+		count = len(ids)
+		for _, id := range ids {
+			repo, err := repo_model.GetRepositoryByID(txctx, id)
+			if err != nil {
+				return err
+			}
+			if repo.OwnerID != ctx.Org.Organization.ID {
+				return governance_model.ErrConflict
+			}
+			pending, err := db.ExistByID[governance_model.RepositoryDeletion](txctx, id)
+			if err != nil {
+				return err
+			}
+			if pending {
+				continue
+			}
+			if _, err := repo_service.ScheduleRepositoryDeletion(txctx, actor, id, repo_service.DeletionOption{ConfirmationPath: repo.FullPath()}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, "组织或项目状态已改变，请重新查看删除计划。")
+			return
+		}
 		ctx.APIErrorInternal(err)
 		return
 	}
-
-	if len(repoIDs) == 0 {
+	if count == 0 {
 		ctx.Status(http.StatusNoContent)
 		return
 	}
-
-	// Start deletion (slow) in background with detached context, so it can continue even if the request is canceled
-	go deleteOrgReposBackground(graceful.GetManager().ShutdownContext(), ctx.Org.Organization, repoIDs, ctx.Doer)
-
+	ctx.Resp.Header().Set("X-Gitea-Deletion-State", "scheduled")
 	ctx.Status(http.StatusAccepted)
 }

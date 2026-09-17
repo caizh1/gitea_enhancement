@@ -333,8 +333,25 @@ func DeletePushMirrorByRemoteName(ctx *context.APIContext) {
 
 	remoteName := ctx.PathParam("name")
 	// Delete push mirror on repo by name.
-	err := repo_model.DeletePushMirrors(ctx, repo_model.PushMirrorOptions{RepoID: ctx.Repo.Repository.ID, RemoteName: remoteName})
+	// 按远端名查询，避免仅删数据库却遗留实际Git remote。
+	mirrors, _, err := repo_model.GetPushMirrorsByRepoID(ctx, ctx.Repo.Repository.ID, db.ListOptionsAll)
 	if err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
+	var mirror *repo_model.PushMirror
+	for _, candidate := range mirrors {
+		if candidate.RemoteName == remoteName {
+			mirror = candidate
+			break
+		}
+	}
+	if mirror == nil {
+		ctx.APIErrorNotFound()
+		return
+	}
+	mirror.Repo = ctx.Repo.Repository
+	if err := mirror_service.DeletePushMirror(ctx, mirror); err != nil {
 		ctx.APIError(http.StatusNotFound, err.Error())
 		return
 	}
@@ -380,17 +397,7 @@ func CreatePushMirror(ctx *context.APIContext, mirrorOption *api.CreatePushMirro
 		RemoteAddress: remoteAddress,
 	}
 
-	if err = db.Insert(ctx, pushMirror); err != nil {
-		ctx.APIErrorInternal(err)
-		return
-	}
-
-	// if the registration of the push mirrorOption fails remove it from the database
-	if err = mirror_service.AddPushMirrorRemote(ctx, pushMirror, address); err != nil {
-		if err := repo_model.DeletePushMirrors(ctx, repo_model.PushMirrorOptions{ID: pushMirror.ID, RepoID: pushMirror.RepoID}); err != nil {
-			ctx.APIErrorInternal(err)
-			return
-		}
+	if err = mirror_service.CreatePushMirror(ctx, pushMirror, address); err != nil {
 		ctx.APIErrorInternal(err)
 		return
 	}

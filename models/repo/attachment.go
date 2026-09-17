@@ -8,13 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"path"
+	"slices"
 
 	"gitea.dev/models/db"
-	"gitea.dev/modules/log"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/setting"
-	"gitea.dev/modules/storage"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
@@ -185,25 +184,58 @@ func DeleteAttachments(ctx context.Context, attachments []*Attachment, remove bo
 	}
 
 	ids := make([]int64, 0, len(attachments))
+	resources := make([]string, 0, len(attachments))
 	for _, a := range attachments {
 		ids = append(ids, a.ID)
+		if a.RepoID > 0 {
+			resources = append(resources, governance_model.Resource("repository", a.RepoID))
+		}
 	}
+	slices.Sort(resources)
+	resources = slices.Compact(resources)
 
-	cnt, err := db.GetEngine(ctx).In("id", ids).NoAutoCondition().Delete(attachments[0])
+	var deleted []*Attachment
+	var cnt int64
+	err := governance_model.WithWrite(ctx, resources, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			if err := db.GetEngine(ctx).In("id", ids).Find(&deleted); err != nil {
+				return err
+			}
+			var err error
+			cnt, err = db.GetEngine(ctx).In("id", ids).NoAutoCondition().Delete(new(Attachment))
+			if err != nil {
+				return err
+			}
+			for _, a := range deleted {
+				var cleanupScope *Repository
+				var cleanupAncestors []int64
+				if a.RepoID > 0 {
+					cleanupScope, cleanupAncestors, err = ContentAuditRepositoryScope(ctx, a.RepoID)
+					if err != nil {
+						return err
+					}
+					if err := AppendContentAudit(ctx, "attachment.deleted", a.RepoID, "attachment", a.ID, "/attachments/"+a.Name, map[string]any{"before": map[string]any{"filename": a.Name, "size": a.Size}}); err != nil {
+						return err
+					}
+				}
+				if remove {
+					cleanup := &governance_model.ResourceCleanup{Kind: "attachment", ResourceID: a.ID, Actor: governance_model.AuditActor(ctx), ObjectPath: a.Name, Objects: []governance_model.CleanupObject{{Kind: "attachment", Path: a.RelativePath()}}}
+					if cleanupScope != nil {
+						cleanup.ScopeType, cleanup.ScopeID = "repository", cleanupScope.ID
+						cleanup.ObjectPath, cleanup.AncestorIDs = cleanupScope.FullPath()+"/attachments/"+a.Name, cleanupAncestors
+					}
+					if err := db.Insert(ctx, cleanup); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
+	})
 	if err != nil {
 		return 0, err
 	}
 
-	if remove {
-		for i, a := range attachments {
-			if err := storage.Attachments.Delete(a.RelativePath()); err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					return i, err
-				}
-				log.Warn("Attachment file not found when deleting: %s", a.RelativePath())
-			}
-		}
-	}
 	return int(cnt), nil
 }
 
@@ -232,26 +264,72 @@ func UpdateAttachmentByUUID(ctx context.Context, attach *Attachment, cols ...str
 	if attach.UUID == "" {
 		return errors.New("attachment uuid should be not blank")
 	}
-	_, err := db.GetEngine(ctx).Where("uuid=?", attach.UUID).Cols(cols...).Update(attach)
-	return err
+	current, err := GetAttachmentByUUID(ctx, attach.UUID)
+	if err != nil {
+		return err
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", current.RepoID)}, func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			current, err = GetAttachmentByUUID(ctx, attach.UUID)
+			if err != nil {
+				return err
+			}
+			if _, err := db.GetEngine(ctx).Where("uuid=?", attach.UUID).Cols(cols...).Update(attach); err != nil {
+				return err
+			}
+			if slices.Contains(cols, "name") && current.Name != attach.Name {
+				return AppendContentAudit(ctx, "attachment.updated", current.RepoID, "attachment", current.ID, "/attachments/"+attach.Name, map[string]any{"before": map[string]any{"filename": current.Name, "size": current.Size}, "after": map[string]any{"filename": attach.Name, "size": current.Size}})
+			}
+			return nil
+		})
+	})
 }
 
 // UpdateAttachment updates the given attachment in database
 func UpdateAttachment(ctx context.Context, atta *Attachment) error {
-	sess := db.GetEngine(ctx).Cols("name", "issue_id", "release_id", "comment_id", "download_count")
-	if atta.ID != 0 && atta.UUID == "" {
-		sess = sess.ID(atta.ID)
+	var current *Attachment
+	var err error
+	if atta.ID != 0 {
+		current, err = GetAttachmentByID(ctx, atta.ID)
 	} else {
-		// Use uuid only if id is not set and uuid is set
-		sess = sess.Where("uuid = ?", atta.UUID)
+		current, err = GetAttachmentByUUID(ctx, atta.UUID)
 	}
-	_, err := sess.Update(atta)
-	return err
+	if err != nil {
+		return err
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", current.RepoID)}, func(ctx context.Context) error {
+		if atta.ID != 0 {
+			current, err = GetAttachmentByID(ctx, atta.ID)
+		} else {
+			current, err = GetAttachmentByUUID(ctx, atta.UUID)
+		}
+		if err != nil {
+			return err
+		}
+		sess := db.GetEngine(ctx).Cols("name", "issue_id", "release_id", "comment_id", "download_count")
+		if atta.ID != 0 && atta.UUID == "" {
+			sess = sess.ID(atta.ID)
+		} else {
+			// Use uuid only if id is not set and uuid is set
+			sess = sess.Where("uuid = ?", atta.UUID)
+		}
+		if _, err := sess.Update(atta); err != nil {
+			return err
+		}
+		if current.Name != atta.Name {
+			return AppendContentAudit(ctx, "attachment.updated", current.RepoID, "attachment", current.ID, "/attachments/"+atta.Name, map[string]any{"before": map[string]any{"filename": current.Name, "size": current.Size}, "after": map[string]any{"filename": atta.Name, "size": current.Size}})
+		}
+		return nil
+	})
 }
 
 // DeleteAttachmentsByRelease deletes all attachments associated with the given release.
 func DeleteAttachmentsByRelease(ctx context.Context, releaseID int64) error {
-	_, err := db.GetEngine(ctx).Where("release_id = ?", releaseID).Delete(&Attachment{})
+	attachments := make([]*Attachment, 0)
+	if err := db.GetEngine(ctx).Where("release_id = ?", releaseID).Find(&attachments); err != nil {
+		return err
+	}
+	_, err := DeleteAttachments(ctx, attachments, true)
 	return err
 }
 

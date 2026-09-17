@@ -59,3 +59,14 @@ func TestIterateLFSMetaObjectsForRepoUpdatesDoNotSkip(t *testing.T) {
 	expected := []int64{created[0].ID, created[1].ID, created[2].ID}
 	assert.Equal(t, expected, iterated)
 }
+
+func TestLFSMetadataRejectsDeletedRepository(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	pointer, err := lfs.GeneratePointer(bytes.NewReader([]byte("仓库删除后不能再建立 LFS 引用")))
+	assert.NoError(t, err)
+	_, err = git_model.NewLFSMetaObject(t.Context(), unittest.NonexistentID, pointer)
+	assert.Error(t, err, "不能为已不存在的仓库新增 LFS 引用")
+	count, err := db.GetEngine(t.Context()).Where("repository_id = ?", unittest.NonexistentID).Count(new(git_model.LFSMetaObject))
+	assert.NoError(t, err)
+	assert.Zero(t, count)
+}

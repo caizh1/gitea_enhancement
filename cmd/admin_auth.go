@@ -12,6 +12,7 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	auth_service "gitea.dev/services/auth"
 
 	"github.com/urfave/cli/v3"
@@ -99,6 +100,7 @@ func runDeleteAuth(ctx context.Context, c *cli.Command) error {
 	if err := initDB(ctx); err != nil {
 		return err
 	}
+	ctx = governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "system", Name: "gitea admin auth delete", Transport: "cli"})
 
 	source, err := auth_model.GetSourceByID(ctx, c.Int64("id"))
 	if err != nil {

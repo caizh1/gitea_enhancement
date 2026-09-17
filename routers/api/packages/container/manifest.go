@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	container_model "gitea.dev/models/packages/container"
 	user_model "gitea.dev/models/user"
@@ -81,10 +81,10 @@ type processManifestTxRet struct {
 	digest  string
 }
 
-func handleCreateManifestResult(ctx context.Context, err error, mci *manifestCreationInfo, contentStore *packages_module.ContentStore, txRet *processManifestTxRet) (string, error) {
+func handleCreateManifestResult(ctx context.Context, err error, mci *manifestCreationInfo, txRet *processManifestTxRet) (string, error) {
 	if err != nil {
 		if txRet.created && txRet.pb != nil {
-			if err := contentStore.Delete(packages_module.BlobHash256Key(txRet.pb.HashSHA256)); err != nil {
+			if err := packages_service.RemoveUnreferencedBlobContent(ctx, txRet.pb.HashSHA256); err != nil {
 				log.Error("Error deleting package blob from content store: %v", err)
 			}
 		}
@@ -110,7 +110,7 @@ func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf
 
 	contentStore := packages_module.NewContentStore()
 	var txRet processManifestTxRet
-	err = db.WithTx(ctx, func(ctx context.Context) (err error) {
+	err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) (err error) {
 		blobReferences := make([]*blobReference, 0, 1+len(manifest.Layers))
 		blobReferences = append(blobReferences, &blobReference{
 			Digest:       manifest.Config.Digest,
@@ -154,10 +154,13 @@ func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf
 		}
 		txRet.pv = pv
 		txRet.pb, txRet.created, txRet.digest, err = createManifestBlob(ctx, contentStore, mci, pv, buf)
-		return err
+		if err != nil {
+			return err
+		}
+		return appendContainerManifestAudits(ctx, pv)
 	})
 
-	return handleCreateManifestResult(ctx, err, mci, contentStore, &txRet)
+	return handleCreateManifestResult(ctx, err, mci, &txRet)
 }
 
 func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *packages_module.HashedBuffer) (manifestDigest string, errRet error) {
@@ -171,7 +174,7 @@ func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *p
 
 	contentStore := packages_module.NewContentStore()
 	var txRet processManifestTxRet
-	err := db.WithTx(ctx, func(ctx context.Context) (err error) {
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) (err error) {
 		metadata := &container_module.Metadata{
 			Type:      container_module.TypeOCI,
 			Manifests: make([]*container_module.Manifest, 0, len(index.Manifests)),
@@ -224,10 +227,26 @@ func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *p
 
 		txRet.pv = pv
 		txRet.pb, txRet.created, txRet.digest, err = createManifestBlob(ctx, contentStore, mci, pv, buf)
-		return err
+		if err != nil {
+			return err
+		}
+		return appendContainerManifestAudits(ctx, pv)
 	})
 
-	return handleCreateManifestResult(ctx, err, mci, contentStore, &txRet)
+	return handleCreateManifestResult(ctx, err, mci, &txRet)
+}
+
+func appendContainerManifestAudits(ctx context.Context, pv *packages_model.PackageVersion) error {
+	files, _, err := packages_model.SearchFiles(ctx, &packages_model.PackageFileSearchOptions{VersionID: pv.ID})
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if err := packages_model.AppendFileAudit(ctx, file, "package.file_added"); err != nil {
+			return err
+		}
+	}
+	return packages_model.AppendVersionAudit(ctx, pv, "package.version_published")
 }
 
 func createPackageAndVersion(ctx context.Context, mci *manifestCreationInfo, metadata *container_module.Metadata) (*packages_model.PackageVersion, error) {
@@ -396,7 +415,7 @@ func createManifestBlob(ctx context.Context, contentStore *packages_module.Conte
 	if !exists {
 		if err := contentStore.Save(packages_module.BlobHash256Key(pb.HashSHA256), buf, buf.Size()); err != nil {
 			log.Error("Error saving package blob in content store: %v", err)
-			return nil, false, "", err
+			return pb, !exists, "", err
 		}
 	}
 
@@ -410,7 +429,7 @@ func createManifestBlob(ctx context.Context, contentStore *packages_module.Conte
 		IsLead:       true,
 	})
 	if err != nil {
-		return nil, false, "", err
+		return pb, !exists, "", err
 	}
 
 	oldManifestFiles, _, err := packages_model.SearchFiles(ctx, &packages_model.PackageFileSearchOptions{
@@ -420,13 +439,13 @@ func createManifestBlob(ctx context.Context, contentStore *packages_module.Conte
 		Query:       container_module.ManifestFilename,
 	})
 	if err != nil {
-		return nil, false, "", err
+		return pb, !exists, "", err
 	}
 	for _, oldManifestFile := range oldManifestFiles {
 		if oldManifestFile.ID != pf.ID && oldManifestFile.IsLead {
 			err = packages_model.UpdateFile(ctx, &packages_model.PackageFile{ID: oldManifestFile.ID, IsLead: false}, []string{"is_lead"})
 			if err != nil {
-				return nil, false, "", err
+				return pb, !exists, "", err
 			}
 		}
 	}

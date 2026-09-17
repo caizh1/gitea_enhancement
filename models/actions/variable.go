@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -68,7 +69,15 @@ func InsertVariable(ctx context.Context, ownerID, repoID int64, name, data, desc
 		Data:        data,
 		Description: description,
 	}
-	return variable, db.Insert(ctx, variable)
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := db.Insert(ctx, variable); err != nil {
+			return err
+		}
+		return AppendConfigurationAudit(ctx, variable.OwnerID, variable.RepoID, "actions.variable_created", "actions_variable", variable.ID, variable.Name, variableAuditDetails(variable, []string{"created"}))
+	}); err != nil {
+		return nil, err
+	}
+	return variable, nil
 }
 
 type FindVariablesOpts struct {
@@ -118,18 +127,57 @@ func UpdateVariableCols(ctx context.Context, variable *ActionVariable, cols ...s
 	variable.Description = util.TruncateRunes(variable.Description, VariableDescriptionMaxLength)
 
 	variable.Name = strings.ToUpper(variable.Name)
-	count, err := db.GetEngine(ctx).
-		ID(variable.ID).
-		Cols(cols...).
-		Update(variable)
-	return count != 0, err
+	var updated bool
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, has, err := db.GetByID[ActionVariable](ctx, variable.ID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return util.NewNotExistErrorf("variable not found")
+		}
+		before := variableAuditValues(fresh)
+		count, err := db.GetEngine(ctx).ID(variable.ID).Cols(cols...).Update(variable)
+		if err != nil || count == 0 {
+			return err
+		}
+		updated = true
+		after := variableAuditValues(variable)
+		changed := make([]string, 0, 3)
+		for _, field := range []string{"name", "value_configured", "description_configured"} {
+			if before[field] != after[field] || (field == "value_configured" && fresh.Data != variable.Data) || (field == "description_configured" && fresh.Description != variable.Description) {
+				changed = append(changed, field)
+			}
+		}
+		return AppendConfigurationAudit(ctx, fresh.OwnerID, fresh.RepoID, "actions.variable_updated", "actions_variable", fresh.ID, variable.Name, map[string]any{"before": before, "after": after, "changed_fields": changed})
+	})
+	return updated, err
 }
 
 func DeleteVariable(ctx context.Context, id int64) error {
-	if _, err := db.DeleteByID[ActionVariable](ctx, id); err != nil {
-		return err
-	}
-	return nil
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		variable, has, err := db.GetByID[ActionVariable](ctx, id)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return util.NewNotExistErrorf("variable not found")
+		}
+		if count, err := db.DeleteByID[ActionVariable](ctx, id); err != nil {
+			return err
+		} else if count != 1 {
+			return util.NewNotExistErrorf("variable not found")
+		}
+		return AppendConfigurationAudit(ctx, variable.OwnerID, variable.RepoID, "actions.variable_deleted", "actions_variable", variable.ID, variable.Name, variableAuditDetails(variable, []string{"deleted"}))
+	})
+}
+
+func variableAuditDetails(variable *ActionVariable, changed []string) map[string]any {
+	return map[string]any{"name": variable.Name, "value_configured": variable.Data != "", "description_configured": variable.Description != "", "changed_fields": changed}
+}
+
+func variableAuditValues(variable *ActionVariable) map[string]any {
+	return map[string]any{"name": variable.Name, "value_configured": variable.Data != "", "description_configured": variable.Description != ""}
 }
 
 func GetVariablesOfRun(ctx context.Context, run *ActionRun) (map[string]string, error) {

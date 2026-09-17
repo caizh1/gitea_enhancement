@@ -14,6 +14,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/secret"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
@@ -134,6 +135,7 @@ func (t *TwoFactor) ValidateAndConsumeTOTP(ctx context.Context, passcode string)
 	// the UPDATE serializes racing requests, closing the read-validate-write TOCTOU window.
 	t.LastUsedPasscode = passcode
 	n, err := db.GetEngine(ctx).ID(t.ID).
+		Where("uid = ? AND secret = ?", t.UID, t.Secret).
 		Where(builder.Or(builder.IsNull{"last_used_passcode"}, builder.Neq{"last_used_passcode": passcode})).
 		Cols("last_used_passcode").Update(t)
 	if err != nil {
@@ -144,14 +146,69 @@ func (t *TwoFactor) ValidateAndConsumeTOTP(ctx context.Context, passcode string)
 
 // NewTwoFactor creates a new two-factor authentication token.
 func NewTwoFactor(ctx context.Context, t *TwoFactor) error {
-	_, err := db.GetEngine(ctx).Insert(t)
+	candidate := *t
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", t.UID)}, func(ctx context.Context) error {
+		if _, err := db.GetEngine(ctx).Insert(&candidate); err != nil {
+			return err
+		}
+		return appendCredentialAudit(ctx, "credential.totp_enabled", "totp", "双因素认证", candidate.ID, t.UID)
+	})
+	if err == nil {
+		*t = candidate
+	}
 	return err
 }
 
 // UpdateTwoFactor updates a two-factor authentication token.
 func UpdateTwoFactor(ctx context.Context, t *TwoFactor) error {
-	_, err := db.GetEngine(ctx).ID(t.ID).AllCols().Update(t)
-	return err
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("user", t.UID)}, func(ctx context.Context) error {
+		before, err := GetTwoFactorByUID(ctx, t.UID)
+		if err != nil {
+			return err
+		}
+		if before.ID != t.ID {
+			return ErrTwoFactorNotEnrolled{t.UID}
+		}
+		if before.Secret != t.Secret {
+			return governance_model.ErrConflict
+		}
+		if before.ScratchHash == t.ScratchHash && before.ScratchSalt == t.ScratchSalt {
+			return nil
+		}
+		// 恢复码轮换不能覆盖其他请求刚写入的一次性验证码消费状态。
+		if _, err := db.GetEngine(ctx).ID(t.ID).Cols("scratch_hash", "scratch_salt").Update(t); err != nil {
+			return err
+		}
+		return appendCredentialAudit(ctx, "credential.totp_updated", "totp", "双因素认证及恢复码", t.ID, t.UID)
+	})
+}
+
+// ConsumeScratchToken 将恢复码校验、一次性消费与审计放在同一事务内。
+func (t *TwoFactor) ConsumeScratchToken(ctx context.Context, token string) (bool, error) {
+	if !t.VerifyScratchToken(token) {
+		return false, nil
+	}
+	candidate := *t
+	if _, err := candidate.GenerateScratchToken(); err != nil {
+		return false, err
+	}
+	consumed := false
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("user", t.UID)}, func(ctx context.Context) error {
+		count, err := db.GetEngine(ctx).ID(t.ID).Where("uid = ? AND secret = ? AND scratch_hash = ? AND scratch_salt = ?", t.UID, t.Secret, t.ScratchHash, t.ScratchSalt).
+			Cols("scratch_hash", "scratch_salt").Update(&candidate)
+		if err != nil || count == 0 {
+			return err
+		}
+		if err := appendCredentialAudit(ctx, "credential.recovery_code_consumed", "totp", "双因素恢复码", t.ID, t.UID); err != nil {
+			return err
+		}
+		consumed = true
+		return nil
+	})
+	if err == nil && consumed {
+		*t = candidate
+	}
+	return consumed && err == nil, err
 }
 
 // GetTwoFactorByUID returns the two-factor authentication token associated with
@@ -175,15 +232,15 @@ func HasTwoFactorByUID(ctx context.Context, uid int64) (bool, error) {
 
 // DeleteTwoFactorByID deletes two-factor authentication token by given ID.
 func DeleteTwoFactorByID(ctx context.Context, id, userID int64) error {
-	cnt, err := db.GetEngine(ctx).ID(id).Delete(&TwoFactor{
-		UID: userID,
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("user", userID)}, func(ctx context.Context) error {
+		cnt, err := db.GetEngine(ctx).ID(id).Where("uid = ?", userID).Delete(new(TwoFactor))
+		if err != nil {
+			return err
+		} else if cnt != 1 {
+			return ErrTwoFactorNotEnrolled{userID}
+		}
+		return appendCredentialAudit(ctx, "credential.totp_disabled", "totp", "双因素认证", id, userID)
 	})
-	if err != nil {
-		return err
-	} else if cnt != 1 {
-		return ErrTwoFactorNotEnrolled{userID}
-	}
-	return nil
 }
 
 func HasTwoFactorOrWebAuthn(ctx context.Context, id int64) (bool, error) {

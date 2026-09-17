@@ -4,10 +4,16 @@
 package repo_test
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"testing"
 
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
+	"gitea.dev/modules/storage"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -28,6 +34,26 @@ func TestIncreaseDownloadCount(t *testing.T) {
 	assert.Equal(t, int64(1), attachment.DownloadCount)
 }
 
+func TestDeleteAttachmentOuterRollbackKeepsStorage(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	attachment := unittest.AssertExistsAndLoadBean(t, &repo_model.Attachment{ID: 8})
+	_, err := storage.Attachments.Save(attachment.RelativePath(), bytes.NewBufferString("保留的附件内容"), -1)
+	assert.NoError(t, err)
+	t.Cleanup(func() { _ = storage.Attachments.Delete(attachment.RelativePath()) })
+
+	rollback := errors.New("模拟外层回滚")
+	err = db.WithTx(t.Context(), func(ctx context.Context) error {
+		assert.NoError(t, repo_model.DeleteAttachment(ctx, attachment, true))
+		return rollback
+	})
+	assert.ErrorIs(t, err, rollback)
+	_, err = repo_model.GetAttachmentByID(t.Context(), attachment.ID)
+	assert.NoError(t, err)
+	_, err = storage.Attachments.Stat(attachment.RelativePath())
+	assert.NoError(t, err)
+}
+
 func TestGetByCommentOrIssueID(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
 
@@ -43,6 +69,7 @@ func TestGetByCommentOrIssueID(t *testing.T) {
 
 func TestDeleteAttachments(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	count, err := repo_model.DeleteAttachmentsByIssue(t.Context(), 4, false)
 	assert.NoError(t, err)

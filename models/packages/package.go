@@ -201,6 +201,23 @@ type Package struct {
 
 // TryInsertPackage inserts a package. If a package exists already, ErrDuplicatePackage is returned
 func TryInsertPackage(ctx context.Context, p *Package) (*Package, error) {
+	var result *Package
+	var resultErr error
+	err := withPackageOwnerWrite(ctx, p.OwnerID, func(ctx context.Context) error {
+		result, resultErr = tryInsertPackage(ctx, p)
+		// 已存在是可处理回执，不能让事务助手回滚外层此前的写入。
+		if resultErr == ErrDuplicatePackage {
+			return nil
+		}
+		return resultErr
+	})
+	if err != nil {
+		return result, err
+	}
+	return result, resultErr
+}
+
+func tryInsertPackage(ctx context.Context, p *Package) (*Package, error) {
 	e := db.GetEngine(ctx)
 
 	existing := &Package{}
@@ -230,13 +247,21 @@ func DeletePackageByID(ctx context.Context, packageID int64) error {
 
 // SetRepositoryLink sets the linked repository
 func SetRepositoryLink(ctx context.Context, packageID, repoID int64) error {
-	_, err := db.GetEngine(ctx).ID(packageID).Cols("repo_id").Update(&Package{RepoID: repoID})
-	return err
+	return withPackageWrite(ctx, packageID, func(ctx context.Context) error {
+		pkg, err := GetPackageByID(ctx, packageID)
+		if err != nil {
+			return err
+		}
+		beforeRepoID := pkg.RepoID
+		if _, err := db.GetEngine(ctx).ID(packageID).Cols("repo_id").Update(&Package{RepoID: repoID}); err != nil {
+			return err
+		}
+		return appendPackageAudit(ctx, pkg, "package.repository_link_changed", "package", pkg.ID, pkg.Name, map[string]any{"package_type": pkg.Type, "package_name": pkg.Name, "before_repository_id": beforeRepoID, "after_repository_id": repoID, "changed_fields": []string{"repository_id"}})
+	})
 }
 
 func UnlinkRepository(ctx context.Context, packageID int64) error {
-	_, err := db.GetEngine(ctx).ID(packageID).Cols("repo_id").Update(&Package{RepoID: 0})
-	return err
+	return SetRepositoryLink(ctx, packageID, 0)
 }
 
 // UnlinkRepositoryFromAllPackages unlinks every package from the repository

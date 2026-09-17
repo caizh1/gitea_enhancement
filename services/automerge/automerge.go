@@ -12,6 +12,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	pull_model "gitea.dev/models/pull"
@@ -24,6 +25,7 @@ import (
 	"gitea.dev/modules/process"
 	"gitea.dev/modules/queue"
 	"gitea.dev/services/automergequeue"
+	governance_service "gitea.dev/services/governance"
 	notify_service "gitea.dev/services/notify"
 	pull_service "gitea.dev/services/pull"
 	repo_service "gitea.dev/services/repository"
@@ -251,7 +253,7 @@ func handlePullRequestAutoMerge(pullID int64, sha string) {
 		return
 	}
 
-	if err := pull_service.CheckPullMergeable(ctx, doer, &perm, pr, pull_service.MergeCheckTypeGeneral, scheduledPRM.MergeStyle, false); err != nil {
+	if err := pull_service.CheckPullMergeable(governance_model.WithAuditActor(ctx, governance_service.RequestActor(doer, "", "auto_merge")), doer, &perm, pr, pull_service.MergeCheckTypeGeneral, scheduledPRM.MergeStyle, false); err != nil {
 		if errors.Is(err, pull_service.ErrNotReadyToMerge) {
 			log.Info("%-v was scheduled to automerge by an unauthorized user", pr)
 			return

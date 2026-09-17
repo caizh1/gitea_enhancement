@@ -14,7 +14,7 @@
 			{{end}}
 		</h2>
 		{{template "base/alert" .}}
-		{{$BaseCompareName := $.Repository.FullName -}}
+		{{$BaseCompareName := $.Repository.FullPath -}}
 		{{$HeadCompareName := $.HeadRepo.FullName -}}
 		{{$OwnForkCompareName := "" -}}
 		{{if $.OwnForkRepo -}}

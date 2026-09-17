@@ -120,10 +120,17 @@ func sessionHandler(session ssh.Session) {
 		}
 	}
 
+	remoteHost, remotePort, remoteErr := net.SplitHostPort(session.RemoteAddr().String())
+	localHost, localPort, localErr := net.SplitHostPort(session.LocalAddr().String())
+	sshConnection := ""
+	if remoteErr == nil && localErr == nil {
+		sshConnection = strings.Join([]string{remoteHost, remotePort, localHost, localPort}, " ")
+	}
 	cmd := exec.CommandContext(ctx, setting.AppPath, args...)
 	cmd.Env = append(
 		os.Environ(),
 		"SSH_ORIGINAL_COMMAND="+command,
+		"SSH_CONNECTION="+sshConnection,
 		"SKIP_MINWINSVC=1",
 		"GIT_PROTOCOL="+gitProtocol,
 	)

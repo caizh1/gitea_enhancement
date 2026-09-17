@@ -12,6 +12,7 @@ import (
 
 	auth "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
@@ -124,7 +125,45 @@ func NewJwtRegisteredClaimsFromUser(clientID string, grantUserID int64, exp *jwt
 	}
 }
 
-func NewAccessTokenResponse(ctx context.Context, grant *auth.OAuth2Grant, serverKey, clientKey JWTSigningKey) (*AccessTokenResponse, *AccessTokenError) {
+func NewAccessTokenResponse(ctx context.Context, grant *auth.OAuth2Grant, serverKey, clientKey JWTSigningKey, refreshed bool) (*AccessTokenResponse, *AccessTokenError) {
+	var response *AccessTokenResponse
+	var tokenErr *AccessTokenError
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		freshGrant, err := auth.GetOAuth2GrantByID(ctx, grant.ID)
+		if err != nil || freshGrant == nil || freshGrant.ApplicationID != grant.ApplicationID || freshGrant.UserID != grant.UserID || freshGrant.Counter != grant.Counter {
+			return auth.ErrOAuth2GrantStaleCounter
+		}
+		app, err := auth.GetOAuth2ApplicationByID(ctx, freshGrant.ApplicationID)
+		if err != nil {
+			return err
+		}
+		user, err := user_model.GetUserByID(ctx, freshGrant.UserID)
+		if err != nil {
+			return err
+		}
+		actor := governance_model.AuditActor(ctx)
+		actor.Kind, actor.Name, actor.CredentialID, actor.ActingAsID, actor.ActingAsName, actor.Transport = "oauth_client", app.Name, app.ID, user.ID, user.Name, "oauth2"
+		ctx = governance_model.WithAuditActor(ctx, actor)
+		response, tokenErr = newAccessTokenResponse(ctx, freshGrant, serverKey, clientKey)
+		if tokenErr != nil {
+			return tokenErr
+		}
+		if err := auth.AppendOAuthTokenAudit(ctx, freshGrant, refreshed); err != nil {
+			return err
+		}
+		*grant = *freshGrant
+		return nil
+	})
+	if err != nil {
+		if tokenErr != nil {
+			return nil, tokenErr
+		}
+		return nil, &AccessTokenError{ErrorCode: AccessTokenErrorCodeInvalidRequest, ErrorDescription: "cannot record token issuance"}
+	}
+	return response, nil
+}
+
+func newAccessTokenResponse(ctx context.Context, grant *auth.OAuth2Grant, serverKey, clientKey JWTSigningKey) (*AccessTokenResponse, *AccessTokenError) {
 	if setting.OAuth2.InvalidateRefreshTokens {
 		if err := grant.IncreaseCounter(ctx); err != nil {
 			return nil, &AccessTokenError{

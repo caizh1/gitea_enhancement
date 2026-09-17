@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/base"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
@@ -251,8 +252,33 @@ func IsEmailUsed(ctx context.Context, email string) (bool, error) {
 
 // ActivateEmail activates the email address to given user.
 func ActivateEmail(ctx context.Context, email *EmailAddress) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		return updateActivation(ctx, email, true)
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, has, err := db.GetByID[EmailAddress](ctx, email.ID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return ErrEmailAddressNotExist{}
+		}
+		if fresh.UID != email.UID || !strings.EqualFold(fresh.Email, email.Email) {
+			return ErrEmailAddressNotExist{}
+		}
+		if fresh.IsActivated {
+			*email = *fresh
+			return nil
+		}
+		if err := updateActivation(ctx, fresh, true); err != nil {
+			return err
+		}
+		user, err := GetUserByID(ctx, fresh.UID)
+		if err != nil {
+			return err
+		}
+		if err := AppendEmailAudit(ctx, user, fresh, "credential.email_updated"); err != nil {
+			return err
+		}
+		*email = *fresh
+		return nil
 	})
 }
 
@@ -299,8 +325,20 @@ func makeEmailPrimaryInternal(ctx context.Context, ownerID, emailID int64, isAct
 		return ErrUserNotExist{UID: email.UID}
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		sess := db.GetEngine(ctx)
+		fresh, err := GetEmailAddressByID(ctx, ownerID, emailID)
+		if err != nil || fresh.IsActivated != isActive {
+			return ErrEmailAddressNotExist{}
+		}
+		email = fresh
+		before, err := GetPrimaryEmailAddressOfUser(ctx, ownerID)
+		if err != nil {
+			if !IsErrEmailAddressNotExist(err) {
+				return err
+			}
+			before = &EmailAddress{UID: ownerID, Email: user.Email, IsPrimary: true}
+		}
 
 		// 1. Update user table
 		user.Email = email.Email
@@ -321,13 +359,13 @@ func makeEmailPrimaryInternal(ctx context.Context, ownerID, emailID int64, isAct
 			return err
 		}
 
-		return nil
+		return AppendPrimaryEmailChangedAudit(ctx, user, before, email)
 	})
 }
 
 // ChangeInactivePrimaryEmail replaces the inactive primary email of a given user
 func ChangeInactivePrimaryEmail(ctx context.Context, uid int64, oldEmailAddr, newEmailAddr string) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		_, err := db.GetEngine(ctx).Where(builder.Eq{"uid": uid, "lower_email": strings.ToLower(oldEmailAddr)}).Delete(&EmailAddress{})
 		if err != nil {
 			return err
@@ -442,7 +480,7 @@ func SearchEmails(ctx context.Context, opts *SearchEmailOptions) ([]*SearchEmail
 // ActivateUserEmail will change the activated state of an email address,
 // either primary or secondary (all in the email_address table)
 func ActivateUserEmail(ctx context.Context, userID int64, email string, activate bool) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		// Activate/deactivate a user's secondary email address
 		// First check if there's another user active with the same address
 		addr, exist, err := db.Get[EmailAddress](ctx, builder.Eq{"uid": userID, "lower_email": strings.ToLower(email)})
@@ -465,6 +503,13 @@ func ActivateUserEmail(ctx context.Context, userID int64, email string, activate
 		}
 		if err = updateActivation(ctx, addr, activate); err != nil {
 			return fmt.Errorf("unable to updateActivation() for %d:%s: %w", addr.ID, addr.Email, err)
+		}
+		owner, err := GetUserByID(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := AppendEmailAudit(ctx, owner, addr, "credential.email_updated"); err != nil {
+			return err
 		}
 
 		// Activate/deactivate a user's primary email address and account

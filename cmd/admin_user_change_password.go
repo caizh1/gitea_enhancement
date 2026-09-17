@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/auth/password"
 	"gitea.dev/modules/optional"
@@ -60,6 +61,7 @@ func runChangePassword(ctx context.Context, c *cli.Command) error {
 		Password:           optional.Some(c.String("password")),
 		MustChangePassword: optional.Some(c.Bool("must-change-password")),
 	}
+	ctx = governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "system", Name: "Gitea 管理命令", Transport: "cli"})
 	if err := user_service.UpdateAuth(ctx, user, opts); err != nil {
 		switch {
 		case errors.Is(err, password.ErrMinLength):

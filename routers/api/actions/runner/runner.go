@@ -12,6 +12,7 @@ import (
 	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
 	"gitea.dev/actions-proto-go/runner/v1/runnerv1connect"
 	actions_model "gitea.dev/models/actions"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/actions"
@@ -84,16 +85,11 @@ func (s *Service) Register(
 		HasCancellingSupport: hasCancellingSupport,
 	}
 	runner.GenerateAndFillToken()
+	ctx = governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "actions_registration_token", Name: "Actions Runner 注册凭据", CredentialID: runnerToken.ID, Transport: "actions_rpc", IP: req.Peer().Addr, RequestID: gouuid.NewString()})
 
 	// create new runner
-	if err := actions_model.CreateRunner(ctx, runner); err != nil {
+	if err := actions_model.RegisterRunnerWithToken(ctx, runner, runnerToken.ID); err != nil {
 		return nil, errors.New("can't create new runner")
-	}
-
-	// update token status
-	runnerToken.IsActive = true
-	if err := actions_model.UpdateRunnerToken(ctx, runnerToken, "is_active"); err != nil {
-		return nil, errors.New("can't update runner token status")
 	}
 
 	res := connect.NewResponse(&runnerv1.RegisterResponse{

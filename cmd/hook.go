@@ -40,6 +40,7 @@ func newHookCommand() *cli.Command {
 			newHookUpdateCommand(),
 			newHookPostReceiveCommand(),
 			newHookProcReceiveCommand(),
+			newHookReferenceTransactionCommand(),
 		},
 	}
 }
@@ -194,6 +195,10 @@ Gitea or set your environment appropriately.`, "")
 	actionsTaskID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvActionsTaskID), 10, 64)
 
 	hookOptions := private.HookOptions{
+		PusherRemoteAddr:                os.Getenv(repo_module.EnvPusherRemoteAddr),
+		PusherTransport:                 os.Getenv(repo_module.EnvPusherTransport),
+		MergeAuthorizationID:            os.Getenv(repo_module.EnvMergeAuthorizationID),
+		PushTrigger:                     repo_module.PushTrigger(os.Getenv(repo_module.EnvPushTrigger)),
 		UserID:                          userID,
 		GitAlternativeObjectDirectories: os.Getenv(private.GitAlternativeObjectDirectories),
 		GitObjectDirectory:              os.Getenv(private.GitObjectDirectory),
@@ -356,6 +361,8 @@ Gitea or set your environment appropriately.`, "")
 	pusherName := os.Getenv(repo_module.EnvPusherName)
 
 	hookOptions := private.HookOptions{
+		PusherRemoteAddr:                os.Getenv(repo_module.EnvPusherRemoteAddr),
+		PusherTransport:                 os.Getenv(repo_module.EnvPusherTransport),
 		UserName:                        pusherName,
 		UserID:                          pusherID,
 		GitAlternativeObjectDirectories: os.Getenv(private.GitAlternativeObjectDirectories),
@@ -553,10 +560,12 @@ Gitea or set your environment appropriately.`, "")
 	// S: ... ...
 	// S: flush-pkt
 	hookOptions := private.HookOptions{
-		UserName:       pusherName,
-		UserID:         pusherID,
-		GitPushOptions: make(map[string]string),
-		IsWiki:         isWiki,
+		PusherRemoteAddr: os.Getenv(repo_module.EnvPusherRemoteAddr),
+		PusherTransport:  os.Getenv(repo_module.EnvPusherTransport),
+		UserName:         pusherName,
+		UserID:           pusherID,
+		GitPushOptions:   make(map[string]string),
+		IsWiki:           isWiki,
 	}
 	hookOptions.OldCommitIDs = make([]string, 0, hookBatchSize)
 	hookOptions.NewCommitIDs = make([]string, 0, hookBatchSize)

@@ -17,6 +17,7 @@ import (
 	"gitea.dev/modules/storage"
 	"gitea.dev/routers/common"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 )
 
 func checkDownloadTokenScope(ctx *context.Context) bool {
@@ -102,6 +103,16 @@ func SingleDownload(ctx *context.Context) {
 	if blob == nil {
 		return
 	}
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginCodeAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), ctx.Repo.Repository, ctx.Repo.TreePath, ctx.Repo.Commit.ID.String())
+		if err != nil {
+			ctx.ServerError("代码访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
+	}
 
 	if err := common.ServeBlob(ctx.Base, ctx.Repo.Repository, ctx.Repo.TreePath, blob, lastModified); err != nil {
 		ctx.ServerError("ServeBlob", err)
@@ -117,6 +128,16 @@ func SingleDownloadOrLFS(ctx *context.Context) {
 	blob, lastModified := getBlobForEntry(ctx)
 	if blob == nil {
 		return
+	}
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginCodeAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), ctx.Repo.Repository, ctx.Repo.TreePath, ctx.Repo.Commit.ID.String())
+		if err != nil {
+			ctx.ServerError("代码访问审计", err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
 	}
 
 	if err := ServeBlobOrLFS(ctx, blob, lastModified); err != nil {

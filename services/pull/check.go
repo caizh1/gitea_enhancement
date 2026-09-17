@@ -13,6 +13,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	"gitea.dev/models/pull"
@@ -31,6 +32,7 @@ import (
 	"gitea.dev/modules/timeutil"
 	asymkey_service "gitea.dev/services/asymkey"
 	"gitea.dev/services/automergequeue"
+	governance_service "gitea.dev/services/governance"
 	notify_service "gitea.dev/services/notify"
 )
 
@@ -139,7 +141,20 @@ const (
 //   - merge: both the head commits must be verified and Gitea must sign the merge commit.
 //   - rebase, rebase-merge, squash: Gitea rewrites the commits and signs each, so only Gitea's
 //     signing ability is checked.
-func CheckPullMergeable(stdCtx context.Context, doer *user_model.User, perm *access_model.Permission, pr *issues_model.PullRequest, mergeCheckType MergeCheckType, mergeStyle repo_model.MergeStyle, forceMerge bool) error {
+func CheckPullMergeable(stdCtx context.Context, doer *user_model.User, perm *access_model.Permission, pr *issues_model.PullRequest, mergeCheckType MergeCheckType, mergeStyle repo_model.MergeStyle, forceMerge bool) (err error) {
+	defer func() {
+		reason := mergePrecheckDenialReason(err)
+		if reason == "" {
+			return
+		}
+		actor := governance_model.AuditActor(stdCtx)
+		if actor.EffectiveUserID() != doer.ID {
+			actor = governance_service.RequestActor(doer, "", "internal")
+		}
+		if auditErr := governance_service.RecordPullMergeDenial(stdCtx, actor, pr, "", "", "native_precheck", reason); auditErr != nil {
+			err = errors.Join(err, auditErr)
+		}
+	}()
 	return db.WithTx(stdCtx, func(ctx context.Context) error {
 		if pr.HasMerged {
 			return ErrHasMerged
@@ -532,4 +547,32 @@ func Init() error {
 	go graceful.GetManager().RunWithCancel(prPatchCheckerQueue)
 	go graceful.GetManager().RunWithShutdownContext(InitializePullRequests)
 	return nil
+}
+
+func mergePrecheckDenialReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	for _, entry := range []struct {
+		err    error
+		reason string
+	}{
+		{ErrIsClosed, "合并请求已关闭"},
+		{ErrHasMerged, "合并请求已合并"},
+		{ErrNoPermissionToMerge, "当前账号无合并权限"},
+		{ErrIsWorkInProgress, "草稿合并请求尚未就绪"},
+		{ErrNotMergeableState, "原生冲突检查尚未完成或未通过"},
+		{ErrIsChecking, "正在检查合并冲突"},
+		{ErrNotReadyToMerge, "原生分支保护条件未满足"},
+		{ErrDependenciesLeft, "仍有未完成的依赖问题"},
+		{ErrHeadCommitsNotAllVerified, "源分支提交签名未全部通过验证"},
+	} {
+		if errors.Is(err, entry.err) {
+			return entry.reason
+		}
+	}
+	if asymkey_service.IsErrWontSign(err) {
+		return "不满足合并签名要求"
+	}
+	return ""
 }

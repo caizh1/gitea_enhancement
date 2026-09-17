@@ -33,7 +33,7 @@
 						{{$hasRepositoryAccess = index $.RepositoryAccessMap .Repository.ID}}
 					{{end}}
 					{{if $hasRepositoryAccess}}
-						{{ctx.Locale.Tr "packages.published_by_in" $timeStr .Creator.HomeLink .Creator.GetDisplayName .Repository.Link .Repository.FullName}}
+						{{ctx.Locale.Tr "packages.published_by_in" $timeStr .Creator.HomeLink .Creator.GetDisplayName .Repository.Link .Repository.FullPath}}
 					{{else}}
 						{{ctx.Locale.Tr "packages.published_by" $timeStr .Creator.HomeLink .Creator.GetDisplayName}}
 					{{end}}

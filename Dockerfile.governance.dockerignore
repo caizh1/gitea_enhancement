@@ -1,0 +1,4 @@
+# 构建上下文仅包含程序与本次构建定义。
+**
+!gitea
+!Dockerfile.governance

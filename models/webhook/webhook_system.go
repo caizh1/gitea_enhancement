@@ -74,19 +74,10 @@ func GetSystemWebhooks(ctx context.Context, isActive optional.Option[bool]) ([]*
 
 // DeleteDefaultSystemWebhook deletes an admin-configured default or system webhook (where Org and Repo ID both 0)
 func DeleteDefaultSystemWebhook(ctx context.Context, id int64) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		count, err := db.GetEngine(ctx).
-			Where("repo_id=? AND owner_id=?", 0, 0).
-			Delete(&Webhook{ID: id})
-		if err != nil {
-			return err
-		} else if count == 0 {
-			return ErrWebhookNotExist{ID: id}
-		}
-
-		_, err = db.DeleteByBean(ctx, &HookTask{HookID: id})
+	if _, err := GetSystemOrDefaultWebhook(ctx, id); err != nil {
 		return err
-	})
+	}
+	return DeleteWebhookByID(ctx, id)
 }
 
 // CopyDefaultWebhooksToRepo creates copies of the default webhooks in a new repo

@@ -153,18 +153,21 @@ const (
 
 // Repository represents a git repository.
 type Repository struct {
-	ID                  int64 `xorm:"pk autoincr"`
-	OwnerID             int64 `xorm:"UNIQUE(s) index"`
-	OwnerName           string
-	Owner               *user_model.User   `xorm:"-"`
-	LowerName           string             `xorm:"UNIQUE(s) INDEX NOT NULL"`
-	Name                string             `xorm:"INDEX NOT NULL"`
-	Description         string             `xorm:"TEXT"`
-	Website             string             `xorm:"VARCHAR(2048)"`
-	OriginalServiceType api.GitServiceType `xorm:"index"`
-	OriginalURL         string             `xorm:"VARCHAR(2048)"`
-	DefaultBranch       string
-	DefaultWikiBranch   string
+	ID                     int64  `xorm:"pk autoincr"`
+	OwnerID                int64  `xorm:"UNIQUE(s) index"`
+	GovernanceStorageOwner string `xorm:"VARCHAR(255) NOT NULL DEFAULT ''"`
+	GovernanceStorageName  string `xorm:"VARCHAR(100) NOT NULL DEFAULT ''"`
+	OwnerName              string
+	OwnerNamespace         string             `xorm:"VARCHAR(2048) NOT NULL DEFAULT ''"`
+	Owner                  *user_model.User   `xorm:"-"`
+	LowerName              string             `xorm:"UNIQUE(s) INDEX NOT NULL"`
+	Name                   string             `xorm:"INDEX NOT NULL"`
+	Description            string             `xorm:"TEXT"`
+	Website                string             `xorm:"VARCHAR(2048)"`
+	OriginalServiceType    api.GitServiceType `xorm:"index"`
+	OriginalURL            string             `xorm:"VARCHAR(2048)"`
+	DefaultBranch          string
+	DefaultWikiBranch      string
 
 	NumWatches          int
 	NumStars            int
@@ -185,6 +188,8 @@ type Repository struct {
 	NumClosedActionRuns int `xorm:"NOT NULL DEFAULT 0"`
 	NumOpenActionRuns   int `xorm:"-"`
 
+	// Visibility 独立记录公开(0)、内部(1)、私有(2)。IsPrivate 对内部和私有都保持 true，兼容旧查询默认不向匿名列表泄露。
+	Visibility int  `xorm:"INDEX NOT NULL DEFAULT 0"`
 	IsPrivate  bool `xorm:"INDEX"`
 	IsEmpty    bool `xorm:"INDEX"`
 	IsArchived bool `xorm:"INDEX"`
@@ -222,6 +227,21 @@ type Repository struct {
 	ArchivedUnix timeutil.TimeStamp `xorm:"DEFAULT 0"`
 }
 
+const (
+	VisibilityPublic = iota
+	VisibilityInternal
+	VisibilityPrivate
+)
+
+func (repo *Repository) EffectiveVisibility() int {
+	if repo.Visibility == VisibilityPublic && repo.IsPrivate {
+		return VisibilityPrivate
+	}
+	return repo.Visibility
+}
+
+func (repo *Repository) IsInternal() bool { return repo.EffectiveVisibility() == VisibilityInternal }
+
 func init() {
 	db.RegisterModel(new(Repository))
 }
@@ -232,7 +252,23 @@ func RelativePath(ownerName, repoName string) string {
 
 // RelativePath should be an unix style path like username/reponame.git
 func (repo *Repository) RelativePath() string {
-	return RelativePath(repo.OwnerName, repo.Name)
+	return RelativePath(repo.StorageOwnerName(), repo.StorageName())
+}
+
+// StorageOwnerName 保留首次改名或转移前的物理拥有者目录。
+func (repo *Repository) StorageOwnerName() string {
+	if repo.GovernanceStorageOwner != "" {
+		return repo.GovernanceStorageOwner
+	}
+	return repo.OwnerName
+}
+
+// StorageName 保留待删除改名之前的正文位置，公开路径仍使用 Name。
+func (repo *Repository) StorageName() string {
+	if repo.GovernanceStorageName != "" {
+		return repo.GovernanceStorageName
+	}
+	return repo.Name
 }
 
 type StorageRepo string
@@ -353,6 +389,16 @@ func (repo *Repository) LoadAttributes(ctx context.Context) error {
 	return nil
 }
 
+// OwnerPath 返回公开群组路径；物理目录继续使用 OwnerName。
+func (repo *Repository) OwnerPath() string {
+	if repo.OwnerNamespace != "" {
+		return repo.OwnerNamespace
+	}
+	return repo.OwnerName
+}
+
+func (repo *Repository) FullPath() string { return repo.OwnerPath() + "/" + repo.Name }
+
 // FullName returns the repository full name
 func (repo *Repository) FullName() string {
 	return repo.OwnerName + "/" + repo.Name
@@ -379,7 +425,7 @@ func (repo *Repository) CommitLink(commitID string) (result string) {
 // APIURL returns the repository API URL
 func (repo *Repository) APIURL(ctxOpt ...context.Context) string {
 	ctx := util.OptionalArg(ctxOpt, context.TODO())
-	return httplib.MakeAbsoluteURL(ctx, setting.AppSubURL+"/api/v1/repos/"+url.PathEscape(repo.OwnerName)+"/"+url.PathEscape(repo.Name))
+	return httplib.MakeAbsoluteURL(ctx, setting.AppSubURL+"/api/v1/repos/"+util.PathEscapeSegments(repo.OwnerPath())+"/"+url.PathEscape(repo.Name))
 }
 
 // GetCommitsCountCacheKey returns cache key used for commits count caching.
@@ -587,23 +633,23 @@ func RepoPath(userName, repoName string) string { //revive:disable-line:exported
 
 // RepoPath returns the repository path
 func (repo *Repository) RepoPath() string {
-	return RepoPath(repo.OwnerName, repo.Name)
+	return RepoPath(repo.StorageOwnerName(), repo.StorageName())
 }
 
 // Link returns the repository relative url
 func (repo *Repository) Link() string {
-	return setting.AppSubURL + "/" + url.PathEscape(repo.OwnerName) + "/" + url.PathEscape(repo.Name)
+	return setting.AppSubURL + "/" + util.PathEscapeSegments(repo.OwnerPath()) + "/" + url.PathEscape(repo.Name)
 }
 
 // ComposeCompareURL returns the repository comparison URL
 func (repo *Repository) ComposeCompareURL(oldCommitID, newCommitID string) string {
-	return fmt.Sprintf("%s/%s/compare/%s...%s", url.PathEscape(repo.OwnerName), url.PathEscape(repo.Name), util.PathEscapeSegments(oldCommitID), util.PathEscapeSegments(newCommitID))
+	return fmt.Sprintf("%s/%s/compare/%s...%s", util.PathEscapeSegments(repo.OwnerPath()), url.PathEscape(repo.Name), util.PathEscapeSegments(oldCommitID), util.PathEscapeSegments(newCommitID))
 }
 
 func (repo *Repository) ComposeBranchCompareURL(baseRepo *Repository, baseBranch, branchName string) string {
 	var cmpBranchEscaped string
 	if repo.ID != baseRepo.ID {
-		cmpBranchEscaped = fmt.Sprintf("%s/%s:", url.PathEscape(repo.OwnerName), url.PathEscape(repo.Name))
+		cmpBranchEscaped = fmt.Sprintf("%s/%s:", util.PathEscapeSegments(repo.OwnerPath()), url.PathEscape(repo.Name))
 	}
 	cmpBranchEscaped = fmt.Sprintf("%s%s", cmpBranchEscaped, util.PathEscapeSegments(branchName))
 	return fmt.Sprintf("%s/compare/%s...%s", baseRepo.Link(), util.PathEscapeSegments(baseBranch), cmpBranchEscaped)
@@ -654,7 +700,7 @@ type CloneLink struct {
 
 // ComposeHTTPSCloneURL returns HTTPS clone URL based on the given owner and repository name.
 func ComposeHTTPSCloneURL(ctx context.Context, owner, repo string) string {
-	return fmt.Sprintf("%s%s/%s.git", httplib.GuessCurrentAppURL(ctx), url.PathEscape(owner), url.PathEscape(repo))
+	return fmt.Sprintf("%s%s/%s.git", httplib.GuessCurrentAppURL(ctx), util.PathEscapeSegments(owner), url.PathEscape(repo))
 }
 
 // ComposeSSHCloneURL returns SSH clone URL based on the given owner and repository name.
@@ -677,7 +723,7 @@ func ComposeSSHCloneURL(doer *user_model.User, ownerName, repoName string) strin
 	// non-standard port, it must use full URI
 	if setting.SSH.Port != 22 {
 		sshHost := net.JoinHostPort(sshDomain, strconv.Itoa(setting.SSH.Port))
-		return fmt.Sprintf("ssh://%s@%s/%s/%s.git", sshUser, sshHost, url.PathEscape(ownerName), url.PathEscape(repoName))
+		return fmt.Sprintf("ssh://%s@%s/%s/%s.git", sshUser, sshHost, util.PathEscapeSegments(ownerName), url.PathEscape(repoName))
 	}
 
 	// for standard port, it can use a shorter URI (without the port)
@@ -686,21 +732,21 @@ func ComposeSSHCloneURL(doer *user_model.User, ownerName, repoName string) strin
 		sshHost = "[" + sshHost + "]" // for IPv6 address, wrap it with brackets
 	}
 	if setting.Repository.UseCompatSSHURI {
-		return fmt.Sprintf("ssh://%s@%s/%s/%s.git", sshUser, sshHost, url.PathEscape(ownerName), url.PathEscape(repoName))
+		return fmt.Sprintf("ssh://%s@%s/%s/%s.git", sshUser, sshHost, util.PathEscapeSegments(ownerName), url.PathEscape(repoName))
 	}
-	return fmt.Sprintf("%s@%s:%s/%s.git", sshUser, sshHost, url.PathEscape(ownerName), url.PathEscape(repoName))
+	return fmt.Sprintf("%s@%s:%s/%s.git", sshUser, sshHost, util.PathEscapeSegments(ownerName), url.PathEscape(repoName))
 }
 
 // ComposeTeaCloneCommand returns Tea CLI clone command based on the given owner and repository name.
 func ComposeTeaCloneCommand(ctx context.Context, owner, repo string) string {
-	return fmt.Sprintf("tea clone %s/%s", url.PathEscape(owner), url.PathEscape(repo))
+	return fmt.Sprintf("tea clone %s/%s", util.PathEscapeSegments(owner), url.PathEscape(repo))
 }
 
 func (repo *Repository) cloneLink(ctx context.Context, doer *user_model.User, repoPathName string) *CloneLink {
 	return &CloneLink{
-		SSH:   ComposeSSHCloneURL(doer, repo.OwnerName, repoPathName),
-		HTTPS: ComposeHTTPSCloneURL(ctx, repo.OwnerName, repoPathName),
-		Tea:   ComposeTeaCloneCommand(ctx, repo.OwnerName, repoPathName),
+		SSH:   ComposeSSHCloneURL(doer, repo.OwnerPath(), repoPathName),
+		HTTPS: ComposeHTTPSCloneURL(ctx, repo.OwnerPath(), repoPathName),
+		Tea:   ComposeTeaCloneCommand(ctx, repo.OwnerPath(), repoPathName),
 	}
 }
 
@@ -960,4 +1006,30 @@ func UpdateRepositoryOwnerName(ctx context.Context, oldUserName, newUserName str
 		return fmt.Errorf("change repo owner name: %w", err)
 	}
 	return nil
+}
+
+// FreezeRepositoryStorageByOwnerID 在个人路径改名之前固定其仓库正文位置。
+func FreezeRepositoryStorageByOwnerID(ctx context.Context, ownerID int64) error {
+	if _, err := db.GetEngine(ctx).Exec("UPDATE `repository` SET governance_storage_owner=owner_name WHERE owner_id=? AND governance_storage_owner=''", ownerID); err != nil {
+		return fmt.Errorf("固定仓库正文拥有者: %w", err)
+	}
+	if _, err := db.GetEngine(ctx).Exec("UPDATE `repository` SET governance_storage_name=name WHERE owner_id=? AND governance_storage_name=''", ownerID); err != nil {
+		return fmt.Errorf("固定仓库正文名称: %w", err)
+	}
+	return nil
+}
+
+// IsRepositoryStoragePathInUse 判断物理仓库路径是否仍被任一逻辑项目占用。
+func IsRepositoryStoragePathInUse(ctx context.Context, ownerName, repoName string) (bool, error) {
+	_, found, err := GetRepositoryByStoragePath(ctx, ownerName, repoName)
+	return found, err
+}
+
+// GetRepositoryByStoragePath 返回占用指定物理路径的逻辑项目。
+func GetRepositoryByStoragePath(ctx context.Context, ownerName, repoName string) (*Repository, bool, error) {
+	repo := new(Repository)
+	found, err := db.GetEngine(ctx).Where(`LOWER(CASE WHEN governance_storage_owner = '' THEN owner_name ELSE governance_storage_owner END) = ?`, strings.ToLower(ownerName)).
+		And(`LOWER(CASE WHEN governance_storage_name = '' THEN name ELSE governance_storage_name END) = ?`, strings.ToLower(repoName)).
+		Get(repo)
+	return repo, found, err
 }

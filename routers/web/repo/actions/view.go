@@ -20,6 +20,7 @@ import (
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -42,6 +43,7 @@ import (
 	"gitea.dev/routers/common"
 	actions_service "gitea.dev/services/actions"
 	context_module "gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 
 	"gitea.com/gitea/runner/act/model"
 )
@@ -1038,12 +1040,23 @@ func Logs(ctx *context_module.Context) {
 		return
 	}
 	jobID := ctx.PathParamInt64("job")
+	finishAudit, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), ctx.Repo.Repository, "access.actions_log", map[string]any{"run_id": run.ID, "job_id": jobID})
+	if err != nil {
+		ctx.ServerError("BeginActionsLogAudit", err)
+		return
+	}
+	status := 0
+	if finishAudit != nil {
+		defer func() { finishAudit(status) }()
+	}
 
 	if err := common.DownloadActionsRunJobLogsWithID(ctx.Base, ctx.Repo.Repository, run.ID, jobID); err != nil {
 		ctx.NotFoundOrServerError("DownloadActionsRunJobLogsWithID", func(err error) bool {
 			return errors.Is(err, util.ErrNotExist)
 		}, err)
+		return
 	}
+	status = http.StatusOK
 }
 
 func Cancel(ctx *context_module.Context) {
@@ -1057,16 +1070,18 @@ func Cancel(ctx *context_module.Context) {
 
 	var updatedJobs []*actions_model.ActionRunJob
 
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		cancelledJobs, err := actions_model.CancelJobs(ctx, jobs)
 		if err != nil {
 			return fmt.Errorf("cancel jobs: %w", err)
 		}
 		updatedJobs = append(updatedJobs, cancelledJobs...)
-		if len(updatedJobs) > 0 {
-			return nil // a job update already refreshed the run
+		if len(updatedJobs) == 0 {
+			if err := actions_model.SettleRunAfterCancel(ctx, run); err != nil {
+				return err
+			}
 		}
-		return actions_model.SettleRunAfterCancel(ctx, run)
+		return actions_model.AppendRunAudit(ctx, run, "actions.run_cancelled")
 	}); err != nil {
 		ctx.ServerError("StopTask", err)
 		return
@@ -1274,6 +1289,15 @@ func ArtifactsDownloadView(ctx *context_module.Context) {
 			return
 		}
 	}
+	finishAudit, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), ctx.Repo.Repository, "access.actions_artifact", map[string]any{"run_id": run.ID, "attempt_id": resolvedAttemptID, "artifact_name": artifactName})
+	if err != nil {
+		ctx.ServerError("BeginActionsArtifactAudit", err)
+		return
+	}
+	auditStatus := 0
+	if finishAudit != nil {
+		defer func() { finishAudit(auditStatus) }()
+	}
 
 	// A v4 Artifact may only contain a single file
 	// Multiple files are uploaded as a single file archive
@@ -1284,6 +1308,7 @@ func ArtifactsDownloadView(ctx *context_module.Context) {
 			ctx.ServerError("DownloadArtifactV4", err)
 			return
 		}
+		auditStatus = http.StatusOK
 		return
 	}
 
@@ -1327,6 +1352,7 @@ func ArtifactsDownloadView(ctx *context_module.Context) {
 			return
 		}
 	}
+	auditStatus = http.StatusOK
 }
 
 func ApproveAllChecks(ctx *context_module.Context) {

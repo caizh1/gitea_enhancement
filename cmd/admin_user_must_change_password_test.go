@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 
@@ -16,7 +17,7 @@ import (
 
 func TestMustChangePassword(t *testing.T) {
 	defer func() {
-		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}))
+		require.NoError(t, db.TruncateBeans(t.Context(), &user_model.User{}, &user_model.EmailAddress{}, &governance_model.Namespace{}, &governance_model.ResourcePath{}))
 	}()
 	err := microcmdUserCreate().Run(t.Context(), []string{"create", "--username", "testuser", "--email", "testuser@gitea.local", "--random-password"})
 	require.NoError(t, err)

@@ -4,11 +4,13 @@
 package private
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	asymkey_model "gitea.dev/models/asymkey"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -18,7 +20,9 @@ import (
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
+	"gitea.dev/modules/web"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 	wiki_service "gitea.dev/services/wiki"
 )
@@ -108,6 +112,13 @@ func ServCommand(ctx *context.PrivateContext) {
 		results.RepoName = repoName[:len(repoName)-5]
 	}
 
+	resolved, resolveErr := governance_service.ResolveRepositoryIdentity(ctx, results.OwnerName+"/"+results.RepoName)
+	if resolveErr == nil {
+		results.OwnerName, results.RepoName = resolved.OwnerName, resolved.Name
+	} else if !errors.Is(resolveErr, governance_model.ErrNotFound) {
+		ctx.JSON(http.StatusForbidden, private.Response{UserMsg: "无法解析仓库"})
+		return
+	}
 	owner, err := user_model.GetUserByName(ctx, results.OwnerName)
 	if err != nil {
 		if !user_model.IsErrUserNotExist(err) {
@@ -191,8 +202,15 @@ func ServCommand(ctx *context.PrivateContext) {
 
 	if repoExist {
 		repo.Owner = owner
-		repo.OwnerName = ownerName
+		if repo.OwnerName == "" {
+			repo.OwnerName = results.OwnerName
+		}
 		results.RepoID = repo.ID
+		if results.IsWiki {
+			results.StorageRelativePath = repo.WikiStorageRepo().RelativePath()
+		} else {
+			results.StorageRelativePath = repo.RelativePath()
+		}
 
 		if repo.IsBeingCreated() {
 			ctx.JSON(http.StatusInternalServerError, private.Response{
@@ -418,6 +436,19 @@ func ServCommand(ctx *context.PrivateContext) {
 			return
 		}
 	}
+	var actor governance_model.Actor
+	if deployKey != nil {
+		actor = governance_service.RequestActor(&user_model.User{Name: deployKey.Name}, ctx.Req.RemoteAddr, "git_ssh")
+		actor.Kind = "deploy_key"
+	} else {
+		actor = governance_service.RequestActor(user, ctx.Req.RemoteAddr, "git_ssh")
+	}
+	actor.CredentialID = key.ID
+	results.AccessAudit, err = governance_service.StartRepositoryAccessAudit(ctx, actor, repo, "access.git_ssh", map[string]any{"operation": ctx.FormString("verb"), "wiki": results.IsWiki})
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, private.Response{Err: "SSH 访问审计无法保存"})
+		return
+	}
 	log.Debug("Serv Results:\nIsWiki: %t\nDeployKeyID: %d\nKeyID: %d\tKeyName: %s\nUserName: %s\nUserID: %d\nOwnerName: %s\nRepoName: %s\nRepoID: %d",
 		results.IsWiki,
 		results.DeployKeyID,
@@ -431,4 +462,19 @@ func ServCommand(ctx *context.PrivateContext) {
 
 	ctx.JSON(http.StatusOK, results)
 	// We will update the keys in a different call.
+}
+
+// ServAuditComplete 接收已经通过内部令牌认证的子进程结果。
+func ServAuditComplete(ctx *context.PrivateContext) {
+	options := web.GetForm(ctx).(*private.ServAuditCompletion)
+	event := &options.Event
+	if event.Type != "access.git_ssh" || event.ScopeType != "repository" || event.ScopeID <= 0 || event.ObjectID != event.ScopeID || event.EventID == "" || event.Result != "pending" {
+		ctx.JSON(http.StatusBadRequest, private.Response{Err: "无效 SSH 访问审计快照"})
+		return
+	}
+	if err := governance_service.FinishRepositoryAccessAudit(ctx, event, options.Result, nil); err != nil {
+		ctx.JSON(http.StatusInternalServerError, private.Response{Err: err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, private.Response{})
 }

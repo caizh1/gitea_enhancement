@@ -1,0 +1,52 @@
+{{template "base/head" .}}
+<div role="main" aria-label="审计外送" class="page-content">
+ <div class="ui container">
+  {{template "base/alert" .}}
+  <div class="tw-flex tw-items-center tw-justify-between tw-gap-3 tw-flex-wrap">
+   <h2 class="ui header tw-break-all">审计外送 · {{.ScopeTitle}}</h2>
+   <div class="tw-flex tw-gap-2 tw-flex-wrap"><a class="ui button" href="{{AppSubUrl}}/governance/audit?scope_type={{.ScopeType}}&scope_id={{.ScopeID}}">查询审计</a><a class="ui button" href="{{.StreamURL}}">刷新状态</a></div>
+  </div>
+  <div class="ui message">外送至少投递一次，接收端按事件 ID 去重。停用保留积压，已接入的文件访问事件继续排队；没有匹配目标时对应访问审计未启用。内网目标需要由实例管理员配置允许访问的地址。</div>
+  <div class="flex-list">
+   {{range .Streams}}
+   <div class="flex-item tw-flex-wrap">
+    <div class="flex-item-main tw-min-w-0">
+     <div class="flex-item-title"><strong>{{.Name}}</strong><span class="ui label">{{if .Enabled}}启用{{else}}停用{{end}}</span></div>
+     <div class="tw-break-all">{{.Kind}} · {{.Endpoint}}</div>
+     <div>待确认 {{.Pending}} 条 · 在途 {{.InFlight}} 条 · 已确认 {{.DeliveredCount}} 条</div>
+     {{if .LastError}}<div class="text red">{{.LastError}}</div>{{end}}
+     <div>修订 {{.Revision}} · {{if .HasCredentials}}凭据已加密保存{{else}}尚未配置凭据{{end}}</div>
+    </div>
+    <div class="tw-flex tw-gap-2 tw-flex-wrap">
+     <a class="ui button" href="{{$.StreamURL}}&edit={{.ID}}">编辑</a>
+     <form method="post" action="{{AppSubUrl}}/governance/audit/streams">
+      {{$.CsrfTokenHtml}}<input type="hidden" name="scope_type" value="{{$.ScopeType}}"><input type="hidden" name="scope_id" value="{{$.ScopeID}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="revision" value="{{.Revision}}">
+      <button class="ui button" name="action" value="test" type="submit" {{if not .Enabled}}disabled{{end}}>测试连通性</button>
+     </form>
+    </div>
+   </div>
+   {{else}}<p class="ui warning message">尚未接入审计外送，详细访问审计尚未完整启用。</p>{{end}}
+  </div>
+  <h3 class="ui dividing header">{{if .Edit.ID}}编辑外送目标{{else}}添加外送目标{{end}}</h3>
+  <form class="ui form segment" method="post" action="{{AppSubUrl}}/governance/audit/streams" autocomplete="off">
+   {{.CsrfTokenHtml}}<input type="hidden" name="scope_type" value="{{.ScopeType}}"><input type="hidden" name="scope_id" value="{{.ScopeID}}"><input type="hidden" name="id" value="{{.Edit.ID}}"><input type="hidden" name="revision" value="{{.Edit.Revision}}">
+   <div class="two fields">
+    <div class="required field"><label for="stream-name">名称</label><input id="stream-name" name="name" value="{{.Edit.Name}}" maxlength="100" required></div>
+    <div class="field"><label for="stream-kind">目标类型</label><select class="ui dropdown" id="stream-kind" name="kind"><option value="http" {{if eq .Edit.Kind "http"}}selected{{end}}>HTTP(S) JSON</option><option value="s3" {{if eq .Edit.Kind "s3"}}selected{{end}}>S3 对象存储</option><option value="google_logging" {{if eq .Edit.Kind "google_logging"}}selected{{end}}>Google Cloud Logging</option></select></div>
+   </div>
+   <div class="required field"><label for="stream-endpoint">目标地址</label><input id="stream-endpoint" name="endpoint" type="url" value="{{.Edit.Endpoint}}" placeholder="https://audit.example.com/events" required><p class="help">不能包含用户名、密码、查询串或片段。Google 目标固定使用 https://logging.googleapis.com/v2/entries:write。</p></div>
+   <div class="field"><div class="ui checkbox"><input id="stream-enabled" name="enabled" type="checkbox" {{if .Edit.Enabled}}checked{{end}}><label for="stream-enabled">启用外送</label></div></div>
+   <div class="field"><label for="stream-types">事件类型过滤（每行一个，留空接收全部已接入事件）</label><textarea id="stream-types" name="event_types" rows="3">{{.Filters}}</textarea><details><summary>可用事件类型</summary>{{range $key,$event := .EventCatalog}}<div><code>{{$key}}</code> · {{$event.Description}}</div>{{end}}</details></div>
+   <details {{if eq .Edit.Kind "s3"}}open{{end}}><summary>S3 目标字段</summary><div class="three fields"><div class="field"><label for="stream-region">区域</label><input id="stream-region" name="region" value="{{.Edit.Destination.Region}}"></div><div class="field"><label for="stream-bucket">存储桶</label><input id="stream-bucket" name="bucket" value="{{.Edit.Destination.Bucket}}"></div><div class="field"><label for="stream-prefix">对象前缀（可选）</label><input id="stream-prefix" name="prefix" value="{{.Edit.Destination.Prefix}}"></div></div></details>
+   <details {{if eq .Edit.Kind "google_logging"}}open{{end}}><summary>Google 目标字段</summary><div class="two fields"><div class="field"><label for="stream-project">Google 项目 ID</label><input id="stream-project" name="project_id" value="{{.Edit.Destination.ProjectID}}"></div><div class="field"><label for="stream-log">日志 ID</label><input id="stream-log" name="log_id" value="{{.Edit.Destination.LogID}}"></div></div></details>
+   <h4 class="ui dividing header">凭据</h4>
+   {{if .Edit.ID}}<div class="field"><div class="ui checkbox"><input id="stream-replace" name="replace_credentials" type="checkbox"><label for="stream-replace">替换该目标的凭据和自定义请求头（未勾选时保留原值）</label></div></div>{{end}}
+   <p class="help">只填写所选目标的凭据。已有秘密不回显。HTTP 验证标识固定于目标，创建前复制给接收端。</p>
+   <details {{if eq .Edit.Kind "http"}}open{{end}}><summary>HTTP 凭据</summary><div class="field"><label for="stream-verification">验证标识（创建后保持不变）</label><input id="stream-verification" name="verification_token" value="{{.VerificationToken}}" autocomplete="off"></div><div class="field"><label for="stream-headers">自定义请求头（每行“名称: 值”，最多 20 个）</label><textarea id="stream-headers" name="headers" rows="3" autocomplete="off"></textarea></div></details>
+   <details><summary>S3 凭据</summary><div class="two fields"><div class="field"><label for="stream-access">访问密钥 ID</label><input id="stream-access" name="access_key_id" autocomplete="off"></div><div class="field"><label for="stream-secret">秘密访问密钥</label><input id="stream-secret" name="secret_access_key" type="password" autocomplete="new-password"></div></div><div class="field"><label for="stream-session">会话令牌（可选）</label><input id="stream-session" name="session_token" type="password" autocomplete="new-password"></div></details>
+   <details><summary>Google 服务账号凭据</summary><div class="field"><label for="stream-service-account">服务账号 JSON 密钥</label><textarea id="stream-service-account" name="service_account_json" rows="5" autocomplete="off"></textarea></div></details>
+   <div class="tw-flex tw-gap-2 tw-flex-wrap tw-mt-4"><button class="ui primary button" type="submit">保存目标</button><a class="ui button" href="{{.StreamURL}}">取消编辑</a></div>
+  </form>
+ </div>
+</div>
+{{template "base/footer" .}}

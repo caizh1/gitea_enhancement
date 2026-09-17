@@ -5,6 +5,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	actions_model "gitea.dev/models/actions"
@@ -12,6 +13,7 @@ import (
 	admin_model "gitea.dev/models/admin"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
@@ -19,15 +21,10 @@ import (
 	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
 	secret_model "gitea.dev/models/secret"
-	system_model "gitea.dev/models/system"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/models/webhook"
-	actions_module "gitea.dev/modules/actions"
-	"gitea.dev/modules/gitrepo"
-	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/lfs"
 	"gitea.dev/modules/log"
-	"gitea.dev/modules/storage"
 	actions_service "gitea.dev/services/actions"
 	asymkey_service "gitea.dev/services/asymkey"
 	issue_service "gitea.dev/services/issue"
@@ -36,6 +33,9 @@ import (
 )
 
 func deleteDBRepository(ctx context.Context, repoID int64) error {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repoID)}, func(context.Context) error { return nil }); err != nil {
+		return err
+	}
 	if cnt, err := db.GetEngine(ctx).ID(repoID).Delete(&repo_model.Repository{}); err != nil {
 		return err
 	} else if cnt != 1 {
@@ -51,6 +51,7 @@ func deleteDBRepository(ctx context.Context, repoID int64) error {
 // DeleteRepository deletes a repository for a user or organization.
 // make sure if you call this func to close open sessions (sqlite will otherwise get a deadlock)
 func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams ...bool) error {
+	originalCtx := ctx
 	ctx, committer, err := db.TxContext(ctx)
 	if err != nil {
 		return err
@@ -69,6 +70,27 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 			Name:      "",
 		}
 	}
+
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		fresh, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if authority, ok := ctx.Value(deletionAuthorityKey{}).(deletionAuthority); ok {
+			if err := checkRepositoryDeletion(ctx, authority, fresh); err != nil {
+				return err
+			}
+		}
+		repo = fresh
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := closePullsFromDeletedRepository(ctx, repo.ID); err != nil {
+		return err
+	}
+	ctx = repo_model.WithContentAuditRepositorySnapshot(ctx, repo)
 
 	// Query the action tasks of this repo, they will be needed after they have been deleted to remove the logs
 	tasks, err := db.Find[actions_model.ActionTask](ctx, actions_model.FindTaskOptions{RepoID: repoID})
@@ -97,6 +119,13 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 		return err
 	}
 	needRewriteKeysFile := deleted > 0
+
+	if err := git_model.DeleteRepositoryProtectionRules(ctx, repoID); err != nil {
+		return err
+	}
+	if err := webhook.AppendRepositoryWebhookDeletionAudits(ctx, repoID); err != nil {
+		return err
+	}
 
 	if err := deleteDBRepository(ctx, repoID); err != nil {
 		return err
@@ -160,8 +189,6 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 		&issues_model.Milestone{RepoID: repoID},
 		&repo_model.Mirror{RepoID: repoID},
 		&activities_model.Notification{RepoID: repoID},
-		&git_model.ProtectedBranch{RepoID: repoID},
-		&git_model.ProtectedTag{RepoID: repoID},
 		&repo_model.PushMirror{RepoID: repoID},
 		&repo_model.Release{RepoID: repoID},
 		&repo_model.RepoIndexerStatus{RepoID: repoID},
@@ -301,84 +328,53 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 		return err
 	}
 
+	cleanup := &governance_model.ResourceCleanup{Kind: "repository", ResourceID: repo.ID, RewriteKeys: needRewriteKeysFile, Actor: governance_model.AuditActor(ctx), ScopeType: "repository", ScopeID: repo.ID, ObjectPath: repo.FullPath()}
+	chain, err := governance_model.Ancestors(ctx, repo.OwnerID)
+	if err != nil && err != governance_model.ErrNotFound {
+		return err
+	}
+	for _, ancestor := range chain {
+		if ancestor.Kind == "group" {
+			cleanup.AncestorIDs = append(cleanup.AncestorIDs, ancestor.ID)
+		}
+	}
+	cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "git", Path: repo.RelativePath()}, governance_model.CleanupObject{Kind: "git", Path: repo.WikiStorageRepo().RelativePath()})
+	for kind, paths := range map[string][]string{"archive": archivePaths, "lfs": lfsPaths, "attachment": append(append(attachmentPaths, releaseAttachments...), newAttachmentPaths...)} {
+		for _, path := range paths {
+			cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: kind, Path: path})
+		}
+	}
+	if repo.Avatar != "" {
+		cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "repo_avatar", Path: repo.CustomAvatarRelativePath()})
+	}
+	for _, task := range tasks {
+		cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "action_log", Path: task.LogFilename, InStorage: task.LogInStorage})
+	}
+	for _, art := range artifacts {
+		cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "artifact", Path: art.StoragePath})
+	}
+	if _, err := db.GetEngine(ctx).ID(repo.ID).Delete(new(governance_model.RepositoryDeletion)); err != nil {
+		return err
+	}
+	if err := db.DeleteBeans(ctx,
+		&governance_model.Membership{ScopeType: "repository", ScopeID: repo.ID},
+		&governance_model.Share{ScopeType: "repository", ScopeID: repo.ID},
+		&governance_model.Invitation{ScopeType: "repository", ScopeID: repo.ID},
+		&governance_model.AccessRequest{ScopeType: "repository", ScopeID: repo.ID},
+		&governance_model.AccessRequestSetting{ScopeType: "repository", ScopeID: repo.ID},
+	); err != nil {
+		return err
+	}
+	if err := QueueResourceCleanup(ctx, cleanup); err != nil {
+		return err
+	}
 	if err = committer.Commit(); err != nil {
 		return err
 	}
-
 	committer.Close()
-
-	if needRewriteKeysFile {
-		if err := asymkey_service.RewriteAllPublicKeys(ctx); err != nil {
-			log.Error("RewriteAllPublicKeys failed: %v", err)
-		}
-	}
-
-	// We should always delete the files after the database transaction succeed. If
-	// we delete the file but the database rollback, the repository will be broken.
-
-	// Remove repository files.
-	if err := gitrepo.DeleteRepository(ctx, repo); err != nil {
-		desc := fmt.Sprintf("Delete repository files (%s): %v", repo.FullName(), err)
-		if err = system_model.CreateNotice(graceful.GetManager().ShutdownContext(), system_model.NoticeRepository, desc); err != nil {
-			log.Error("CreateRepositoryNotice: %v", err)
-		}
-	}
-
-	// Remove wiki files if it exists.
-	if err := gitrepo.DeleteRepository(ctx, repo.WikiStorageRepo()); err != nil {
-		desc := fmt.Sprintf("Delete wiki repository files (%s): %v", repo.FullName(), err)
-		// Note we use the db.DefaultContext here rather than passing in a context as the context may be cancelled
-		if err = system_model.CreateNotice(graceful.GetManager().ShutdownContext(), system_model.NoticeRepository, desc); err != nil {
-			log.Error("CreateRepositoryNotice: %v", err)
-		}
-	}
-
-	// Remove archives
-	for _, archive := range archivePaths {
-		system_model.RemoveStorageWithNotice(ctx, storage.RepoArchives, "Delete repo archive file", archive)
-	}
-
-	// Remove lfs objects
-	for _, lfsObj := range lfsPaths {
-		system_model.RemoveStorageWithNotice(ctx, storage.LFS, "Delete orphaned LFS file", lfsObj)
-	}
-
-	// Remove issue attachment files.
-	for _, attachment := range attachmentPaths {
-		system_model.RemoveStorageWithNotice(ctx, storage.Attachments, "Delete issue attachment", attachment)
-	}
-
-	// Remove release attachment files.
-	for _, releaseAttachment := range releaseAttachments {
-		system_model.RemoveStorageWithNotice(ctx, storage.Attachments, "Delete release attachment", releaseAttachment)
-	}
-
-	// Remove attachment with no issue_id and release_id.
-	for _, newAttachment := range newAttachmentPaths {
-		system_model.RemoveStorageWithNotice(ctx, storage.Attachments, "Delete issue attachment", newAttachment)
-	}
-
-	if len(repo.Avatar) > 0 {
-		if err := storage.RepoAvatars.Delete(repo.CustomAvatarRelativePath()); err != nil {
-			log.Error("remove avatar file %q: %v", repo.CustomAvatarRelativePath(), err)
-			// go on
-		}
-	}
-
-	// Finally, delete action logs after the actions have already been deleted to avoid new log files
-	for _, task := range tasks {
-		err := actions_module.RemoveLogs(ctx, task.LogInStorage, task.LogFilename)
-		if err != nil {
-			log.Error("remove log file %q: %v", task.LogFilename, err)
-			// go on
-		}
-	}
-
-	// delete actions artifacts in ObjectStorage after the repo have already been deleted
-	for _, art := range artifacts {
-		if err := storage.ActionsArtifacts.Delete(art.StoragePath); err != nil {
-			log.Error("remove artifact file %q: %v", art.StoragePath, err)
-			// go on
+	if !db.InTransaction(originalCtx) {
+		if err := RunResourceCleanup(originalCtx, cleanup.ID); err != nil {
+			log.Error("仓库数据库已删除，存储清理任务 %d 等待恢复：%v", cleanup.ID, err)
 		}
 	}
 
@@ -407,6 +403,51 @@ func DeleteOwnerRepositoriesDirectly(ctx context.Context, owner *user_model.User
 			if err := DeleteRepositoryDirectly(ctx, repo.ID); err != nil {
 				return fmt.Errorf("unable to delete repository %s for %s[%d]. Error: %w", repo.Name, owner.Name, owner.ID, err)
 			}
+		}
+	}
+	return nil
+}
+
+// closePullsFromDeletedRepository 在最终删除事务中关闭以本项目为来源的外部 PR。
+// 先跳过已关闭项，避免可处理的已关闭回执提前关闭外层事务。
+func closePullsFromDeletedRepository(ctx context.Context, repoID int64) error {
+	var pulls []*issues_model.PullRequest
+	if err := db.GetEngine(ctx).Where("head_repo_id = ? AND base_repo_id <> ? AND has_merged = ?", repoID, repoID, false).Find(&pulls); err != nil {
+		return err
+	}
+	actor := governance_model.AuditActor(ctx)
+	doer := user_model.NewGhostUser()
+	if actor.EffectiveUserID() > 0 {
+		var err error
+		doer, err = user_model.GetUserByID(ctx, actor.EffectiveUserID())
+		if err != nil {
+			return err
+		}
+	}
+	for _, pull := range pulls {
+		if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", pull.BaseRepoID)}, func(ctx context.Context) error {
+			if err := pull.LoadIssue(ctx); err != nil {
+				return err
+			}
+			if pull.Issue.IsClosed {
+				return nil
+			}
+			if err := issue_service.CloseIssue(ctx, pull.Issue, doer, ""); err != nil {
+				return err
+			}
+			chain, err := governance_model.Ancestors(ctx, pull.Issue.Repo.OwnerID)
+			if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+				return err
+			}
+			var ancestors []int64
+			for _, group := range chain {
+				if group.Kind == "group" {
+					ancestors = append(ancestors, group.ID)
+				}
+			}
+			return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: "pull.closed_by_repository_deletion", Actor: actor, ScopeType: "repository", ScopeID: pull.BaseRepoID, AncestorIDs: ancestors, ObjectType: "pull", ObjectID: pull.ID, ObjectPath: pull.Issue.Repo.FullPath(), Result: "success"})
+		}); err != nil {
+			return err
 		}
 	}
 	return nil

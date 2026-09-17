@@ -148,6 +148,9 @@ func loadCommonSettingsFrom(cfg ConfigProvider) error {
 	if err := loadActionsFrom(cfg); err != nil {
 		return err
 	}
+	if err := loadGovernanceFrom(cfg); err != nil {
+		return err
+	}
 	loadUIFrom(cfg)
 	loadAdminFrom(cfg)
 	loadAPIFrom(cfg)

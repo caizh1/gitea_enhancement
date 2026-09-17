@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	api "gitea.dev/modules/structs"
@@ -18,11 +19,13 @@ import (
 
 func TestRepoEdit(t *testing.T) {
 	unittest.PrepareTestEnv(t)
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	ctx, _ := contexttest.MockAPIContext(t, "user2/repo1")
-	contexttest.LoadRepo(t, ctx, 1)
 	contexttest.LoadUser(t, ctx, 2)
+	contexttest.LoadRepo(t, ctx, 1)
 	ctx.Repo.Owner = ctx.Doer
+	ctx.AuthenticatedUser = ctx.Doer
 	description := "new description"
 	website := "http://wwww.newwebsite.com"
 	private := true

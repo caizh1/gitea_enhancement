@@ -31,6 +31,7 @@ import (
 	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
+	governance_service "gitea.dev/services/governance"
 	secret_service "gitea.dev/services/secrets"
 
 	"gitea.com/gitea/runner/act/model"
@@ -2125,11 +2126,21 @@ func DownloadArtifact(ctx *context.APIContext) {
 		ctx.APIError(http.StatusNotFound, "Artifact has expired")
 		return
 	}
+	finishAudit, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, "access.actions_artifact", map[string]any{"artifact_id": art.ID, "run_id": art.RunID})
+	if err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
+	auditStatus := 0
+	if finishAudit != nil {
+		defer func() { finishAudit(auditStatus) }()
+	}
 
 	if actions_service.IsArtifactV4(art) {
 		// @actions/toolkit asserts that downloaded artifacts of a different runid return 302
 		// https://github.com/actions/toolkit/blob/44d43b5490b02998bd09b0c4ff369a4cc67876c2/packages/artifact/src/internal/download/download-artifact.ts#L203-L210
 		if actions_service.DownloadArtifactV4ServeDirect(ctx.Base, art) {
+			auditStatus = http.StatusOK
 			return
 		}
 
@@ -2137,6 +2148,7 @@ func DownloadArtifact(ctx *context.APIContext) {
 		// TODO: a perma link to the code for reference
 		redirectURL := buildSigURL(ctx, buildDownloadRawEndpoint(ctx.Repo.Repository.OwnerName, ctx.Repo.Repository.Name, art.ID), art.ID)
 		ctx.Redirect(redirectURL, http.StatusFound)
+		auditStatus = http.StatusFound
 		return
 	}
 	// v3 not supported due to not having one unique id

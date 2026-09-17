@@ -12,12 +12,14 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 )
 
 // ListAccessTokens list all the access tokens
@@ -149,7 +151,7 @@ func CreateAccessToken(ctx *context.APIContext) {
 		}
 	}
 
-	if err := auth_model.NewAccessToken(ctx, t); err != nil {
+	if err := auth_model.NewAccessToken(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), t); err != nil {
 		ctx.APIErrorInternal(err)
 		return
 	}
@@ -215,7 +217,7 @@ func DeleteAccessToken(ctx *context.APIContext) {
 		}
 	}
 
-	if err := auth_model.DeleteAccessTokenByID(ctx, tokenID, ctx.ContextUser.ID); err != nil {
+	if err := auth_model.DeleteAccessTokenByID(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), tokenID, ctx.ContextUser.ID); err != nil {
 		ctx.APIErrorAuto(err)
 		return
 	}

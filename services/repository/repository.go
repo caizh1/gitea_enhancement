@@ -12,6 +12,7 @@ import (
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
 	"gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -27,7 +28,6 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/structs"
 	notify_service "gitea.dev/services/notify"
-	pull_service "gitea.dev/services/pull"
 )
 
 // WebSearchRepository represents a repository returned by web search
@@ -56,11 +56,49 @@ func CreateRepository(ctx context.Context, doer, owner *user_model.User, opts Cr
 	return repo, nil
 }
 
+type (
+	deletionAuthorityKey struct{}
+	deletionAuthority    struct{ UserID, OwnerID int64 }
+)
+
+func checkRepositoryDeletion(ctx context.Context, authority deletionAuthority, repo *repo_model.Repository) error {
+	if repo.OwnerID != authority.OwnerID {
+		return governance_model.ErrConflict
+	}
+	user, err := user_model.GetUserByID(ctx, authority.UserID)
+	if err != nil {
+		return err
+	}
+	if !user.IsActive || user.ProhibitLogin {
+		return governance_model.ErrForbidden
+	}
+	actor := governance_model.AuditActor(ctx)
+	if actor.ActingAsID > 0 {
+		authenticated, err := user_model.GetUserByID(ctx, actor.ID)
+		if err != nil {
+			return err
+		}
+		if !authenticated.IsAdmin || !authenticated.IsActive || authenticated.ProhibitLogin {
+			return governance_model.ErrForbidden
+		}
+	}
+	allowed, err := repo_module.CanUserDelete(ctx, repo, user)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return governance_model.ErrForbidden
+	}
+	return nil
+}
+
 // DeleteRepository deletes a repository for a user or organization.
 func DeleteRepository(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, notify bool) error {
-	if err := pull_service.CloseRepoBranchesPulls(ctx, doer, repo); err != nil {
-		log.Error("CloseRepoBranchesPulls failed: %v", err)
+	authority := deletionAuthority{UserID: doer.ID, OwnerID: repo.OwnerID}
+	if err := checkRepositoryDeletion(ctx, authority, repo); err != nil {
+		return err
 	}
+	ctx = context.WithValue(ctx, deletionAuthorityKey{}, authority)
 
 	if notify {
 		// If the repo itself has webhooks, we need to trigger them before deleting it...
@@ -123,15 +161,36 @@ func UpdateRepository(ctx context.Context, repo *repo_model.Repository, visibili
 }
 
 func MakeRepoPrivate(ctx context.Context, repo *repo_model.Repository, private bool) (err error) {
-	return db.WithTx(ctx, func(ctx context.Context) error {
-		repo.IsPrivate = private
-		if err := repo_model.UpdateRepositoryColsNoAutoTime(ctx, repo, "is_private"); err != nil {
+	visibility := repo_model.VisibilityPublic
+	if private {
+		visibility = repo_model.VisibilityPrivate
+	}
+	return MakeRepoVisibility(ctx, repo, visibility)
+}
+
+func MakeRepoVisibility(ctx context.Context, repo *repo_model.Repository, visibility int) (err error) {
+	if visibility < repo_model.VisibilityPublic || visibility > repo_model.VisibilityPrivate {
+		return governance_model.ErrInvalid
+	}
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		before, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
 			return err
 		}
-
 		if err = repo.LoadOwner(ctx); err != nil {
 			return fmt.Errorf("LoadOwner: %w", err)
 		}
+		if repo.Owner.IsOrganization() {
+			if namespace, loadErr := governance_model.GetNamespace(ctx, repo.OwnerID); loadErr == nil && namespace.Visibility > visibility {
+				visibility = namespace.Visibility
+			}
+		}
+		repo.Visibility = visibility
+		repo.IsPrivate = visibility != repo_model.VisibilityPublic
+		if err := repo_model.UpdateRepositoryColsNoAutoTime(ctx, repo, "visibility", "is_private"); err != nil {
+			return err
+		}
+		private := repo.IsPrivate
 		if repo.Owner.IsOrganization() {
 			// Organization repository need to recalculate access table when visibility is changed.
 			if err = access_model.RecalculateTeamAccesses(ctx, repo, 0); err != nil {
@@ -169,7 +228,7 @@ func MakeRepoPrivate(ctx context.Context, repo *repo_model.Repository, private b
 				return fmt.Errorf("getRepositoriesByForkID: %w", err)
 			}
 			for _, forkRepo := range forkRepos {
-				if err = MakeRepoPrivate(ctx, forkRepo, private); err != nil {
+				if err = MakeRepoVisibility(ctx, forkRepo, visibility); err != nil {
 					return fmt.Errorf("MakeRepoPrivate[%d]: %w", forkRepo.ID, err)
 				}
 			}
@@ -178,7 +237,11 @@ func MakeRepoPrivate(ctx context.Context, repo *repo_model.Repository, private b
 		// If visibility is changed, we need to update the issue indexer.
 		// Since the data in the issue indexer have field to indicate if the repo is public or not.
 		issue_indexer.UpdateRepoIndexer(ctx, repo.ID)
-		return nil
+		updated, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		return appendRepositoryAudit(ctx, before, updated, "repository.updated", map[string]any{"change_source": "visibility"})
 	})
 }
 
@@ -242,7 +305,34 @@ func updateRepository(ctx context.Context, repo *repo_model.Repository, visibili
 
 	e := db.GetEngine(ctx)
 
-	if _, err = e.ID(repo.ID).NoAutoTime().AllCols().Update(repo); err != nil {
+	if err = governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		previous, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if previous.OwnerID != repo.OwnerID || !strings.EqualFold(previous.Name, repo.Name) || previous.OwnerName != repo.OwnerName {
+			return fmt.Errorf("%w：仓库归属或路径已经变化，请重新读取设置", governance_model.ErrConflict)
+		}
+		if previous.Name != repo.Name || previous.OwnerID != repo.OwnerID {
+			repo.OwnerNamespace, err = governance_model.ChangeNativeRepositoryPath(ctx, repo.ID, repo.OwnerID, repo.Name)
+			if err != nil {
+				return err
+			}
+		} else {
+			repo.OwnerNamespace = previous.OwnerNamespace
+		}
+		affected, err := db.GetEngine(ctx).ID(repo.ID).NoAutoTime().AllCols().Update(repo)
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			return governance_model.ErrConflict
+		}
+		if creation, _ := ctx.Value(repositoryCreationContextKey{}).(repositoryCreationContext); creation.origin != "" {
+			return completeRepositoryCreation(ctx, repo)
+		}
+		return appendRepositoryAudit(ctx, previous, repo, "repository.updated", nil)
+	}); err != nil {
 		return fmt.Errorf("update: %w", err)
 	}
 

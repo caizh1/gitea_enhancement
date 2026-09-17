@@ -1,5 +1,11 @@
 {{template "admin/layout_head" (dict "pageClass" "admin dashboard")}}
 	<div class="admin-setting-content">
+		{{if not (index .AuditHealth "healthy")}}
+			<div class="ui negative message">
+				<div class="header">治理审计保存异常</div>
+				<p>审计证据可能未完整保存。请先核对数据库与审计外送状态；恢复后重启服务会清除本进程告警。</p>
+			</div>
+		{{end}}
 		{{if .NeedUpdate}}
 			<div class="ui negative message flash-error">
 				<p>{{ctx.Locale.Tr "admin.dashboard.new_version_hint" .RemoteVersion AppVer "https://blog.gitea.com"}}</p>

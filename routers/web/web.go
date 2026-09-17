@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/git"
@@ -31,6 +32,7 @@ import (
 	"gitea.dev/routers/web/events"
 	"gitea.dev/routers/web/explore"
 	"gitea.dev/routers/web/feed"
+	"gitea.dev/routers/web/governance"
 	"gitea.dev/routers/web/healthcheck"
 	"gitea.dev/routers/web/misc"
 	"gitea.dev/routers/web/org"
@@ -45,6 +47,7 @@ import (
 	auth_service "gitea.dev/services/auth"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 
 	_ "gitea.dev/modules/session" // to register all internal adapters
 
@@ -157,6 +160,7 @@ func newWebAuthMiddleware() *AuthMiddleware {
 		ctx.Doer = ar.Doer
 		ctx.IsSigned = ar.Doer != nil
 		ctx.IsBasicAuth = ar.IsBasicAuth
+		ctx.SetContextValue(governance_model.AuditActorContextKey, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"))
 		if ctx.Doer == nil {
 			// ensure the session uid is deleted
 			_ = ctx.Session.Delete("uid")
@@ -259,6 +263,7 @@ func Routes() *web.Router {
 
 	// GetHead allows a HEAD request redirect to GET if HEAD method is not defined for that route
 	routes.BeforeRouting(chi_middleware.GetHead)
+	routes.BeforeRouting(governance_service.NamespaceRouting(false))
 
 	routes.Head("/", misc.DummyOK) // for health check - doesn't need to be passed through gzip handler
 	routes.Methods("GET, HEAD", "/assets/site-manifest.json", misc.SiteManifest)
@@ -618,6 +623,43 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		}, optionsCorsHandler(), webAuth.AllowOAuth2, optSignInFromAnyOrigin)
 	}, oauth2Enabled)
 
+	m.Get("/governance/invitations/{id}", governance.InvitationLanding)
+	m.Get("/governance/navigation/groups", reqSignIn, governance.NavigationJSON)
+	m.Get("/governance/navigation/groups/{id}", optSignIn, governance.NavigationJSON)
+	m.Post("/governance/invitations/{id}", reqSignIn, governance.DecideInvitation)
+	m.Combo("/governance/repositories/{id}/invitations", reqSignIn).Get(governance.RepositoryInvitations).Post(governance.SaveRepositoryInvitation)
+	m.Combo("/governance/access-requests", reqSignIn).Get(governance.OwnAccessRequests).Post(governance.WithdrawOwnAccessRequest)
+	m.Group("/governance/groups", func() {
+		m.Get("", governance.Groups)
+		m.Post("", governance.SaveGroup)
+		m.Get("/{id}", governance.Groups)
+		m.Combo("/{id}/invitations").Get(governance.GroupInvitations).Post(governance.SaveGroupInvitation)
+		m.Combo("/{id}/access-requests").Get(governance.GroupAccessRequests).Post(governance.SaveGroupAccessRequest)
+		m.Post("/{id}/move", governance.SaveGroup)
+		m.Post("/{id}/archive", governance.ArchiveGroup)
+		m.Post("/{id}/deletion", governance.GroupDeletion)
+		m.Post("/{id}/members", governance.SaveGroupMember)
+		m.Post("/{id}/shares", governance.SaveGroupShare)
+		m.Post("/{id}/share-restriction", governance.SaveExternalShareRestriction)
+		m.Post("/{id}/roles", governance.SaveGroupRole)
+	}, reqSignIn)
+
+	m.Combo("/governance/repositories/{id}/approval-rules", reqSignIn).Get(governance.ApprovalRules).Post(governance.SaveApprovalRule)
+	m.Combo("/governance/pulls/{id}/approval-rules", reqSignIn).Get(governance.PullApprovalRules).Post(governance.SavePullApprovalRule)
+	m.Combo("/governance/approval-policies/{scope}/{scope_id}", reqSignIn).Get(governance.ApprovalPolicies).Post(governance.SaveApprovalPolicy)
+	m.Combo("/governance/repositories/{id}/deletion", reqSignIn).Get(governance.RepositoryDeletion).Post(governance.SaveRepositoryDeletion)
+	m.Combo("/governance/repositories/{id}/members", reqSignIn).Get(governance.RepositoryMembers).Post(governance.SaveRepositoryMember)
+	m.Post("/governance/repositories/{id}/roles", reqSignIn, governance.SaveRepositoryRole)
+	m.Combo("/governance/repositories/{id}/access-requests", reqSignIn).Get(governance.RepositoryAccessRequests).Post(governance.SaveRepositoryAccessRequest)
+	m.Combo("/governance/repositories/{id}/shares", reqSignIn).Get(governance.RepositoryShares).Post(governance.SaveRepositoryShare)
+
+	m.Group("/governance/audit", func() {
+		m.Combo("").Get(governance.Audit).Post(governance.Audit)
+		m.Post("/exports", governance.CreateExport)
+		m.Get("/exports/{id}/download", governance.DownloadExport)
+		m.Combo("/streams").Get(governance.AuditStreams).Post(governance.SaveAuditStream)
+	}, reqSignIn)
+
 	m.Group("/user/settings", func() {
 		m.Get("", user_setting.Profile)
 		m.Post("", web.Bind(forms.UpdateProfileForm{}), user_setting.ProfilePost)
@@ -762,6 +804,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 
 	// ***** START: Admin *****
 	m.Group("/-/admin", func() {
+		m.Combo("/approvals").Get(governance.NativeInstanceApprovalPolicies).Post(governance.NativeInstanceApprovalPolicies)
 		m.Get("", admin.Dashboard)
 		m.Get("/system_status", admin.SystemStatus)
 		m.Post("", web.Bind(forms.AdminDashboardForm{}), admin.DashboardPost)
@@ -797,6 +840,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Combo("/new").Get(admin.NewUser).Post(web.Bind(forms.AdminCreateUserForm{}), admin.NewUserPost)
 			m.Get("/{userid}", admin.ViewUser)
 			m.Combo("/{userid}/edit").Get(admin.EditUser).Post(web.Bind(forms.AdminEditUserForm{}), admin.EditUserPost)
+			m.Post("/{userid}/rename", web.Bind(forms.AdminRenameUserForm{}), admin.RenameUserPost)
 			m.Post("/{userid}/delete", admin.DeleteUser)
 			m.Post("/{userid}/avatar", web.Bind(forms.AvatarForm{}), admin.AvatarPost)
 			m.Post("/{userid}/avatar/delete", admin.DeleteAvatar)
@@ -891,6 +935,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	m.Post("/{username}", reqSignIn, context.UserAssignmentWeb(), user.ActionUserFollow)
 
 	reqRepoAdmin := context.RequireRepoAdmin()
+	reqRepoManageProject := context.RequireRepoAdminOrAbility(governance_model.ManageProject)
 	reqRepoCodeWriter := context.RequireUnitWriter(unit.TypeCode)
 	reqRepoReleaseWriter := context.RequireUnitWriter(unit.TypeReleases)
 	reqRepoReleaseReader := context.RequireUnitReader(unit.TypeReleases)
@@ -993,6 +1038,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Get("/worktime", context.OrgAssignment(context.OrgAssignmentOptions{RequireOwner: true}), org.Worktime)
 
 			m.Group("/settings", func() {
+				m.Combo("/approvals").Get(governance.NativeGroupApprovalPolicies).Post(governance.NativeGroupApprovalPolicies)
 				m.Combo("").Get(org.Settings).
 					Post(web.Bind(forms.UpdateOrgSettingForm{}), org.SettingsPost)
 				m.Post("/avatar", web.Bind(forms.AvatarForm{}), org.SettingsAvatar)
@@ -1161,6 +1207,9 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	}, optSignIn, context.RepoAssignment, reqUnitsWithMentions)
 	// end "/{username}/{reponame}/-": mentions
 
+	m.Combo("/{username}/{reponame}/pulls/{index}/approvals", reqSignIn, context.RepoAssignment).Get(governance.NativePullApprovalRules).Post(context.RepoMustNotBeArchived(), governance.NativePullApprovalRules)
+	m.Combo("/{username}/{reponame}/settings/pulls", reqSignIn, context.RepoAssignment, ctxDataSet("PageIsRepoSettings", true)).Get(repo_setting.RepositoryApprovalSettings).Post(context.RepoMustNotBeArchived(), repo_setting.SaveRepositoryApprovalConfiguration)
+
 	m.Group("/{username}/{reponame}/settings", func() {
 		m.Group("", func() {
 			m.Combo("").Get(repo_setting.Settings).
@@ -1179,7 +1228,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 				m.Post("", repo_setting.AddTeamPost)
 				m.Post("/delete", repo_setting.DeleteTeam)
 			})
-		})
+		}, reqRepoAdmin)
 
 		m.Group("/branches", func() {
 			m.Post("/", repo_setting.SetDefaultBranchPost)
@@ -1191,7 +1240,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 				Post(web.Bind(forms.ProtectBranchForm{}), context.RepoMustNotBeArchived(), repo_setting.SettingsProtectedBranchPost)
 			m.Post("/{id}/delete", repo_setting.DeleteProtectedBranchRulePost)
 			m.Post("/priority", context.RepoMustNotBeArchived(), repo_setting.UpdateBranchProtectionPriories)
-		})
+		}, reqRepoAdmin)
 
 		m.Group("/tags", func() {
 			m.Get("", repo_setting.ProtectedTags)
@@ -1199,13 +1248,13 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/delete", context.RepoMustNotBeArchived(), repo_setting.DeleteProtectedTagPost)
 			m.Get("/{id}", repo_setting.EditProtectedTag)
 			m.Post("/{id}", web.Bind(forms.ProtectTagForm{}), context.RepoMustNotBeArchived(), repo_setting.EditProtectedTagPost)
-		})
+		}, reqRepoAdmin)
 
 		m.Group("/hooks/git", func() {
 			m.Get("", repo_setting.GitHooks)
 			m.Combo("/{name}").Get(repo_setting.GitHooksEdit).
 				Post(repo_setting.GitHooksEditPost)
-		}, context.GitHookService())
+		}, reqRepoAdmin, context.GitHookService())
 
 		m.Group("/hooks", func() {
 			m.Get("", repo_setting.Webhooks)
@@ -1217,13 +1266,13 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 				m.Post("/replay/{uuid}", repo_setting.ReplayWebhook)
 			})
 			addWebhookEditRoutes()
-		}, webhooksEnabled)
+		}, reqRepoAdmin, webhooksEnabled)
 
 		m.Group("/keys", func() {
 			m.Combo("").Get(repo_setting.DeployKeys).
 				Post(web.Bind(forms.AddKeyForm{}), repo_setting.DeployKeysPost)
 			m.Post("/delete", repo_setting.DeleteDeployKey)
-		})
+		}, reqRepoAdmin)
 
 		m.Group("/lfs", func() {
 			m.Get("/", repo_setting.LFSFiles)
@@ -1237,11 +1286,11 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 				m.Post("/", repo_setting.LFSLockFile)
 				m.Post("/{lid}/unlock", repo_setting.LFSUnlock)
 			})
-		})
+		}, reqRepoAdmin)
 		m.Group("/actions/general", func() {
 			m.Get("", repo_setting.ActionsGeneralSettings)
 			m.Post("/actions_unit", repo_setting.ActionsUnitPost)
-		}) // doesn't require actions enabled
+		}, reqRepoAdmin) // doesn't require actions enabled
 		m.Group("/actions", func() {
 			m.Get("", misc.LocationRedirect("./actions/general"))
 			addSettingsRunnersRoutes()
@@ -1254,14 +1303,14 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 				})
 				m.Post("/token_permissions", repo_setting.UpdateTokenPermissions)
 			})
-		}, actions.MustEnableActions)
+		}, reqRepoAdmin, actions.MustEnableActions)
 		// the follow handler must be under "settings", otherwise this incomplete repo can't be accessed
 		m.Group("/migrate", func() {
 			m.Post("/retry", repo.MigrateRetryPost)
 			m.Post("/cancel", repo.MigrateCancelPost)
-		})
+		}, reqRepoAdmin)
 	},
-		reqSignIn, context.RepoAssignment, reqRepoAdmin,
+		reqSignIn, context.RepoAssignment, reqRepoManageProject,
 		ctxDataSet("PageIsRepoSettings", true, "LFSStartServer", setting.LFS.StartServer),
 	)
 	// end "/{username}/{reponame}/settings"

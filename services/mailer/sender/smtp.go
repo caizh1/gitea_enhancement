@@ -13,13 +13,18 @@ import (
 	"net/smtp"
 	"os"
 	"strings"
+	"time"
 
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 )
 
 // SMTPSender Sender SMTP mail sender
-type SMTPSender struct{}
+type SMTPSender struct {
+	// 治理邀请可限定投递时间；零值保留既有邮件行为。
+	Timeout         time.Duration
+	RequireSTARTTLS bool
+}
 
 var _ Sender = &SMTPSender{}
 
@@ -37,11 +42,22 @@ func (s *SMTPSender) Send(from string, to []string, msg io.WriterTo) error {
 		address = net.JoinHostPort(opts.SMTPAddr, opts.SMTPPort)
 	}
 
-	conn, err := net.Dial(network, address)
+	var conn net.Conn
+	var err error
+	if s.Timeout > 0 {
+		conn, err = net.DialTimeout(network, address, s.Timeout)
+	} else {
+		conn, err = net.Dial(network, address)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to establish network connection to SMTP server: %w", err)
 	}
 	defer conn.Close()
+	if s.Timeout > 0 {
+		if err := conn.SetDeadline(time.Now().Add(s.Timeout)); err != nil {
+			return err
+		}
+	}
 
 	var tlsconfig *tls.Config
 	if opts.Protocol == "smtps" || opts.Protocol == "smtp+starttls" {
@@ -93,6 +109,9 @@ func (s *SMTPSender) Send(from string, to []string, msg io.WriterTo) error {
 				return fmt.Errorf("failed to start TLS connection: %w", err)
 			}
 		} else {
+			if s.RequireSTARTTLS {
+				return errors.New("邀请邮件要求 STARTTLS，但服务器未提供")
+			}
 			log.Warn("StartTLS requested, but SMTP server does not support it; falling back to regular SMTP")
 		}
 	}

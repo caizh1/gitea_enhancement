@@ -7,7 +7,6 @@ package activities
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"path"
 	"slices"
 	"strconv"
@@ -267,24 +266,31 @@ func (a *Action) ShortRepoName(ctx context.Context) string {
 
 // GetRepoPath returns the virtual path to the action repository.
 func (a *Action) GetRepoPath(ctx context.Context) string {
+	_ = a.LoadRepo(ctx)
+	if a.Repo != nil {
+		return a.Repo.FullPath()
+	}
 	return path.Join(a.GetRepoUserName(ctx), a.GetRepoName(ctx))
 }
 
 // ShortRepoPath returns the virtual path to the action repository
 // trimmed to max 20 + 1 + 33 chars.
 func (a *Action) ShortRepoPath(ctx context.Context) string {
-	return path.Join(a.ShortRepoUserName(ctx), a.ShortRepoName(ctx))
+	if strings.Count(a.GetRepoPath(ctx), "/") <= 1 {
+		return path.Join(a.ShortRepoUserName(ctx), a.ShortRepoName(ctx))
+	}
+	return util.EllipsisDisplayString(a.GetRepoPath(ctx), 54)
 }
 
 // GetRepoLink returns relative link to action repository.
 func (a *Action) GetRepoLink(ctx context.Context) string {
 	// path.Join will skip empty strings
-	return path.Join(setting.AppSubURL, "/", url.PathEscape(a.GetRepoUserName(ctx)), url.PathEscape(a.GetRepoName(ctx)))
+	return path.Join(setting.AppSubURL, "/", util.PathEscapeSegments(a.GetRepoPath(ctx)))
 }
 
 // GetRepoAbsoluteLink returns the absolute link to action repository.
 func (a *Action) GetRepoAbsoluteLink(ctx context.Context) string {
-	return setting.AppURL + url.PathEscape(a.GetRepoUserName(ctx)) + "/" + url.PathEscape(a.GetRepoName(ctx))
+	return setting.AppURL + util.PathEscapeSegments(a.GetRepoPath(ctx))
 }
 
 func (a *Action) loadComment(ctx context.Context) (err error) {

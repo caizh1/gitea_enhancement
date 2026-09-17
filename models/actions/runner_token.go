@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/timeutil"
@@ -84,16 +85,21 @@ func NewRunnerTokenWithValue(ctx context.Context, ownerID, repoID int64, token s
 		Token:    token,
 	}
 
-	return runnerToken, db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		if _, err := db.GetEngine(ctx).Where("owner_id =? AND repo_id = ?", ownerID, repoID).Cols("is_active").Update(&ActionRunnerToken{
 			IsActive: false,
 		}); err != nil {
 			return err
 		}
 
-		_, err := db.GetEngine(ctx).Insert(runnerToken)
-		return err
-	})
+		if _, err := db.GetEngine(ctx).Insert(runnerToken); err != nil {
+			return err
+		}
+		return AppendConfigurationAudit(ctx, runnerToken.OwnerID, runnerToken.RepoID, "actions.runner_token_rotated", "actions_runner_token", runnerToken.ID, "registration", map[string]any{"active": true, "previous_tokens_deactivated": true})
+	}); err != nil {
+		return nil, err
+	}
+	return runnerToken, nil
 }
 
 func NewRunnerToken(ctx context.Context, ownerID, repoID int64) (*ActionRunnerToken, error) {

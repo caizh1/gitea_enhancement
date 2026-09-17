@@ -6,20 +6,22 @@ package org
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	actions_model "gitea.dev/models/actions"
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	secret_model "gitea.dev/models/secret"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/models/webhook"
 	issue_indexer "gitea.dev/modules/indexer/issues"
-	"gitea.dev/modules/storage"
+	"gitea.dev/modules/log"
 	"gitea.dev/modules/structs"
-	"gitea.dev/modules/util"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -27,6 +29,9 @@ import (
 func deleteOrganization(ctx context.Context, org *org_model.Organization) error {
 	if org.Type != user_model.UserTypeOrganization {
 		return fmt.Errorf("%s is a user not an organization", org.Name)
+	}
+	if err := webhook.DeleteOwnerWebhooks(ctx, org.ID); err != nil {
+		return err
 	}
 
 	if err := db.DeleteBeans(ctx,
@@ -44,6 +49,9 @@ func deleteOrganization(ctx context.Context, org *org_model.Organization) error 
 		return fmt.Errorf("DeleteBeans: %w", err)
 	}
 
+	if err := governance_model.DeleteNativeNamespace(ctx, org.ID); err != nil {
+		return err
+	}
 	if _, err := db.GetEngine(ctx).ID(org.ID).Delete(new(user_model.User)); err != nil {
 		return fmt.Errorf("Delete: %w", err)
 	}
@@ -53,7 +61,54 @@ func deleteOrganization(ctx context.Context, org *org_model.Organization) error 
 
 // DeleteOrganization completely and permanently deletes everything of organization.
 func DeleteOrganization(ctx context.Context, org *org_model.Organization, purge bool) error {
+	cleanup := &governance_model.ResourceCleanup{Kind: "group", ResourceID: org.ID, Actor: governance_model.AuditActor(ctx), ScopeType: "group", ScopeID: org.ID, ObjectPath: org.Name}
+	cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "git", Path: strings.ToLower(org.Name)})
+	if org.Avatar != "" {
+		cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "avatar", Path: org.CustomAvatarRelativePath()})
+	}
 	if err := db.WithTx(ctx, func(ctx context.Context) error {
+		// 在任何仓库文件删除前锁定并检查子群组；同一事务阻止并发创建子组。
+		if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("group", org.ID)}, func(ctx context.Context) error {
+			actor := governance_model.AuditActor(ctx)
+			if actor.EffectiveUserID() > 0 {
+				user, err := user_model.GetUserByID(ctx, actor.EffectiveUserID())
+				if err != nil {
+					return err
+				}
+				if !user.IsActive || user.ProhibitLogin {
+					return governance_model.ErrForbidden
+				}
+				if !user.IsAdmin {
+					owner, err := org.IsOwnedBy(ctx, user.ID)
+					if err != nil {
+						return err
+					}
+					if !owner {
+						return governance_model.ErrForbidden
+					}
+				}
+				if actor.ActingAsID > 0 {
+					original, err := user_model.GetUserByID(ctx, actor.ID)
+					if err != nil {
+						return err
+					}
+					if !original.IsActive || original.ProhibitLogin || !original.IsAdmin {
+						return governance_model.ErrForbidden
+					}
+				}
+			}
+			children, err := db.GetEngine(ctx).Where("parent_id = ?", org.ID).Exist(new(governance_model.Namespace))
+			if err != nil {
+				return err
+			}
+			if children {
+				return governance_model.ErrConflict
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+
 		if purge {
 			err := repo_service.DeleteOwnerRepositoriesDirectly(ctx, org.AsUser())
 			if err != nil {
@@ -76,6 +131,23 @@ func DeleteOrganization(ctx context.Context, org *org_model.Organization, purge 
 			return packages_model.ErrUserOwnPackages{UID: org.ID}
 		}
 
+		if namespace, err := governance_model.GetNamespace(ctx, org.ID); err == nil {
+			cleanup.ObjectPath = namespace.FullPath
+		} else if err != governance_model.ErrNotFound {
+			return err
+		}
+		ancestors, err := governance_model.Ancestors(ctx, org.ID)
+		if err != nil && err != governance_model.ErrNotFound {
+			return err
+		}
+		for _, ancestor := range ancestors {
+			if ancestor.Kind == "group" {
+				cleanup.AncestorIDs = append(cleanup.AncestorIDs, ancestor.ID)
+			}
+		}
+		if err := repo_service.QueueResourceCleanup(ctx, cleanup); err != nil {
+			return err
+		}
 		if err := deleteOrganization(ctx, org); err != nil {
 			return fmt.Errorf("DeleteOrganization: %w", err)
 		}
@@ -84,19 +156,9 @@ func DeleteOrganization(ctx context.Context, org *org_model.Organization, purge 
 		return err
 	}
 
-	// FIXME: system notice
-	// Note: There are something just cannot be roll back,
-	//	so just keep error logs of those operations.
-	path := user_model.UserPath(org.Name)
-
-	if err := util.RemoveAll(path); err != nil {
-		return fmt.Errorf("failed to RemoveAll %s: %w", path, err)
-	}
-
-	if len(org.Avatar) > 0 {
-		avatarPath := org.CustomAvatarRelativePath()
-		if err := storage.Avatars.Delete(avatarPath); err != nil {
-			return fmt.Errorf("failed to remove %s: %w", avatarPath, err)
+	if !db.InTransaction(ctx) {
+		if err := repo_service.RunResourceCleanup(ctx, cleanup.ID); err != nil {
+			log.Error("群组数据库已删除，存储清理任务 %d 等待恢复：%v", cleanup.ID, err)
 		}
 	}
 

@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	packages_module "gitea.dev/modules/packages"
 	debian_module "gitea.dev/modules/packages/debian"
@@ -251,7 +251,7 @@ func DeletePackageFile(ctx *context.Context) {
 
 	var pd *packages_model.PackageDescriptor
 
-	err := db.WithTx(ctx, func(ctx stdctx.Context) error {
+	err := governance_model.WithWrite(ctx, nil, func(ctx stdctx.Context) error {
 		pv, err := packages_model.GetVersionByNameAndVersion(ctx, owner.ID, packages_model.TypeDebian, name, version)
 		if err != nil {
 			return err

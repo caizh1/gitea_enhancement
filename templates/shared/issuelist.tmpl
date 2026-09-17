@@ -40,7 +40,7 @@
 				<div class="item-body tw-gap-2">
 					<a class="index flex-text-inline" href="{{if .Link}}{{.Link}}{{else}}{{$.Link}}/{{.Index}}{{end}}">
 						{{if eq $.listType "dashboard"}}
-							{{.Repo.FullName}}#{{.Index}}
+							{{.Repo.FullPath}}#{{.Index}}
 						{{else}}
 							#{{.Index}}
 						{{end}}

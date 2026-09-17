@@ -397,6 +397,31 @@ func TestAddReviewRequest(t *testing.T) {
 	assert.NotNil(t, comment)
 	assert.NotNil(t, comment.CommentMetaData)
 	assert.Equal(t, issues_model.SpecialDoerNameCodeOwners, comment.CommentMetaData.SpecialDoerName)
+
+	governanceReviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 8})
+	governanceComment, err := issues_model.AddGovernanceReviewRequest(t.Context(), issue2, governanceReviewer, doer)
+	assert.NoError(t, err)
+	assert.Equal(t, issues_model.SpecialDoerNameGovernanceApprovals, governanceComment.CommentMetaData.SpecialDoerName)
+	assert.False(t, governanceComment.Review.Official)
+	duplicate, err := issues_model.AddGovernanceReviewRequest(t.Context(), issue2, governanceReviewer, doer)
+	assert.NoError(t, err)
+	assert.Nil(t, duplicate)
+
+	manualComment, err := issues_model.AddReviewRequest(t.Context(), issue2, governanceReviewer, doer, false)
+	assert.NoError(t, err)
+	assert.NotNil(t, manualComment)
+	assert.NotEqual(t, governanceComment.ReviewID, manualComment.ReviewID)
+	assert.True(t, manualComment.CommentMetaData == nil || manualComment.CommentMetaData.SpecialDoerName == "")
+
+	approvedReviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 9})
+	approved, err := issues_model.CreateReview(t.Context(), issues_model.CreateReviewOptions{Issue: issue2, Reviewer: approvedReviewer, Type: issues_model.ReviewTypeApprove})
+	assert.NoError(t, err)
+	governanceComment, err = issues_model.AddGovernanceReviewRequest(t.Context(), issue2, approvedReviewer, doer)
+	assert.NoError(t, err)
+	assert.Nil(t, governanceComment)
+	current, err := issues_model.GetReviewByID(t.Context(), approved.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, issues_model.ReviewTypeApprove, current.Type)
 }
 
 func TestRecalculateReviewsOfficial(t *testing.T) {

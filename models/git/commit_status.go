@@ -15,6 +15,7 @@ import (
 
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/commitstatus"
@@ -496,7 +497,8 @@ func NewCommitStatus(ctx context.Context, opts NewCommitStatusOptions) error {
 		return fmt.Errorf("NewCommitStatus[%s, %s]: no user specified", opts.Repo.FullName(), opts.SHA)
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		// CI 状态按最终授权点排序；授权后的新状态不撤销已取得的授权。
 		// Get the next Status Index
 		idx, err := GetNextCommitStatusIndex(ctx, opts.Repo.ID, opts.SHA.String())
 		if err != nil {

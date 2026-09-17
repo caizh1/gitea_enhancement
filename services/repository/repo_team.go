@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -24,7 +25,7 @@ func TeamAddRepository(ctx context.Context, t *organization.Team, repo *repo_mod
 		return nil
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
 		return addRepositoryToTeam(ctx, t, repo)
 	})
 }
@@ -62,7 +63,7 @@ func addRepositoryToTeam(ctx context.Context, t *organization.Team, repo *repo_m
 // AddAllRepositoriesToTeam adds all repositories to the team.
 // If the team already has some repositories they will be left unchanged.
 func AddAllRepositoriesToTeam(ctx context.Context, t *organization.Team) error {
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
 		orgRepos, err := repo_model.GetOrgRepositories(ctx, t.OrgID)
 		if err != nil {
 			return fmt.Errorf("get org repos: %w", err)
@@ -86,7 +87,7 @@ func RemoveAllRepositoriesFromTeam(ctx context.Context, t *organization.Team) (e
 		return nil
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
 		return removeAllRepositoriesFromTeam(ctx, t)
 	})
 }
@@ -159,7 +160,7 @@ func RemoveRepositoryFromTeam(ctx context.Context, t *organization.Team, repoID 
 		return err
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
 		return removeRepositoryFromTeam(ctx, t, repo, true)
 	})
 }

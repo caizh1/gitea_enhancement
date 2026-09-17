@@ -283,7 +283,15 @@ func applyConditions(sess db.Session, opts *IssuesOptions) {
 	}
 
 	if opts.Doer != nil && !opts.Doer.IsAdmin {
-		sess.And(issuePullAccessibleRepoCond("issue.repo_id", opts.Doer.ID, opts.Owner, opts.Team, opts.IsPull.Value()))
+		condition := issuePullAccessibleRepoCond("issue.repo_id", opts.Doer.ID, opts.Owner, opts.Team, opts.IsPull.Value())
+		if opts.Doer.IsAuditor {
+			auditor := builder.Exists(builder.Select("id").From("`user`").Where(user_model.AuditorCondition(opts.Doer.ID)))
+			if opts.Team != nil {
+				auditor = auditor.And(builder.In("issue.repo_id", builder.Select("repo_id").From("team_repo").Where(builder.Eq{"team_id": opts.Team.ID})))
+			}
+			condition = condition.Or(auditor)
+		}
+		sess.And(condition)
 	}
 }
 

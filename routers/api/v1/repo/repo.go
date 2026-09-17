@@ -15,6 +15,7 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -37,6 +38,7 @@ import (
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	feed_service "gitea.dev/services/feed"
+	governance_service "gitea.dev/services/governance"
 	"gitea.dev/services/issue"
 	"gitea.dev/services/migrations"
 	mirror_service "gitea.dev/services/mirror"
@@ -228,6 +230,10 @@ func Search(ctx *context.APIContext) {
 
 // CreateUserRepo create a repository for a user
 func CreateUserRepo(ctx *context.APIContext, owner *user_model.User, opt api.CreateRepoOption) {
+	if opt.Private && opt.Internal {
+		ctx.APIError(http.StatusUnprocessableEntity, "repository cannot be both private and internal")
+		return
+	}
 	if opt.AutoInit && opt.Readme == "" {
 		opt.Readme = "Default"
 	}
@@ -246,6 +252,7 @@ func CreateUserRepo(ctx *context.APIContext, owner *user_model.User, opt api.Cre
 		License:          opt.License,
 		Readme:           opt.Readme,
 		IsPrivate:        opt.Private || setting.Repository.ForcePrivate,
+		IsInternal:       opt.Internal && !opt.Private && !setting.Repository.ForcePrivate,
 		AutoInit:         opt.AutoInit,
 		DefaultBranch:    opt.DefaultBranch,
 		TrustModel:       repo_model.ToTrustModel(opt.TrustModel),
@@ -605,6 +612,10 @@ func Edit(ctx *context.APIContext) {
 	//     "$ref": "#/responses/validationError"
 
 	opts := *web.GetForm(ctx).(*api.EditRepoOption)
+	if !ctx.IsUserRepoAdmin() && (opts.Archived != nil || opts.MirrorInterval != nil || opts.EnablePrune != nil || opts.MirrorUsername != nil || opts.MirrorPassword != nil || opts.MirrorToken != nil) {
+		ctx.APIError(http.StatusForbidden, "ManageProject does not grant archive or mirror credential management")
+		return
+	}
 
 	if err := updateBasicProperties(ctx, opts); err != nil {
 		return
@@ -678,25 +689,44 @@ func updateBasicProperties(ctx *context.APIContext, opts api.EditRepoOption) err
 	}
 
 	visibilityChanged := false
-	if opts.Private != nil {
+	if opts.Private != nil || opts.Internal != nil {
+		if opts.Private != nil && opts.Internal != nil && *opts.Private && *opts.Internal {
+			err := errors.New("repository cannot be both private and internal")
+			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+			return err
+		}
+		visibility := repo.EffectiveVisibility()
+		if opts.Internal != nil && *opts.Internal {
+			visibility = repo_model.VisibilityInternal
+		} else if opts.Private != nil {
+			visibility = util.Iif(*opts.Private, repo_model.VisibilityPrivate, repo_model.VisibilityPublic)
+		} else if opts.Internal != nil && !*opts.Internal && visibility == repo_model.VisibilityInternal {
+			visibility = repo_model.VisibilityPublic
+		}
 		// Visibility of forked repository is forced sync with base repository.
 		if repo.IsFork {
 			if err := repo.GetBaseRepo(ctx); err != nil {
 				ctx.APIErrorInternal(err)
 				return err
 			}
-			*opts.Private = repo.BaseRepo.IsPrivate
+			visibility = repo.BaseRepo.EffectiveVisibility()
 		}
 
-		visibilityChanged = repo.IsPrivate != *opts.Private
+		visibilityChanged = repo.EffectiveVisibility() != visibility
 		// when ForcePrivate enabled, you could change public repo to private, but only admin users can change private to public
-		if visibilityChanged && setting.Repository.ForcePrivate && !*opts.Private && !ctx.Doer.IsAdmin {
+		if visibilityChanged && setting.Repository.ForcePrivate && visibility != repo_model.VisibilityPrivate && !ctx.Doer.IsAdmin {
 			err := errors.New("cannot change private repository to public")
 			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 			return err
 		}
 
-		repo.IsPrivate = *opts.Private
+		if repo.Owner.IsOrganization() {
+			if namespace, loadErr := governance_model.GetNamespace(ctx, repo.OwnerID); loadErr == nil && namespace.Visibility > visibility {
+				visibility = namespace.Visibility
+			}
+		}
+		repo.Visibility = visibility
+		repo.IsPrivate = visibility != repo_model.VisibilityPublic
 	}
 
 	if opts.Template != nil {
@@ -992,7 +1022,7 @@ func updateRepoArchivedState(ctx *context.APIContext, opts api.EditRepoOption) e
 			return err
 		}
 		if *opts.Archived {
-			if err := repo_model.SetArchiveRepoState(ctx, repo, *opts.Archived); err != nil {
+			if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), repo, *opts.Archived); err != nil {
 				log.Error("Tried to archive a repo: %s", err)
 				ctx.APIErrorInternal(err)
 				return err
@@ -1002,7 +1032,7 @@ func updateRepoArchivedState(ctx *context.APIContext, opts api.EditRepoOption) e
 			}
 			log.Trace("Repository was archived: %s/%s", ctx.Repo.Owner.Name, repo.Name)
 		} else {
-			if err := repo_model.SetArchiveRepoState(ctx, repo, *opts.Archived); err != nil {
+			if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), repo, *opts.Archived); err != nil {
 				log.Error("Tried to un-archive a repo: %s", err)
 				ctx.APIErrorInternal(err)
 				return err
@@ -1117,7 +1147,7 @@ func updateMirror(ctx *context.APIContext, opts api.EditRepoOption) error {
 	}
 
 	// finally update the mirror in the DB
-	if err := repo_model.UpdateMirror(ctx, mirror); err != nil {
+	if err := mirror_service.UpdatePullMirrorConfiguration(ctx, mirror); err != nil {
 		log.Error("Failed to Set Mirror Interval: %s", err)
 		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 		return err
@@ -1130,7 +1160,7 @@ func updateMirror(ctx *context.APIContext, opts api.EditRepoOption) error {
 func Delete(ctx *context.APIContext) {
 	// swagger:operation DELETE /repos/{owner}/{repo} repository repoDelete
 	// ---
-	// summary: Delete a repository
+	// summary: 将仓库加入可恢复删除计划
 	// produces:
 	// - application/json
 	// parameters:
@@ -1168,12 +1198,17 @@ func Delete(ctx *context.APIContext) {
 		ctx.Repo.GitRepo.Close()
 	}
 
-	if err := repo_service.DeleteRepository(ctx, ctx.Doer, repo, true); err != nil {
+	if _, err := repo_service.ScheduleRepositoryDeletion(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), repo.ID, repo_service.DeletionOption{ConfirmationPath: repo.FullPath()}); err != nil {
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, "项目状态已改变，请重新查看删除计划。")
+			return
+		}
 		ctx.APIErrorInternal(err)
 		return
 	}
 
-	log.Trace("Repository deleted: %s/%s", owner.Name, repo.Name)
+	ctx.Resp.Header().Set("X-Gitea-Deletion-State", "scheduled")
+	log.Trace("Repository scheduled for deletion: %s/%s", owner.Name, repo.Name)
 	ctx.Status(http.StatusNoContent)
 }
 

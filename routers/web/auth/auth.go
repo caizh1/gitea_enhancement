@@ -15,6 +15,7 @@ import (
 
 	"gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/auth/password"
 	"gitea.dev/modules/eventsource"
@@ -33,6 +34,7 @@ import (
 	"gitea.dev/services/context"
 	"gitea.dev/services/externalaccount"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	"gitea.dev/services/mailer"
 	user_service "gitea.dev/services/user"
 
@@ -76,8 +78,15 @@ func prepareCommonAuthPageData(ctx *context.Context, opt CommonAuthOptions) {
 // autoSignIn reads cookie and try to auto-login.
 func autoSignIn(ctx *context.Context) (bool, error) {
 	isSucceed := false
+	var auditActor *governance_model.Actor
 	defer func() {
 		if !isSucceed {
+			if auditActor != nil {
+				HandleSignOut(ctx)
+				if err := governance_service.RecordLogin(ctx, *auditActor, "failure", "remember_cookie", ""); err != nil {
+					log.Error("自动登录结果审计失败，保留待核对授权：%v", err)
+				}
+			}
 			ctx.DeleteSiteCookie(setting.CookieRememberName)
 		}
 	}()
@@ -110,14 +119,16 @@ func autoSignIn(ctx *context.Context) (bool, error) {
 		return false, fmt.Errorf("HasTwoFactorOrWebAuthn: %w", err)
 	}
 
-	isSucceed = true
+	actor := governance_service.RequestActor(u, ctx.RemoteAddr(), "web")
+	if err := governance_service.RecordLogin(ctx, actor, "pending", "remember_cookie", ""); err != nil {
+		return false, err
+	}
+	auditActor = &actor
 
 	nt, token, err := auth_service.RegenerateAuthToken(ctx, t)
 	if err != nil {
 		return false, err
 	}
-
-	ctx.SetSiteCookie(setting.CookieRememberName, nt.ID+":"+token, setting.LogInRememberDays*timeutil.Day)
 
 	if err := regenerateSession(ctx, nil, map[string]any{
 		session.KeyUID:                  u.ID,
@@ -131,6 +142,11 @@ func autoSignIn(ctx *context.Context) (bool, error) {
 		return false, err
 	}
 
+	if err := governance_service.RecordLogin(ctx, actor, "success", "remember_cookie", ""); err != nil {
+		return false, err
+	}
+	ctx.SetSiteCookie(setting.CookieRememberName, nt.ID+":"+token, setting.LogInRememberDays*timeutil.Day)
+	isSucceed = true
 	return true, nil
 }
 
@@ -305,6 +321,11 @@ func SignInPost(ctx *context.Context) {
 
 	u, source, err := auth_service.UserSignIn(ctx, form.UserName, form.Password)
 	if err != nil {
+		if auditErr := governance_service.RecordFailedLogin(ctx, 0, form.UserName, ctx.RemoteAddr(), "password"); auditErr != nil {
+			ctx.ServerError("RecordLogin", auditErr)
+			return
+		}
+
 		if errors.Is(err, util.ErrNotExist) || errors.Is(err, util.ErrInvalidArgument) {
 			ctx.RenderWithErrDeprecated(ctx.Tr("form.username_password_incorrect"), tplSignIn, &form)
 			log.Warn("Failed authentication attempt for %s from %s: %v", form.UserName, ctx.RemoteAddr(), err)
@@ -372,19 +393,39 @@ func handleSignIn(ctx *context.Context, u *user_model.User, remember bool) {
 }
 
 func handleSignInFull(ctx *context.Context, u *user_model.User, remember bool) {
+	actor := governance_service.RequestActor(u, ctx.RemoteAddr(), "web")
+	if err := governance_service.RecordLogin(ctx, actor, "pending", "interactive", ""); err != nil {
+		ctx.ServerError("RecordLogin", err)
+		return
+	}
+	fail := func(title string, err error) {
+		HandleSignOut(ctx)
+		ctx.ServerError(title, err)
+	}
+	var rememberCookieValue string
+	completed := false
+	defer func() {
+		if !completed {
+			HandleSignOut(ctx)
+			if err := governance_service.RecordLogin(ctx, actor, "failure", "interactive", ""); err != nil {
+				log.Error("登录结果审计失败，保留待核对授权：%v", err)
+			}
+		}
+	}()
+
 	if remember {
 		nt, token, err := auth_service.CreateAuthTokenForUserID(ctx, u.ID)
 		if err != nil {
-			ctx.ServerError("CreateAuthTokenForUserID", err)
+			fail("CreateAuthTokenForUserID", err)
 			return
 		}
 
-		ctx.SetSiteCookie(setting.CookieRememberName, nt.ID+":"+token, setting.LogInRememberDays*timeutil.Day)
+		rememberCookieValue = nt.ID + ":" + token
 	}
 
 	userHasTwoFactorAuth, err := auth.HasTwoFactorOrWebAuthn(ctx, u.ID)
 	if err != nil {
-		ctx.ServerError("HasTwoFactorOrWebAuthn", err)
+		fail("HasTwoFactorOrWebAuthn", err)
 		return
 	}
 
@@ -404,7 +445,7 @@ func handleSignInFull(ctx *context.Context, u *user_model.User, remember bool) {
 		session.KeyUname:                u.Name,
 		session.KeyUserHasTwoFactorAuth: userHasTwoFactorAuth,
 	}); err != nil {
-		ctx.ServerError("RegenerateSession", err)
+		fail("RegenerateSession", err)
 		return
 	}
 
@@ -415,7 +456,7 @@ func handleSignInFull(ctx *context.Context, u *user_model.User, remember bool) {
 			Language: optional.Some(ctx.Locale.Language()),
 		}
 		if err := user_service.UpdateUser(ctx, u, opts); err != nil {
-			ctx.ServerError("UpdateUser Language", fmt.Errorf("Error updating user language [user: %d, locale: %s]", u.ID, ctx.Locale.Language()))
+			fail("UpdateUser Language", fmt.Errorf("Error updating user language [user: %d, locale: %s]", u.ID, ctx.Locale.Language()))
 			return
 		}
 	}
@@ -428,9 +469,17 @@ func handleSignInFull(ctx *context.Context, u *user_model.User, remember bool) {
 
 	// Register last login
 	if err := user_service.UpdateUser(ctx, u, &user_service.UpdateOptions{SetLastLogin: true}); err != nil {
-		ctx.ServerError("UpdateUser", err)
+		fail("UpdateUser", err)
 		return
 	}
+	if err := governance_service.RecordLogin(ctx, actor, "success", "interactive", ""); err != nil {
+		fail("RecordLogin", err)
+		return
+	}
+	if rememberCookieValue != "" {
+		ctx.SetSiteCookie(setting.CookieRememberName, rememberCookieValue, setting.LogInRememberDays*timeutil.Day)
+	}
+	completed = true
 }
 
 // extractUserNameFromOAuth2 tries to extract a normalized username from the given OAuth2 user.

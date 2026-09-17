@@ -1,6 +1,9 @@
 <div class="flex-container-nav">
 	<div class="ui fluid vertical menu">
+ <a class="{{if .PageIsAdminApprovals}}active {{end}}item" href="{{AppSubUrl}}/-/admin/approvals">合并请求审批</a>
 		<div class="header item">{{ctx.Locale.Tr "admin.settings"}}</div>
+		<a class="item" href="{{AppSubUrl}}/governance/audit?scope_type=instance">操作审计</a>
+		<a class="item" href="{{AppSubUrl}}/governance/groups">多层级群组</a>
 
 		<details class="item" {{if or .PageIsAdminDashboard .PageIsAdminSelfCheck}}open{{end}}>
 			<summary>{{ctx.Locale.Tr "admin.maintenance"}}</summary>

@@ -25,9 +25,9 @@
 								{{.SignedUser.ShortName 40}}
 							</div>
 							{{range .Orgs}}
-								<div class="item" data-value="{{.ID}}" title="{{.Name}}">
+								<div class="item" data-value="{{.ID}}" title="{{.FullPath}}">
 									{{ctx.AvatarUtils.Avatar . 28 "mini"}}
-									{{.ShortName 40}}
+									{{.FullPath}}
 								</div>
 							{{end}}
 						</div>
@@ -45,13 +45,11 @@
 
 				<div class="inline field">
 					<label>{{ctx.Locale.Tr "repo.visibility"}}</label>
-					<div class="ui checkbox">
+					<div>
 						{{if .IsForcedPrivate}}
-							<input name="private" type="checkbox" checked disabled>
-							<label>{{ctx.Locale.Tr "repo.visibility_helper_forced"}}</label>
+							<input name="visibility" type="hidden" value="2"><span>{{ctx.Locale.Tr "repo.visibility_helper_forced"}}</span>
 						{{else}}
-							<input name="private" type="checkbox" {{if .private}}checked{{end}}>
-							<label>{{ctx.Locale.Tr "repo.visibility_helper"}}</label>
+							<select name="visibility" class="ui dropdown"><option value="0" {{if eq .visibility 0}}selected{{end}}>公开</option><option value="1" {{if eq .visibility 1}}selected{{end}}>内部（仅登录用户）</option><option value="2" {{if eq .visibility 2}}selected{{end}}>私有</option></select>
 						{{end}}
 					</div>
 					<span class="help">{{ctx.Locale.Tr "repo.visibility_description"}}</span>

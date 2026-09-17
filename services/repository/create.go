@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -47,6 +48,7 @@ type CreateRepoOptions struct {
 	Readme           string
 	DefaultBranch    string
 	IsPrivate        bool
+	IsInternal       bool
 	IsMirror         bool
 	IsTemplate       bool
 	AutoInit         bool
@@ -229,6 +231,18 @@ func CreateRepositoryDirectly(ctx context.Context, doer, owner *user_model.User,
 		return nil, fmt.Errorf("unsupported object format: %s", opts.ObjectFormatName)
 	}
 
+	visibility := repo_model.VisibilityPublic
+	if opts.IsInternal {
+		visibility = repo_model.VisibilityInternal
+	}
+	if opts.IsPrivate {
+		visibility = repo_model.VisibilityPrivate
+	}
+	if owner.IsOrganization() {
+		if namespace, err := governance_model.GetNamespace(ctx, owner.ID); err == nil && namespace.Visibility > visibility {
+			visibility = namespace.Visibility
+		}
+	}
 	repo := &repo_model.Repository{
 		OwnerID:                         owner.ID,
 		Owner:                           owner,
@@ -239,7 +253,8 @@ func CreateRepositoryDirectly(ctx context.Context, doer, owner *user_model.User,
 		Website:                         opts.Website,
 		OriginalURL:                     opts.OriginalURL,
 		OriginalServiceType:             opts.GitServiceType,
-		IsPrivate:                       opts.IsPrivate,
+		Visibility:                      visibility,
+		IsPrivate:                       visibility != repo_model.VisibilityPublic,
 		IsFsckEnabled:                   !opts.IsMirror,
 		IsTemplate:                      opts.IsTemplate,
 		CloseIssuesViaCommitInAnyBranch: setting.Repository.DefaultCloseIssuesViaCommitsInAnyBranch,
@@ -251,6 +266,11 @@ func CreateRepositoryDirectly(ctx context.Context, doer, owner *user_model.User,
 		DefaultWikiBranch:               setting.Repository.DefaultBranch,
 		ObjectFormatName:                opts.ObjectFormatName,
 	}
+	origin := "created"
+	if !needsUpdateToReady {
+		origin = "import"
+	}
+	ctx = withRepositoryCreation(ctx, origin, nil)
 
 	// 1 - create the repository database operations first
 	err := db.WithTx(ctx, func(ctx context.Context) error {
@@ -273,6 +293,8 @@ func CreateRepositoryDirectly(ctx context.Context, doer, owner *user_model.User,
 	if opts.IsMirror {
 		return repo, nil
 	}
+	stopCreationHeartbeat := startRepositoryCreationHeartbeat(repo.ID)
+	defer stopCreationHeartbeat()
 
 	// 2 - check whether the repository with the same storage exists
 	var isExist bool
@@ -324,11 +346,25 @@ func CreateRepositoryDirectly(ctx context.Context, doer, owner *user_model.User,
 		}
 	}
 
+	// 初始 Git 内容完成后再安装，避免初始化写入被当作在线治理操作。
+	if err = gitrepo.InstallReferenceTransactionHook(ctx, repo); err != nil {
+		return nil, fmt.Errorf("安装原生引用事务入口：%w", err)
+	}
+	if err = markRepositoryCreationStorageComplete(ctx, repo.ID); err != nil {
+		return nil, err
+	}
+
 	// 7 - update repository status to be ready
 	if needsUpdateToReady {
-		repo.Status = repo_model.RepositoryReady
-		if err = repo_model.UpdateRepositoryColsWithAutoTime(ctx, repo, "status"); err != nil {
-			return nil, fmt.Errorf("UpdateRepositoryCols: %w", err)
+		err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+			repo.Status = repo_model.RepositoryReady
+			if err := repo_model.UpdateRepositoryColsWithAutoTime(ctx, repo, "status"); err != nil {
+				return fmt.Errorf("UpdateRepositoryCols: %w", err)
+			}
+			return completeRepositoryCreation(ctx, repo)
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -352,6 +388,16 @@ func createRepositoryInDB(ctx context.Context, doer, u *user_model.User, repo *r
 	}
 
 	if err = db.Insert(ctx, repo); err != nil {
+		return err
+	}
+	repo.OwnerNamespace, err = governance_model.RegisterNativeRepository(ctx, repo.ID, u.ID, repo.Name)
+	if err != nil {
+		return err
+	}
+	if _, err = db.GetEngine(ctx).ID(repo.ID).NoAutoTime().Cols("owner_namespace").Update(repo); err != nil {
+		return err
+	}
+	if err = prepareRepositoryCreation(ctx, repo); err != nil {
 		return err
 	}
 	if err = repo_model.DeleteRedirect(ctx, u.ID, repo.Name); err != nil {

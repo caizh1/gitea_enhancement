@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -17,6 +18,12 @@ import (
 
 // RemoveOrgUser removes user from given organization.
 func RemoveOrgUser(ctx context.Context, org *organization.Organization, user *user_model.User) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", org.ID), governance_model.Resource("user", user.ID)}, func(ctx context.Context) error {
+		return removeOrgUser(ctx, org, user)
+	})
+}
+
+func removeOrgUser(ctx context.Context, org *organization.Organization, user *user_model.User) error {
 	ou := new(organization.OrgUser)
 
 	has, err := db.GetEngine(ctx).

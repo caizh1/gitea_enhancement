@@ -1,6 +1,9 @@
 <div class="flex-container-nav">
 	<div class="ui fluid vertical menu">
+ <a class="{{if .PageIsSettingsApprovals}}active {{end}}item" href="{{.OrgLink}}/settings/approvals">合并请求审批</a>
 		<div class="header item">{{ctx.Locale.Tr "org.settings"}}</div>
+		<a class="item" href="{{AppSubUrl}}/governance/audit?scope_type=group&amp;scope_id={{.Org.ID}}">操作审计</a>
+		<a class="item" href="{{AppSubUrl}}/governance/groups/{{.Org.ID}}">群组与权限继承</a>
 		<a class="{{if .PageIsSettingsOptions}}active {{end}}item" href="{{.OrgLink}}/settings">
 			{{ctx.Locale.Tr "org.settings.options"}}
 		</a>

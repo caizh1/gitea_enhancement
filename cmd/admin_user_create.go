@@ -11,6 +11,7 @@ import (
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	pwd "gitea.dev/modules/auth/password"
 	"gitea.dev/modules/optional"
@@ -233,7 +234,7 @@ func runCreateUser(ctx context.Context, c *cli.Command) error {
 	// create the access token
 	if accessTokenScope != "" {
 		t := &auth_model.AccessToken{Name: accessTokenName, UID: u.ID, Scope: accessTokenScope}
-		if err := auth_model.NewAccessToken(ctx, t); err != nil {
+		if err := auth_model.NewAccessToken(governance_model.WithAuditActor(ctx, governance_model.Actor{Kind: "system", Name: "Gitea 管理命令", Transport: "cli"}), t); err != nil {
 			return err
 		}
 		fmt.Printf("Access token was successfully created... %s\n", t.Token)

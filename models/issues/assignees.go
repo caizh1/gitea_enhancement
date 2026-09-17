@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/util"
 
@@ -91,14 +92,40 @@ func GetAssignedIssues(ctx context.Context, opts *AssignedIssuesOptions) ([]*Iss
 
 // ToggleIssueAssignee changes a user between assigned and not assigned for this issue, and make issue comment for it.
 func ToggleIssueAssignee(ctx context.Context, issue *Issue, doer *user_model.User, assigneeID int64) (removed bool, comment *Comment, err error) {
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
-		removed, comment, err = toggleIssueAssignee(ctx, issue, doer, assigneeID, false)
-		return err
-	}); err != nil {
+	err = governance_model.WithWrite(ctx, contentAuditResources(issue), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			before, err := issueAssigneeIDs(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			removed, comment, err = toggleIssueAssignee(ctx, issue, doer, assigneeID, false)
+			if err != nil {
+				return err
+			}
+			after, err := issueAssigneeIDs(ctx, issue.ID)
+			if err != nil {
+				return err
+			}
+			return AppendIssueUpdatedAudit(ctx, issue, map[string]any{"before": map[string]any{"assignee_ids": before}, "after": map[string]any{"assignee_ids": after}})
+		})
+	})
+	if err != nil {
 		return false, nil, err
 	}
 
 	return removed, comment, nil
+}
+
+func issueAssigneeIDs(ctx context.Context, issueID int64) ([]int64, error) {
+	var rows []IssueAssignees
+	if err := db.GetEngine(ctx).Where("issue_id = ?", issueID).Asc("assignee_id").Find(&rows); err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.AssigneeID)
+	}
+	return ids, nil
 }
 
 func toggleIssueAssignee(ctx context.Context, issue *Issue, doer *user_model.User, assigneeID int64, isCreate bool) (removed bool, comment *Comment, err error) {

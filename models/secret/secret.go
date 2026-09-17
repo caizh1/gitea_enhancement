@@ -10,6 +10,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	actions_module "gitea.dev/modules/actions"
 	"gitea.dev/modules/actions/jobparser"
 	"gitea.dev/modules/json"
@@ -93,7 +94,15 @@ func InsertEncryptedSecret(ctx context.Context, ownerID, repoID int64, name, dat
 		Data:        encrypted,
 		Description: description,
 	}
-	return secret, db.Insert(ctx, secret)
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if err := db.Insert(ctx, secret); err != nil {
+			return err
+		}
+		return actions_model.AppendConfigurationAudit(ctx, secret.OwnerID, secret.RepoID, "actions.secret_created", "actions_secret", secret.ID, secret.Name, map[string]any{"name": secret.Name, "value_configured": secret.Data != "", "description_configured": secret.Description != ""})
+	}); err != nil {
+		return nil, err
+	}
+	return secret, nil
 }
 
 func init() {
@@ -142,15 +151,32 @@ func UpdateSecret(ctx context.Context, secretID int64, data, description string)
 		return err
 	}
 
-	s := &Secret{
-		Data:        encrypted,
-		Description: description,
-	}
-	affected, err := db.GetEngine(ctx).ID(secretID).Cols("data", "description").Update(s)
-	if affected != 1 {
-		return ErrSecretNotFound{}
-	}
-	return err
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		s, has, err := db.GetByID[Secret](ctx, secretID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return ErrSecretNotFound{}
+		}
+		beforeData, beforeDescription := s.Data, s.Description
+		s.Data, s.Description = encrypted, description
+		affected, err := db.GetEngine(ctx).ID(secretID).Cols("data", "description").Update(s)
+		if err != nil {
+			return err
+		}
+		if affected != 1 {
+			return ErrSecretNotFound{}
+		}
+		changed := make([]string, 0, 2)
+		if beforeData != s.Data {
+			changed = append(changed, "value")
+		}
+		if beforeDescription != s.Description {
+			changed = append(changed, "description")
+		}
+		return actions_model.AppendConfigurationAudit(ctx, s.OwnerID, s.RepoID, "actions.secret_updated", "actions_secret", s.ID, s.Name, map[string]any{"name": s.Name, "changed_fields": changed, "value_configured": s.Data != "", "description_configured": s.Description != ""})
+	})
 }
 
 func GetSecretsOfTask(ctx context.Context, task *actions_model.ActionTask) (map[string]string, error) {

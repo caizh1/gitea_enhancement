@@ -1,0 +1,18 @@
+{{template "base/head" .}}
+<div role="main" class="page-content"><div class="ui container">
+ <h2 class="ui dividing header">项目共享 · {{.State.FullPath}}</h2>
+ {{template "base/alert" .}}
+ <p>共享到群组后，其直接成员、继承成员及符合条件的共享成员可访问本项目。最终权限受下方角色上限和成员自身角色共同限制。</p>
+ <div class="flex-list">{{range .State.Shares}}
+  <div class="flex-item tw-flex-wrap"><div class="flex-item-main tw-min-w-0"><strong>{{index $.GroupNames .GroupID}}</strong><div>最高角色：{{index $.RoleNames .MaxRole}} · {{if .ExpiresUnix}}有效至 {{DateUtils.FullTime .ExpiresUnix}}{{else}}永久{{end}}</div></div>
+   <form method="post">{{$.CsrfTokenHtml}}<input type="hidden" name="group_id" value="{{.GroupID}}"><input type="hidden" name="revision" value="{{$.State.Revision}}"><button class="ui red basic button" name="action" value="remove">撤销此共享</button></form>
+  </div>{{else}}<p>暂无项目共享。</p>{{end}}</div>
+ {{if .NextID}}<a class="ui button" href="?after_id={{.NextID}}">下一页共享</a>{{end}}
+ <h3 class="ui dividing header">新增或修改共享</h3>
+ <form class="ui form" method="post">{{.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.State.Revision}}">
+  <div class="field"><label for="share-path">群组完整路径</label><input id="share-path" name="group_path" placeholder="acme/rd" maxlength="2048" required><p>你需要拥有项目 Owner 权限，并且是被邀请群组的成员。</p></div>
+  <div class="two fields"><div class="field"><label for="share-role">最高角色</label><select id="share-role" name="role" class="ui dropdown">{{range $id,$name := .RoleNames}}<option value="{{$id}}" {{if eq $id 20}}selected{{end}}>{{$name}}</option>{{end}}</select></div><div class="field"><label for="share-expiry">有效至（UTC 日期，留空为永久）</label><input id="share-expiry" type="date" name="expires"></div></div>
+  <button class="ui primary button" type="submit">保存共享</button>
+ </form>
+</div></div>
+{{template "base/footer" .}}

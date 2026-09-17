@@ -10,6 +10,7 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	archiver_service "gitea.dev/services/repository/archiver"
 )
 
@@ -25,6 +26,17 @@ func serveRepoArchive(ctx *context.APIContext, reqFileName string, paths []strin
 		}
 		return
 	}
+	if ctx.Doer != nil {
+		finish, err := governance_service.BeginRepositoryAccessAudit(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), ctx.Repo.Repository, "access.archive", map[string]any{"commit": aReq.CommitID, "format": aReq.Type.String(), "paths": aReq.Paths, "method": ctx.Req.Method})
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
+		if finish != nil {
+			defer func() { finish(ctx.WrittenStatus()) }()
+		}
+	}
+
 	err = archiver_service.ServeRepoArchive(ctx.Base, aReq)
 	if err != nil {
 		if errors.Is(err, util.ErrInvalidArgument) {

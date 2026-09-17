@@ -1,0 +1,58 @@
+.governance-navigation {
+  background: var(--color-body);
+  --color-primary: #3f8057;
+  --color-primary-hover: #356e4a;
+}
+
+.governance-navigation h1 {
+  font-size: 26px;
+}
+
+.governance-navigation .ui.secondary.pointing.menu {
+  gap: 8px;
+}
+
+.governance-navigation .ui.secondary.pointing.menu .active.item {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.governance-navigation .ui.segment {
+  padding: 24px;
+}
+
+.governance-navigation .table td {
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+
+.governance-navigation .table th {
+  padding: 14px 16px;
+}
+
+.governance-navigation select {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 5px;
+  color: var(--color-text);
+  background: var(--color-input-background);
+}
+
+.governance-navigation .ui.form > .field {
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .governance-navigation .ui.segment {
+    padding: 12px;
+  }
+
+  .governance-navigation .ui.secondary.pointing.menu {
+    gap: 0;
+  }
+
+  .governance-navigation .ui.secondary.pointing.menu .item {
+    padding: 12px;
+  }
+}

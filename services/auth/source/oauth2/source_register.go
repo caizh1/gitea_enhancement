@@ -5,7 +5,49 @@ package oauth2
 
 import (
 	"fmt"
+
+	"gitea.dev/models/auth"
+
+	"github.com/markbates/goth"
 )
+
+type preparedSourceChange struct {
+	provider goth.Provider
+	oldName  string
+	newName  string
+}
+
+func (change *preparedSourceChange) Commit(commit func() error) error {
+	gothRWMutex.Lock()
+	defer gothRWMutex.Unlock()
+	if err := commit(); err != nil {
+		return err
+	}
+	if change.oldName != "" {
+		delete(goth.GetProviders(), change.oldName)
+	}
+	if change.provider != nil {
+		goth.UseProviders(change.provider)
+	}
+	return nil
+}
+
+// PrepareSourceChange 在注册表锁外完成 OIDC 发现；Commit 中仅执行短事务和内存替换。
+func (source *Source) PrepareSourceChange(previous, next *auth.Source) (auth.PreparedSourceChange, error) {
+	change := &preparedSourceChange{}
+	if previous != nil && previous.IsActive {
+		change.oldName = previous.Name
+	}
+	if next == nil || !next.IsActive {
+		return change, nil
+	}
+	provider, err := createProvider(next.Name, source)
+	if err != nil {
+		return nil, wrapOpenIDConnectInitializeError(err, next.Name, source)
+	}
+	change.newName, change.provider = next.Name, provider
+	return change, nil
+}
 
 // RegisterSource causes an OAuth2 configuration to be registered
 func (source *Source) RegisterSource() error {

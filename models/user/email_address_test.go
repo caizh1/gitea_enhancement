@@ -73,18 +73,15 @@ func TestActivate(t *testing.T) {
 
 	email := &user_model.EmailAddress{
 		ID:    int64(1),
-		UID:   int64(1),
+		UID:   int64(11),
 		Email: "user11@example.com",
 	}
 	assert.NoError(t, user_model.ActivateEmail(t.Context(), email))
 
-	emails, _ := user_model.GetEmailAddresses(t.Context(), int64(1))
-	assert.Len(t, emails, 3)
+	emails, _ := user_model.GetEmailAddresses(t.Context(), int64(11))
+	assert.Len(t, emails, 1)
 	assert.True(t, emails[0].IsActivated)
 	assert.True(t, emails[0].IsPrimary)
-	assert.False(t, emails[1].IsPrimary)
-	assert.True(t, emails[2].IsActivated)
-	assert.False(t, emails[2].IsPrimary)
 }
 
 func TestListEmails(t *testing.T) {

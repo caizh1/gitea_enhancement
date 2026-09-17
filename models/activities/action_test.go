@@ -157,3 +157,13 @@ func TestDeleteIssueActions(t *testing.T) {
 	assert.NoError(t, activities_model.DeleteIssueActions(t.Context(), issue.RepoID, issue.ID, issue.Index))
 	unittest.AssertCount(t, &activities_model.Action{}, 0)
 }
+
+func TestActionUsesPublicNamespacePath(t *testing.T) {
+	repo := &repo_model.Repository{ID: 1, OwnerName: "g_internal", OwnerNamespace: "acme/rd/storage", Name: "firmware"}
+	action := &activities_model.Action{RepoID: 1, Repo: repo}
+	assert.Equal(t, "acme/rd/storage/firmware", action.GetRepoPath(t.Context()))
+	assert.Equal(t, "acme/rd/storage/firmware", action.ShortRepoPath(t.Context()))
+	assert.Equal(t, setting.AppSubURL+"/acme/rd/storage/firmware", action.GetRepoLink(t.Context()))
+	assert.Equal(t, setting.AppURL+"acme/rd/storage/firmware", action.GetRepoAbsoluteLink(t.Context()))
+	assert.Equal(t, "g_internal/firmware", repo.FullName(), "内部兼容标识保持不变")
+}

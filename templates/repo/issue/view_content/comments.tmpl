@@ -329,7 +329,7 @@
 								{{if eq .DependentIssue.RepoID .Issue.RepoID}}
 									#{{.DependentIssue.Index}} {{.DependentIssue.Title}}
 								{{else}}
-									{{.DependentIssue.Repo.FullName}}#{{.DependentIssue.Index}} - {{.DependentIssue.Title}}
+									{{.DependentIssue.Repo.FullPath}}#{{.DependentIssue.Index}} - {{.DependentIssue.Title}}
 								{{end}}
 							</a>
 						</span>
@@ -352,7 +352,7 @@
 								{{if eq .DependentIssue.RepoID .Issue.RepoID}}
 									#{{.DependentIssue.Index}} {{.DependentIssue.Title}}
 								{{else}}
-									{{.DependentIssue.Repo.FullName}}#{{.DependentIssue.Index}} - {{.DependentIssue.Title}}
+									{{.DependentIssue.Repo.FullPath}}#{{.DependentIssue.Index}} - {{.DependentIssue.Title}}
 								{{end}}
 							</a>
 						</span>

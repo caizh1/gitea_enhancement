@@ -74,6 +74,8 @@ func MigrateRepositoryGitData(ctx context.Context, u *user_model.User,
 	repo *repo_model.Repository, opts migration.MigrateOptions,
 	httpTransport *http.Transport,
 ) (*repo_model.Repository, error) {
+	stopCreationHeartbeat := startRepositoryCreationHeartbeat(repo.ID)
+	defer stopCreationHeartbeat()
 	if u.IsOrganization() {
 		t, err := organization.OrgFromUser(u).GetOwnerTeam(ctx)
 		if err != nil {
@@ -284,5 +286,12 @@ func CleanUpMigrateInfo(ctx context.Context, repo *repo_model.Repository) (*repo
 		}
 	}
 
-	return repo, UpdateRepository(ctx, repo, false)
+	if err := gitrepo.InstallReferenceTransactionHook(ctx, repo); err != nil {
+		return repo, fmt.Errorf("安装原生引用事务入口：%w", err)
+	}
+	if err := markRepositoryCreationStorageComplete(ctx, repo.ID); err != nil {
+		return repo, err
+	}
+
+	return repo, UpdateRepository(withRepositoryCreation(ctx, "import", nil), repo, false)
 }

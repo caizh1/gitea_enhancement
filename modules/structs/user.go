@@ -13,6 +13,8 @@ import (
 // User represents a user
 // swagger:model
 type User struct {
+	// 完整公开命名空间路径。
+	FullPath string `json:"full_path"`
 	// the user's id
 	ID int64 `json:"id"`
 	// login of the user, same as `username`
@@ -32,7 +34,8 @@ type User struct {
 	// User locale
 	Language string `json:"language"`
 	// Is the user an administrator
-	IsAdmin bool `json:"is_admin"`
+	IsAdmin   bool `json:"is_admin"`
+	IsAuditor bool `json:"is_auditor"`
 	// swagger:strfmt date-time
 	LastLogin time.Time `json:"last_login"`
 	// swagger:strfmt date-time

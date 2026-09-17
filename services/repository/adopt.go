@@ -15,9 +15,9 @@ import (
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
-	"gitea.dev/modules/container"
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/glob"
+	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
@@ -45,6 +45,16 @@ func AdoptRepository(ctx context.Context, doer, owner *user_model.User, opts Cre
 			Limit: owner.MaxRepoCreation,
 		}
 	}
+	releaser, err := globallock.Lock(ctx, "repo_storage_"+repo_model.RelativePath(owner.Name, opts.Name))
+	if err != nil {
+		return nil, err
+	}
+	defer releaser()
+	if occupied, err := repo_model.IsRepositoryStoragePathInUse(ctx, owner.Name, opts.Name); err != nil {
+		return nil, err
+	} else if occupied {
+		return nil, repo_model.ErrRepoAlreadyExist{Uname: owner.Name, Name: opts.Name}
+	}
 
 	repo := &repo_model.Repository{
 		OwnerID:                         owner.ID,
@@ -63,7 +73,7 @@ func AdoptRepository(ctx context.Context, doer, owner *user_model.User, opts Cre
 	}
 
 	// 1 - create the repository database operations first
-	err := db.WithTx(ctx, func(ctx context.Context) error {
+	err = db.WithTx(ctx, func(ctx context.Context) error {
 		return createRepositoryInDB(ctx, doer, owner, repo, false)
 	})
 	if err != nil {
@@ -213,6 +223,11 @@ func DeleteUnadoptedRepository(ctx context.Context, doer, u *user_model.User, re
 		return err
 	}
 
+	releaser, err := globallock.Lock(ctx, "repo_storage_"+repo_model.RelativePath(u.Name, repoName))
+	if err != nil {
+		return err
+	}
+	defer releaser()
 	relativePath := repo_model.RelativePath(u.Name, repoName)
 	exist, err := gitrepo.IsRepositoryExist(ctx, repo_model.StorageRepo(relativePath))
 	if err != nil {
@@ -226,7 +241,7 @@ func DeleteUnadoptedRepository(ctx context.Context, doer, u *user_model.User, re
 		}
 	}
 
-	if exist, err := repo_model.IsRepositoryModelExist(ctx, u, repoName); err != nil {
+	if exist, err := repo_model.IsRepositoryStoragePathInUse(ctx, u.Name, repoName); err != nil {
 		return err
 	} else if exist {
 		return repo_model.ErrRepoAlreadyExist{
@@ -255,34 +270,19 @@ func checkUnadoptedRepositories(ctx context.Context, userName string, repoNamesT
 	if len(repoNamesToCheck) == 0 {
 		return nil
 	}
-	ctxUser, err := user_model.GetUserByName(ctx, userName)
-	if err != nil {
+	if _, err := user_model.GetUserByName(ctx, userName); err != nil {
 		if user_model.IsErrUserNotExist(err) {
 			log.Debug("Missing user: %s", userName)
 			return nil
 		}
 		return err
 	}
-	repos, _, err := repo_model.GetUserRepositories(ctx, repo_model.SearchRepoOptions{
-		Actor:   ctxUser,
-		Private: true,
-		ListOptions: db.ListOptions{
-			Page:     1,
-			PageSize: len(repoNamesToCheck),
-		}, LowerNames: repoNamesToCheck,
-	})
-	if err != nil {
-		return err
-	}
-	if len(repos) == len(repoNamesToCheck) {
-		return nil
-	}
-	repoNames := make(container.Set[string], len(repos))
-	for _, repo := range repos {
-		repoNames.Add(repo.LowerName)
-	}
 	for _, repoName := range repoNamesToCheck {
-		if !repoNames.Contains(repoName) {
+		occupied, err := repo_model.IsRepositoryStoragePathInUse(ctx, userName, repoName)
+		if err != nil {
+			return err
+		}
+		if !occupied {
 			unadopted.add(path.Join(userName, repoName)) // These are not used as filepaths - but as reponames - therefore use path.Join not filepath.Join
 		}
 	}

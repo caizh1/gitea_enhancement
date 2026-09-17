@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -62,14 +64,23 @@ func init() {
 
 // NewAccessToken creates new access token.
 func NewAccessToken(ctx context.Context, t *AccessToken) error {
+	candidate := *t
 	salt := util.CryptoRandomString(10)
 	token := util.CryptoRandomBytes(20)
-	t.TokenSalt = salt
-	t.Token = hex.EncodeToString(token)
-	t.TokenHash = HashToken(t.Token, t.TokenSalt)
-	t.TokenLastEight = t.Token[len(t.Token)-8:]
-	_, err := db.GetEngine(ctx).Insert(t)
-	return err
+	candidate.TokenSalt = salt
+	candidate.Token = hex.EncodeToString(token)
+	candidate.TokenHash = HashToken(candidate.Token, candidate.TokenSalt)
+	candidate.TokenLastEight = candidate.Token[len(candidate.Token)-8:]
+	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if _, err := db.GetEngine(ctx).Insert(&candidate); err != nil {
+			return err
+		}
+		return appendAccessTokenAudit(ctx, &candidate, "credential.access_token_created")
+	}); err != nil {
+		return err
+	}
+	*t = candidate
+	return nil
 }
 
 // DisplayPublicOnly whether to display this as a public-only token.
@@ -172,11 +183,27 @@ func UpdateAccessToken(ctx context.Context, t *AccessToken) error {
 
 // DeleteAccessTokenByID deletes access token by given ID.
 func DeleteAccessTokenByID(ctx context.Context, id, userID int64) error {
-	cnt, err := db.GetEngine(ctx).ID(id).Delete(&AccessToken{UID: userID})
+	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		var token AccessToken
+		has, err := db.GetEngine(ctx).ID(id).Where("uid = ?", userID).Get(&token)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return util.NewNotExistErrorf("access token not found")
+		}
+		if _, err := db.GetEngine(ctx).ID(id).Delete(new(AccessToken)); err != nil {
+			return err
+		}
+		return appendAccessTokenAudit(ctx, &token, "credential.access_token_revoked")
+	})
+}
+
+// 只保存令牌标识和权限范围，不记录正文、哈希、盐或尾部字符。
+func appendAccessTokenAudit(ctx context.Context, token *AccessToken, kind string) error {
+	details, err := json.Marshal(map[string]any{"owner_id": token.UID, "name": token.Name, "scopes": token.Scope.StringSlice()})
 	if err != nil {
 		return err
-	} else if cnt != 1 {
-		return util.NewNotExistErrorf("access token not found")
 	}
-	return nil
+	return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: kind, Actor: governance_model.AuditActor(ctx), ScopeType: "user", ScopeID: token.UID, ObjectType: "access_token", ObjectID: token.ID, ObjectPath: token.Name, Result: "success", Details: details})
 }

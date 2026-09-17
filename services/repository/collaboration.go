@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -34,7 +35,7 @@ func AddOrUpdateCollaborator(ctx context.Context, repo *repo_model.Repository, u
 		return user_model.ErrBlockedUser
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID), governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
 		collaboration, has, err := db.Get[repo_model.Collaboration](ctx, builder.Eq{
 			"repo_id": repo.ID,
 			"user_id": u.ID,
@@ -73,7 +74,7 @@ func DeleteCollaboration(ctx context.Context, repo *repo_model.Repository, colla
 		UserID: collaborator.ID,
 	}
 
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID), governance_model.Resource("user", collaborator.ID)}, func(ctx context.Context) error {
 		if has, err := db.GetEngine(ctx).Delete(collaboration); err != nil {
 			return err
 		} else if has == 0 {

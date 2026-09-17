@@ -6,6 +6,8 @@ package repository
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,7 +90,12 @@ func GitGcRepo(ctx context.Context, repo *repo_model.Repository, timeout time.Du
 	command := gitcmd.NewCommand("gc").AddArguments(args...)
 	var stdout string
 	var err error
-	stdout, _, err = gitrepo.RunCmdString(ctx, repo, command)
+	env := append(os.Environ(),
+		repo_module.EnvRepoID+"="+strconv.FormatInt(repo.ID, 10),
+		repo_module.EnvIsInternal+"=true",
+		repo_module.EnvReferenceActor+"=maintenance",
+	)
+	stdout, _, err = gitrepo.RunCmdStringWithEnv(ctx, repo, command, env)
 	if err != nil {
 		log.Error("Repository garbage collection failed for %-v. Stdout: %s\nError: %v", repo, stdout, err)
 		desc := fmt.Sprintf("Repository garbage collection failed (%s). Stdout: %s\nError: %v", repo.FullName(), stdout, err)

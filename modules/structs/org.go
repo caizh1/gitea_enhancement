@@ -5,6 +5,8 @@ package structs
 
 // Organization represents an organization
 type Organization struct {
+	// 完整公开命名空间路径。
+	FullPath string `json:"full_path"`
 	// The unique identifier of the organization
 	ID int64 `json:"id"`
 	// The name of the organization
