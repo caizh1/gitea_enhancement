@@ -1,3 +1,4 @@
+import {initRepoMembers} from './repo-members.ts';
 import {initBranchApprovals} from './branch-approvals.ts';
 import {createCodeEditor} from '../modules/codeeditor/main.ts';
 import {onInputDebounce, queryElems, toggleElem} from '../utils/dom.ts';
@@ -10,6 +11,11 @@ import {globMatch} from '../utils/glob.ts';
 const {appSubUrl} = window.config;
 
 function initRepoSettingsCollaboration() {
+  const shareSearch = document.querySelector<HTMLElement>('#repo-share-search');
+  if (shareSearch) {
+    attachSearchBox<{data: string[]}>(shareSearch, shareSearch.getAttribute('data-url')!, (response) => response.data.map((title) => ({title})), {minCharacters: 1});
+  }
+
   // Change collaborator access mode
   for (const dropdownEl of queryElems(document, '.page-content.repository .ui.dropdown.access-mode')) {
     const textEl = dropdownEl.querySelector(':scope > .text')!;
@@ -139,6 +145,7 @@ function initRepoSettingsOptions() {
 }
 
 export function initRepoSettings() {
+  initRepoMembers();
   if (!document.querySelector('.page-content.repository.settings')) return;
   initBranchApprovals();
   initRepoSettingsOptions();

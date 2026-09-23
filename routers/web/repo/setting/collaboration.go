@@ -8,49 +8,47 @@ import (
 	"net/http"
 	"strings"
 
+	gm "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
-	unit_model "gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
+	governance_web "gitea.dev/routers/web/governance"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	"gitea.dev/services/mailer"
 	repo_service "gitea.dev/services/repository"
 )
 
 // Collaboration render a repository's collaboration page
 func Collaboration(ctx *context.Context) {
-	ctx.Data["Title"] = ctx.Tr("repo.settings.collaboration")
-	ctx.Data["PageIsSettingsCollaboration"] = true
+	ctx.Redirect(ctx.Repo.RepoLink + "/collaborators")
+}
 
-	users, _, err := repo_model.GetCollaborators(ctx, &repo_model.FindCollaborationOptions{RepoID: ctx.Repo.Repository.ID})
-	if err != nil {
-		ctx.ServerError("GetCollaborators", err)
-		return
+func Collaborators(ctx *context.Context) {
+	viewerID := int64(0)
+	if ctx.Doer != nil {
+		viewerID = ctx.Doer.ID
 	}
-	ctx.Data["Collaborators"] = users
-
-	teams, err := organization.GetRepoTeams(ctx, ctx.Repo.Repository.OwnerID, ctx.Repo.Repository.ID)
+	view, err := governance_service.ListRepositoryMembersView(ctx, viewerID, ctx.Repo.Repository.ID, governance_service.RepositoryMemberQuery{Q: ctx.FormString("q"), Role: gm.Role(ctx.FormInt("role")), Source: ctx.FormString("source"), AfterID: ctx.FormInt64("after_id")})
 	if err != nil {
-		ctx.ServerError("GetRepoTeams", err)
-		return
-	}
-	ctx.Data["Teams"] = teams
-	ctx.Data["Repo"] = ctx.Repo.Repository
-	ctx.Data["OrgID"] = ctx.Repo.Repository.OwnerID
-	ctx.Data["OrgName"] = ctx.Repo.Repository.OwnerName
-	ctx.Data["Org"] = ctx.Repo.Repository.Owner
-	ctx.Data["Units"] = unit_model.Units
-	if ctx.Repo.Owner.IsOrganization() {
-		ctx.Data["CanChangeRepoTeamAccess"], err = organization.OrgFromUser(ctx.Repo.Owner).CanChangeRepoTeamAccess(ctx, ctx.Doer)
-		if err != nil {
-			ctx.ServerError("CanChangeRepoTeamAccess", err)
-			return
+		if errors.Is(err, gm.ErrNotFound) {
+			ctx.NotFound(err)
+		} else {
+			ctx.ServerError("成员视图", err)
 		}
+		return
 	}
-
+	ctx.Data["MemberView"] = view
+	ctx.Data["PageIsSettingsCollaboration"] = true
+	ctx.Data["Title"] = "协作者"
+	ctx.Data["MemberRoleNames"] = map[gm.Role]string{10: "Guest · 访客", 15: "Planner · 计划者", 20: "Reporter · 只读成员", 30: "Developer · 开发者", 40: "Maintainer · 维护者", 50: "Owner · 所有者"}
+	if view.CanOwn && !governance_web.PrepareRepositoryShares(ctx, ctx.Repo.Repository.ID) {
+		return
+	}
+	ctx.Data["Title"] = "协作者"
 	ctx.HTML(http.StatusOK, tplCollaboration)
 }
 

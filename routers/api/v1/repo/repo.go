@@ -1022,9 +1022,13 @@ func updateRepoArchivedState(ctx *context.APIContext, opts api.EditRepoOption) e
 			return err
 		}
 		if *opts.Archived {
-			if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), repo, *opts.Archived); err != nil {
+			if err := governance_service.SetRepositoryArchived(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), repo, *opts.Archived); err != nil {
 				log.Error("Tried to archive a repo: %s", err)
-				ctx.APIErrorInternal(err)
+				if errors.Is(err, governance_model.ErrNotFound) {
+					ctx.APIErrorNotFound()
+				} else {
+					ctx.APIErrorInternal(err)
+				}
 				return err
 			}
 			if err := actions_service.CleanRepoScheduleTasks(ctx, repo); err != nil {
@@ -1032,9 +1036,13 @@ func updateRepoArchivedState(ctx *context.APIContext, opts api.EditRepoOption) e
 			}
 			log.Trace("Repository was archived: %s/%s", ctx.Repo.Owner.Name, repo.Name)
 		} else {
-			if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())), repo, *opts.Archived); err != nil {
+			if err := governance_service.SetRepositoryArchived(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()), repo, *opts.Archived); err != nil {
 				log.Error("Tried to un-archive a repo: %s", err)
-				ctx.APIErrorInternal(err)
+				if errors.Is(err, governance_model.ErrNotFound) {
+					ctx.APIErrorNotFound()
+				} else {
+					ctx.APIErrorInternal(err)
+				}
 				return err
 			}
 			if ctx.Repo.Repository.UnitEnabled(ctx, unit_model.TypeActions) {

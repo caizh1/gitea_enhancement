@@ -129,3 +129,20 @@ func EffectiveAbilities(grants []Grant) Abilities {
 	}
 	return result
 }
+
+// HasOwnerGrant 不允许拼接普通授权得到 Owner；共享必须保留完整 Owner 能力。
+func HasOwnerGrant(grants []Grant) bool {
+	for _, grant := range grants {
+		if grant.Role != Owner {
+			continue
+		}
+		complete := true
+		for _, ability := range roleAbilities[Owner] {
+			complete = complete && grant.Abilities[ability]
+		}
+		if complete {
+			return true
+		}
+	}
+	return false
+}

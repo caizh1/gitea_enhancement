@@ -2,7 +2,6 @@
 	<div class="ui fluid vertical menu">
 		<div class="header item">{{ctx.Locale.Tr "repo.settings"}}</div>
  <a class="{{if .PageIsSettingsPulls}}active {{end}}item" href="{{.RepoLink}}/settings/pulls">拉取请求</a>
-		{{if .Permission.IsOwner}}<a class="item" href="{{AppSubUrl}}/governance/repositories/{{.Repository.ID}}/shares">项目共享</a>{{end}}
 		<a class="item" href="{{AppSubUrl}}/governance/audit?scope_type=repository&amp;scope_id={{.Repository.ID}}">操作审计</a>
 		<a class="{{if .PageIsSettingsOptions}}active {{end}}item" href="{{.RepoLink}}/settings">
 			{{ctx.Locale.Tr "repo.settings.options"}}
@@ -13,7 +12,7 @@
 		</a>
 		{{end}}
 		{{if .Permission.IsAdmin}}
-		<a class="{{if .PageIsSettingsCollaboration}}active {{end}}item" href="{{.RepoLink}}/settings/collaboration">
+		<a class="{{if .PageIsSettingsCollaboration}}active {{end}}item" href="{{.RepoLink}}/collaborators">
 			{{ctx.Locale.Tr "repo.settings.collaboration"}}
 		</a>
 		{{if not DisableWebhooks}}

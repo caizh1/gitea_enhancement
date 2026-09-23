@@ -725,22 +725,23 @@ func countMoveScopes(ctx context.Context, ids []int64) (memberships, shares, pol
 		return 0, 0, 0, 0, 0, nil
 	}
 	if memberships, err = db.GetEngine(ctx).Where("scope_type = ?", "group").In("scope_id", ids).Count(new(governance_model.Membership)); err != nil {
-		return
+		return memberships, shares, policies, settings, streams, err
 	}
 	if shares, err = db.GetEngine(ctx).Where("scope_type = ?", "group").In("scope_id", ids).Count(new(governance_model.Share)); err != nil {
-		return
+		return memberships, shares, policies, settings, streams, err
 	}
 	if policies, err = db.GetEngine(ctx).Where("scope_type = ? AND enabled = ?", "group", true).In("scope_id", ids).Count(new(governance_model.ApprovalRule)); err != nil {
-		return
+		return memberships, shares, policies, settings, streams, err
 	}
 	if settings, err = db.GetEngine(ctx).Where("scope_type = ? AND inherit = ?", "group", false).In("scope_id", ids).Count(new(governance_model.ApprovalSettings)); err != nil {
-		return
+		return memberships, shares, policies, settings, streams, err
 	}
 	streams, err = db.GetEngine(ctx).Where("scope_type = ? AND enabled = ?", "group", true).In("scope_id", ids).Count(new(governance_model.AuditStream))
-	return
+	return memberships, shares, policies, settings, streams, err
 }
 
 type GroupMemberOption struct {
+	PreviewToken string                `json:"preview_token,omitempty"`
 	UserID       int64                 `json:"user_id"`
 	Role         governance_model.Role `json:"role"`
 	CustomRoleID int64                 `json:"custom_role_id"`

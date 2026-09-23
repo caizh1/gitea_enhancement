@@ -14,8 +14,14 @@ import (
 
 // checkMemberRole 直接添加、批准申请与邮件邀请共用能力上限，不能按角色数值比较。
 func checkMemberRole(ctx context.Context, scope string, ownerID int64, option GroupMemberOption, ceiling governance_model.Abilities) error {
-	if scope == "repository" && option.Role == governance_model.Owner || option.ExpiresUnix != 0 && option.ExpiresUnix <= time.Now().Unix() {
+	if scope == "repository" && option.Role == governance_model.MinimalAccess {
 		return governance_model.ErrInvalid
+	}
+	if option.ExpiresUnix != 0 && option.ExpiresUnix <= time.Now().Unix() {
+		return governance_model.ErrInvalid
+	}
+	if scope == "repository" && option.Role == governance_model.Owner && !ceiling[repositoryOwnerAuthority] {
+		return governance_model.ErrNotFound
 	}
 	var extra []string
 	if option.CustomRoleID != 0 {

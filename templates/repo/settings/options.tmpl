@@ -1000,19 +1000,25 @@
 				<p>公开允许匿名访问；内部仅允许已登录用户访问；私有仅允许获得项目权限的用户访问。父群组更严格时会自动采用父级限制。</p>
 				<form class="ui form tw-mt-5 form-fetch-action" action="{{.Link}}" method="post">
 					<input type="hidden" name="action" value="visibility">
-					<div class="required field"><label for="repo_visibility">目标可见性</label><select id="repo_visibility" name="visibility" class="ui dropdown"><option value="0">公开</option><option value="1">内部（仅登录用户）</option><option value="2">私有</option></select></div>
-					{{if not .Repository.IsPrivate}}
-						<div class="field">
-							<label>
-								{{ctx.Locale.Tr "repo.settings.enter_repo_full_name_to_confirm"}}
-								<span class="tw-text-red">{{.Repository.FullPath}}</span>
-							</label>
-						</div>
-						<div class="required field">
-							<label>{{ctx.Locale.Tr "repo.repo_name"}}</label>
-							<input name="confirm_repo_name" required maxlength="200">
-						</div>
-					{{end}}
+					<div class="required field">
+						<label for="repo_visibility">目标可见性</label>
+						<select id="repo_visibility" name="visibility" class="ui dropdown">
+							<option value="0" {{if eq .Repository.EffectiveVisibility 0}}selected{{end}}>公开</option>
+							<option value="1" {{if eq .Repository.EffectiveVisibility 1}}selected{{end}}>内部（仅登录用户）</option>
+							<option value="2" {{if eq .Repository.EffectiveVisibility 2}}selected{{end}}>私有</option>
+						</select>
+					</div>
+					<div class="field">
+						<label>
+							{{ctx.Locale.Tr "repo.settings.enter_repo_full_name_to_confirm"}}
+							<span class="tw-text-red">{{.Repository.FullPath}}</span>
+						</label>
+					</div>
+					<div class="field">
+						<label for="visibility_confirm_repo_name">{{ctx.Locale.Tr "repo.repo_name"}}</label>
+						<input id="visibility_confirm_repo_name" name="confirm_repo_name" autocomplete="off">
+						<p class="help">设为内部或私有时，必须输入上方完整仓库路径。</p>
+					</div>
 					{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" "保存可见性")}}
 				</form>
 			</div>

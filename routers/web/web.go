@@ -648,9 +648,11 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	m.Combo("/governance/pulls/{id}/approval-rules", reqSignIn).Get(governance.PullApprovalRules).Post(governance.SavePullApprovalRule)
 	m.Combo("/governance/approval-policies/{scope}/{scope_id}", reqSignIn).Get(governance.ApprovalPolicies).Post(governance.SaveApprovalPolicy)
 	m.Combo("/governance/repositories/{id}/deletion", reqSignIn).Get(governance.RepositoryDeletion).Post(governance.SaveRepositoryDeletion)
-	m.Combo("/governance/repositories/{id}/members", reqSignIn).Get(governance.RepositoryMembers).Post(governance.SaveRepositoryMember)
+	m.Get("/governance/repositories/{id}/members", optSignIn, governance.RepositoryMembers)
+	m.Post("/governance/repositories/{id}/members", reqSignIn, governance.SaveRepositoryMember)
 	m.Post("/governance/repositories/{id}/roles", reqSignIn, governance.SaveRepositoryRole)
 	m.Combo("/governance/repositories/{id}/access-requests", reqSignIn).Get(governance.RepositoryAccessRequests).Post(governance.SaveRepositoryAccessRequest)
+	m.Get("/governance/repositories/{id}/shares/groups", reqSignIn, governance.RepositoryShareGroups)
 	m.Combo("/governance/repositories/{id}/shares", reqSignIn).Get(governance.RepositoryShares).Post(governance.SaveRepositoryShare)
 
 	m.Group("/governance/audit", func() {
@@ -1207,6 +1209,9 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	}, optSignIn, context.RepoAssignment, reqUnitsWithMentions)
 	// end "/{username}/{reponame}/-": mentions
 
+	m.Get("/{username}/{reponame}/collaborators", optSignIn, context.RepoAssignment, repo_setting.Collaborators)
+	m.Post("/{username}/{reponame}/collaborators/preview", reqSignIn, context.RepoAssignment, governance.PreviewRepositoryMemberChange)
+	m.Post("/{username}/{reponame}/collaborators/change", reqSignIn, context.RepoAssignment, governance.ApplyRepositoryMemberChange)
 	m.Combo("/{username}/{reponame}/pulls/{index}/approvals", reqSignIn, context.RepoAssignment).Get(governance.NativePullApprovalRules).Post(context.RepoMustNotBeArchived(), governance.NativePullApprovalRules)
 	m.Combo("/{username}/{reponame}/settings/pulls", reqSignIn, context.RepoAssignment, ctxDataSet("PageIsRepoSettings", true)).Get(repo_setting.RepositoryApprovalSettings).Post(context.RepoMustNotBeArchived(), repo_setting.SaveRepositoryApprovalConfiguration)
 

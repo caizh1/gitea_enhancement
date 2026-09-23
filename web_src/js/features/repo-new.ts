@@ -73,18 +73,18 @@ export function initRepoNew() {
   updateUiAutoInit();
 
   const inputRepoName = form.querySelector<HTMLInputElement>('input[name="repo_name"]')!;
-  const inputPrivate = form.querySelector<HTMLInputElement>('input[name="private"]')!;
+  const selectVisibility = form.querySelector<HTMLSelectElement>('select[name="visibility"]');
   const updateUiRepoName = () => {
     const helps = form.querySelectorAll(`.help[data-help-for-repo-name]`);
     hideElem(helps);
     let help = form.querySelector(`.help[data-help-for-repo-name="${CSS.escape(inputRepoName.value)}"]`);
     if (!help) help = form.querySelector(`.help[data-help-for-repo-name=""]`)!;
     showElem(help);
-    const repoNamePreferPrivate: Record<string, boolean> = {'.profile': false, '.profile-private': true};
-    const preferPrivate = repoNamePreferPrivate[inputRepoName.value];
-    // inputPrivate might be disabled because site admin "force private"
-    if (preferPrivate !== undefined && !inputPrivate.closest('.disabled, [disabled]')) {
-      inputPrivate.checked = preferPrivate;
+    const repoNamePreferVisibility: Record<string, string> = {'.profile': '0', '.profile-private': '2'};
+    const preferVisibility = repoNamePreferVisibility[inputRepoName.value];
+    // 站点强制私有时仅有隐藏字段，不允许名称联动放宽可见性。
+    if (preferVisibility !== undefined && selectVisibility && !selectVisibility.closest('.disabled, [disabled]')) {
+      fomanticQuery(selectVisibility).dropdown('set selected', preferVisibility);
     }
   };
   inputRepoName.addEventListener('input', updateUiRepoName);

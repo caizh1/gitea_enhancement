@@ -63,9 +63,18 @@ func ListRepositoryShares(ctx context.Context, actorID, repoID, afterID int64) (
 
 // SetRepositoryShare 使用拥有者命名空间修订号，转移或并发治理变更后必须重新读取预览。
 func SetRepositoryShare(ctx context.Context, actor governance_model.Actor, repoID int64, option GroupShareOption, remove bool) error {
+	err := setRepositoryShare(ctx, actor, repoID, option, remove)
+	auditRepositoryMemberFailure(ctx, actor, repoID, "share.updated", err)
+	return err
+}
+
+func setRepositoryShare(ctx context.Context, actor governance_model.Actor, repoID int64, option GroupShareOption, remove bool) error {
 	return withActorWrite(ctx, actor, []string{governance_model.Resource("repository", repoID), governance_model.Resource("group", option.GroupID)}, func(ctx context.Context) error {
 		repo, err := checkRepositoryShareOwner(ctx, actor.EffectiveUserID(), repoID)
 		if err != nil {
+			return err
+		}
+		if err := checkRepositoryPreview(ctx, actor.EffectiveUserID(), repoID, option.PreviewToken, RepositoryMemberChange{Kind: "share", Share: option, Remove: remove}); err != nil {
 			return err
 		}
 		chain, err := governance_model.Ancestors(ctx, repo.OwnerID)
@@ -94,10 +103,15 @@ func SetRepositoryShare(ctx context.Context, actor governance_model.Actor, repoI
 				return err
 			}
 		}
+		var impactBefore map[int64]*repositoryAuditAccess
 		next := &governance_model.Share{ID: previous.ID, ScopeType: "repository", ScopeID: repoID, GroupID: option.GroupID, MaxRole: option.MaxRole, ExpiresUnix: option.ExpiresUnix}
 		if remove {
 			if !exists {
 				return governance_model.ErrNotFound
+			}
+			impactBefore, err = repositoryAuditMembers(ctx, repo, 0)
+			if err != nil {
+				return err
 			}
 			if _, err := db.GetEngine(ctx).ID(previous.ID).Delete(new(governance_model.Share)); err != nil {
 				return err
@@ -126,8 +140,12 @@ func SetRepositoryShare(ctx context.Context, actor governance_model.Actor, repoI
 			if _, err := governance_model.AbilitiesFor(option.MaxRole, nil); err != nil {
 				return err
 			}
-			if option.MaxRole == governance_model.Owner || option.ExpiresUnix != 0 && option.ExpiresUnix <= time.Now().Unix() {
+			if option.ExpiresUnix != 0 && option.ExpiresUnix <= time.Now().Unix() {
 				return governance_model.ErrInvalid
+			}
+			impactBefore, err = repositoryAuditMembers(ctx, repo, option.GroupID)
+			if err != nil {
+				return err
 			}
 			if exists {
 				if _, err := db.GetEngine(ctx).ID(previous.ID).Cols("max_role", "expires_unix").Update(next); err != nil {
@@ -136,6 +154,18 @@ func SetRepositoryShare(ctx context.Context, actor governance_model.Actor, repoI
 			} else if err := db.Insert(ctx, next); err != nil {
 				return err
 			}
+		}
+		impactAfter, err := repositoryAuditMembers(ctx, repo, 0)
+		if err != nil {
+			return err
+		}
+		for userID := range impactAfter {
+			if _, exists := impactBefore[userID]; !exists {
+				impactBefore[userID] = nil
+			}
+		}
+		if err := auditRepositoryAccessImpact(ctx, actor, repo, "shared", impactBefore); err != nil {
+			return err
 		}
 		if _, err := db.GetEngine(ctx).ID(repo.OwnerID).Incr("revision").Update(new(governance_model.Namespace)); err != nil {
 			return err

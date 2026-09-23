@@ -430,7 +430,7 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 			return perm, err
 		}
 	}
-	governanceAbilities, err := repositoryGovernanceAbilities(ctx, repo, user)
+	governanceAbilities, governanceOwner, err := repositoryGovernanceAccess(ctx, repo, user)
 	if err != nil {
 		return perm, err
 	}
@@ -439,7 +439,7 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 			native := perm
 			native.unitsMode = maps.Clone(perm.unitsMode)
 			finalProcessRepoUnitPermission(user, &native)
-			perm.includeGovernance(governanceAbilities)
+			perm.includeGovernance(governanceAbilities, governanceOwner)
 			perm.withoutGovernance = &native
 			if auditor {
 				original := perm
@@ -447,7 +447,7 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 				perm.withoutAuditor = &original
 				readOnly := governance_model.Abilities{}
 				governance_model.IncludeAuditorAbilities(readOnly)
-				perm.includeGovernance(readOnly)
+				perm.includeGovernance(readOnly, false)
 			}
 			finalProcessRepoUnitPermission(user, &perm)
 		}
@@ -537,10 +537,15 @@ func GetIndividualUserRepoPermission(ctx context.Context, repo *repo_model.Repos
 	// if user in an owner team
 	for _, team := range teams {
 		if team.HasAdminAccess() {
-			perm.AccessMode = perm_model.AccessModeOwner
+			perm.AccessMode = max(perm.AccessMode, perm_model.AccessModeAdmin)
+			if team.IsOwnerTeam() {
+				perm.AccessMode = perm_model.AccessModeOwner
+			}
 			perm.unitsMode = nil
-			return perm, nil
 		}
+	}
+	if perm.IsAdmin() {
+		return perm, nil
 	}
 
 	for _, u := range repo.Units {
@@ -577,7 +582,7 @@ func IsUserRealRepoAdmin(ctx context.Context, repo *repo_model.Repository, user 
 		return false, err
 	}
 	permission := Permission{}
-	permission.includeGovernance(abilities)
+	permission.includeGovernance(abilities, false)
 	return permission.IsAdmin(), nil
 }
 

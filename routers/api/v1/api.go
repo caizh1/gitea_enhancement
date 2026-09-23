@@ -1041,6 +1041,7 @@ func Routes() *web.Router {
 	}
 
 	m.Group("", func() {
+		m.Get("/governance/repositories/{id}/members/view", reqExploreSignIn(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryGovernance), governance.RepositoryMembersView)
 		m.Get("/governance/navigation/groups/{id}", reqExploreSignIn(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryGovernance), rejectPublicOnly(), governance.NavigationGroup)
 		m.Group("/governance", func() {
 			m.Get("/navigation/groups", governance.NavigationGroups)
@@ -1058,6 +1059,7 @@ func Routes() *web.Router {
 			m.Post("/{scope}/{id}/access-requests/{request_id}/approve", bind(governance.GroupMemberOption{}), governance.ApproveAccessRequest)
 			m.Delete("/{scope}/{id}/access-requests/{request_id}", governance.RejectAccessRequest)
 			m.Put("/{scope}/{id}/access-requests/settings", bind(governance.AccessRequestSettingOption{}), governance.SaveAccessRequestSetting)
+			m.Post("/repositories/{id}/members/preview", bind(governance.RepositoryMemberChange{}), governance.PreviewRepositoryMemberChange)
 			m.Get("/repositories/{id}/members", governance.RepositoryMembers)
 			m.Put("/repositories/{id}/members/{user_id}", bind(governance.GroupMemberOption{}), governance.SetRepositoryMember)
 			m.Delete("/repositories/{id}/members/{user_id}", governance.RemoveRepositoryMember)

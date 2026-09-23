@@ -358,6 +358,11 @@ func UpdateAdminUser(ctx context.Context, u *user_model.User, authOpts *UpdateAu
 		if current.LoginType != u.LoginType || current.LoginSource != u.LoginSource || (authOpts.Password.Has() && current.Passwd != u.Passwd) {
 			return governance_model.ErrConflict
 		}
+		if !current.ProhibitLogin && authOpts.ProhibitLogin.Has() && authOpts.ProhibitLogin.Value() {
+			if err := governance_model.EnsureUserCanLoseOwnerAccess(ctx, u.ID); err != nil {
+				return err
+			}
+		}
 		if err := saveAuth(ctx, &prepared, authOpts); err != nil {
 			return err
 		}

@@ -7,6 +7,7 @@ package governance
 import (
 	"net/http"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/web"
 	"gitea.dev/services/context"
 	governance_service "gitea.dev/services/governance"
@@ -108,11 +109,36 @@ func RemoveRepositoryMember(ctx *context.APIContext) {
 	// responses:
 	//   "204":
 	//     description: 直接授权已撤销
-	option := GroupMemberOption{UserID: ctx.PathParamInt64("user_id"), Revision: ctx.FormInt64("revision")}
+	option := GroupMemberOption{UserID: ctx.PathParamInt64("user_id"), Revision: ctx.FormInt64("revision"), PreviewToken: ctx.FormString("preview_token")}
 	if err := governance_service.SetRepositoryMember(ctx, requestActor(ctx), ctx.PathParamInt64("id"), option, true); err != nil {
 		respondError(ctx, err)
 		return
 	}
 	issue_service.SyncRepositoryGovernanceReviewRequests(ctx, ctx.PathParamInt64("id"), ctx.Doer)
 	ctx.Status(http.StatusNoContent)
+}
+
+// RepositoryMemberChange 使用同一服务执行预览和提交校验。
+type RepositoryMemberChange = governance_service.RepositoryMemberChange
+
+func RepositoryMembersView(ctx *context.APIContext) {
+	viewerID := int64(0)
+	if ctx.Doer != nil {
+		viewerID = ctx.Doer.ID
+	}
+	view, err := governance_service.ListRepositoryMembersView(ctx, viewerID, ctx.PathParamInt64("id"), governance_service.RepositoryMemberQuery{Q: ctx.FormString("q"), Role: governance_model.Role(ctx.FormInt("role")), Source: ctx.FormString("source"), AfterID: ctx.FormInt64("after_id")})
+	if err != nil {
+		respondError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, view)
+}
+
+func PreviewRepositoryMemberChange(ctx *context.APIContext) {
+	result, err := governance_service.PreviewRepositoryMemberChange(ctx, requestActor(ctx), ctx.PathParamInt64("id"), *web.GetForm(ctx).(*RepositoryMemberChange))
+	if err != nil {
+		respondError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, result)
 }

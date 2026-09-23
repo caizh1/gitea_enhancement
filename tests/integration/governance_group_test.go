@@ -175,15 +175,44 @@ func TestGovernanceRepositorySharingHTTP(t *testing.T) {
 		MakeRequest(t, NewRequestWithJSON(t, "PUT", updateURL, option).AddTokenAuth(token), http.StatusNoContent)
 		MakeRequest(t, NewRequest(t, "GET", repoURL).AddTokenAuth(reader), http.StatusOK)
 		ownerSession := loginUser(t, "user2")
-		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", "/governance/repositories/"+strconv.FormatInt(repo.ID, 10)+"/shares"), http.StatusOK)
+		webShares := "/governance/repositories/" + strconv.FormatInt(repo.ID, 10) + "/shares"
+		collaboration := "/org3/shared-native/settings/collaboration"
+		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", webShares), http.StatusSeeOther)
+		assert.Equal(t, collaboration, resp.Header().Get("Location"))
+		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaboration), http.StatusOK)
 		assert.Contains(t, resp.Body.String(), "shared-audience/child")
-		assert.Contains(t, resp.Body.String(), "撤销此共享")
+		assert.Contains(t, resp.Body.String(), "邀请群组")
+		assert.NotContains(t, resp.Body.String(), "Render failed")
+		assert.Contains(t, resp.Body.String(), "repo-collab-form")
+		assert.NotContains(t, resp.Body.String(), ">项目共享</a>")
+		csrf := NewHTMLParser(t, resp.Body).GetInputValueByName("_csrf")
+		search := ownerSession.MakeRequest(t, NewRequest(t, "GET", webShares+"/groups?q=shared-audience"), http.StatusOK)
+		assert.Contains(t, search.Body.String(), "shared-audience/child")
+		loginUser(t, "user5").MakeRequest(t, NewRequest(t, "GET", webShares+"/groups?q=shared-audience"), http.StatusNotFound)
+		form := map[string]string{"_csrf": csrf, "revision": strconv.FormatInt(state.Revision+1, 10), "group_path": child.FullPath, "role": "30", "expires": "2099-12-31"}
+		ownerSession.MakeRequest(t, NewRequestWithValues(t, "POST", webShares, form), http.StatusSeeOther)
+		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaboration), http.StatusOK)
+		assert.Contains(t, resp.Body.String(), `data-modal-share-expiry="2099-12-31"`)
+		assert.Contains(t, resp.Body.String(), `data-modal-share-role.value="30"`)
+		form["revision"] = strconv.FormatInt(state.Revision+2, 10)
+		form["expires_unix"] = "4102398000"
+		ownerSession.MakeRequest(t, NewRequestWithValues(t, "POST", webShares, form), http.StatusSeeOther)
+		precise := DecodeJSON(t, MakeRequest(t, NewRequest(t, "GET", endpoint).AddTokenAuth(token), http.StatusOK), &governance_service.RepositorySharesState{})
+		require.Equal(t, int64(4102398000), precise.Shares[0].ExpiresUnix)
+
+		ownerSession.MakeRequest(t, NewRequestWithValues(t, "POST", webShares, form), http.StatusConflict)
+		crossOrigin := NewRequestWithValues(t, "POST", webShares, form)
+		crossOrigin.Header.Set("Sec-Fetch-Site", "cross-site")
+		ownerSession.MakeRequest(t, crossOrigin, http.StatusForbidden)
+		denied := map[string]string{"action": "remove", "group_id": strconv.FormatInt(child.ID, 10), "revision": strconv.FormatInt(state.Revision+2, 10)}
+		loginUser(t, "user5").MakeRequest(t, NewRequestWithValues(t, "POST", webShares, denied), http.StatusNotFound)
+
 		cloneURL := *baseURL
 		cloneURL.User, cloneURL.Path = url.UserPassword("user5", "password"), "/org3/shared-native.git"
 		t.Run("继承共享真实克隆", doGitClone(filepath.Join(t.TempDir(), "共享仓库"), &cloneURL))
 		resp = MakeRequest(t, NewRequest(t, "GET", endpoint).AddTokenAuth(token), http.StatusOK)
 		state = DecodeJSON(t, resp, &governance_service.RepositorySharesState{})
-		MakeRequest(t, NewRequest(t, "DELETE", updateURL+"?revision="+strconv.FormatInt(state.Revision, 10)).AddTokenAuth(token), http.StatusNoContent)
+		ownerSession.MakeRequest(t, NewRequestWithValues(t, "POST", webShares, map[string]string{"_csrf": csrf, "revision": strconv.FormatInt(state.Revision, 10), "action": "remove", "group_id": strconv.FormatInt(child.ID, 10)}), http.StatusSeeOther)
 		MakeRequest(t, NewRequest(t, "GET", repoURL).AddTokenAuth(reader), http.StatusNotFound)
 		req := NewRequest(t, "GET", "/org3/shared-native.git/info/refs?service=git-upload-pack")
 		req.SetBasicAuth("user5", "password")

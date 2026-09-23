@@ -5,7 +5,6 @@
 package governance
 
 import (
-	"errors"
 	"strconv"
 	"time"
 
@@ -18,40 +17,16 @@ import (
 )
 
 func RepositoryMembers(ctx *context.Context) {
-	state, err := governance_service.ListRepositoryAllMembers(ctx, ctx.Doer.ID, ctx.PathParamInt64("id"), ctx.FormInt64("after_id"))
+	viewerID := int64(0)
+	if ctx.Doer != nil {
+		viewerID = ctx.Doer.ID
+	}
+	state, err := governance_service.ListRepositoryMembersView(ctx, viewerID, ctx.PathParamInt64("id"), governance_service.RepositoryMemberQuery{})
 	if err != nil {
 		respondError(ctx, err)
 		return
 	}
-	ctx.Data["Title"] = "项目成员与来源"
-	ctx.Data["AbilityNames"] = governanceAbilityNames
-	ctx.Data["NativeSourceNames"] = map[string]string{"owner": "个人项目所有者", "collaborator": "原生协作者", "team": "原生团队"}
-	sourceGroups := map[int64]string{}
-	for _, member := range state.Members {
-		for _, grant := range member.Grants {
-			if grant.ScopeType != "group" {
-				continue
-			}
-			if _, checked := sourceGroups[grant.ScopeID]; checked {
-				continue
-			}
-			group, err := governance_service.CheckGroupAccess(ctx, ctx.Doer.ID, grant.ScopeID, governance_model.ReadGroup)
-			if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
-				respondError(ctx, err)
-				return
-			}
-			sourceGroups[grant.ScopeID] = ""
-			if err == nil {
-				sourceGroups[grant.ScopeID] = group.FullPath
-			}
-		}
-	}
-	ctx.Data["SourceGroups"] = sourceGroups
-	ctx.Data["State"] = state
-	ctx.Data["InvitationPath"] = invitationPath("repository", ctx.PathParamInt64("id"))
-	ctx.Data["RoleNames"] = map[governance_model.Role]string{5: "Minimal Access", 10: "Guest", 15: "Planner", 20: "Reporter", 30: "Developer", 40: "Maintainer", 50: "Owner"}
-	ctx.Data["SourceNames"] = map[string]string{"direct": "直接", "inherited": "继承", "shared": "共享", "inherited_shared": "继承共享"}
-	ctx.HTML(200, "governance/repository_members")
+	ctx.Redirect(setting.AppSubURL + "/" + state.FullPath + "/collaborators")
 }
 
 func SaveRepositoryMember(ctx *context.Context) {

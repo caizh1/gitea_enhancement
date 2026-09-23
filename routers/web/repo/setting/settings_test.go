@@ -246,12 +246,13 @@ func TestAddTeamPost_NotAllowed(t *testing.T) {
 	targetTeam := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 2})
 	require.NoError(t, repo_service.TeamAddRepository(t.Context(), adminTeam, repo))
 	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 28})
-	repoContext := &context.Repository{Owner: repo.Owner, Repository: repo}
+	repoContext := &context.Repository{Owner: repo.Owner, Repository: repo, RepoLink: repo.Link()}
 	renderCtx, _ := contexttest.MockContext(t, repo.Link()+"/settings/collaboration")
 	renderCtx.Repo = repoContext
 	renderCtx.Doer = doer
 	Collaboration(renderCtx)
-	assert.Equal(t, false, renderCtx.Data["CanChangeRepoTeamAccess"])
+	assert.Equal(t, http.StatusSeeOther, renderCtx.Resp.WrittenStatus())
+	assert.Equal(t, repo.Link()+"/collaborators", renderCtx.Resp.Header().Get("Location"))
 
 	ctx, _ := contexttest.MockContext(t, repo.Link()+"/settings/collaboration")
 	ctx.Req.Form.Set("team", targetTeam.Name)

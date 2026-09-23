@@ -15,6 +15,7 @@ import (
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	governance_service "gitea.dev/services/governance"
 
 	"xorm.io/builder"
 )
@@ -36,6 +37,11 @@ func AddOrUpdateCollaborator(ctx context.Context, repo *repo_model.Repository, u
 	}
 
 	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID), governance_model.Resource("user", u.ID)}, func(ctx context.Context) error {
+		if actor := governance_model.AuditActor(ctx); actor.EffectiveUserID() > 0 {
+			if err := governance_service.CheckRepositoryMemberMutation(ctx, actor, repo.ID, u.ID); err != nil {
+				return err
+			}
+		}
 		collaboration, has, err := db.Get[repo_model.Collaboration](ctx, builder.Eq{
 			"repo_id": repo.ID,
 			"user_id": u.ID,
@@ -75,6 +81,11 @@ func DeleteCollaboration(ctx context.Context, repo *repo_model.Repository, colla
 	}
 
 	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID), governance_model.Resource("user", collaborator.ID)}, func(ctx context.Context) error {
+		if actor := governance_model.AuditActor(ctx); actor.EffectiveUserID() > 0 {
+			if err := governance_service.CheckRepositoryMemberMutation(ctx, actor, repo.ID, collaborator.ID); err != nil {
+				return err
+			}
+		}
 		if has, err := db.GetEngine(ctx).Delete(collaboration); err != nil {
 			return err
 		} else if has == 0 {

@@ -402,6 +402,9 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 		}
 	}
 
+	if err := governance_model.EnsurePermanentRepositoryOwner(ctx, repo.ID, 0); err != nil {
+		return err
+	}
 	return committer.Commit()
 }
 

@@ -84,11 +84,11 @@ export function attachSearchBox<T = unknown>(container: HTMLElement, url: string
     }
   });
   // cancel + hide ensures a debounced fetch scheduled before any of these can't fire afterwards
-  const dismiss = () => { search.cancel(); hide() };
+  const dismiss = () => { search.cancel({upcomingOnly: true}); hide() };
 
   input.addEventListener('input', () => search(input.value));
   input.addEventListener('focus', () => { if (itemResults.size) resultsEl.style.display = 'block'; });
-  input.addEventListener('blur', () => { search.cancel(); setTimeout(hide, 150) }); // hide deferred so a result mousedown can land first
+  input.addEventListener('blur', () => { search.cancel({upcomingOnly: true}); setTimeout(hide, 150) }); // hide deferred so a result mousedown can land first
   input.addEventListener('keydown', (event) => {
     const resultEls = Array.from(resultsEl.querySelectorAll<HTMLElement>('.result'));
     if (!resultEls.length) return;

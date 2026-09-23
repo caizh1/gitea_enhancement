@@ -44,15 +44,17 @@
 				</div>
 
 				<div class="inline field">
-					<label>{{ctx.Locale.Tr "repo.visibility"}}</label>
-					<div>
-						{{if .IsForcedPrivate}}
-							<input name="visibility" type="hidden" value="2"><span>{{ctx.Locale.Tr "repo.visibility_helper_forced"}}</span>
-						{{else}}
-							<select name="visibility" class="ui dropdown"><option value="0" {{if eq .visibility 0}}selected{{end}}>公开</option><option value="1" {{if eq .visibility 1}}selected{{end}}>内部（仅登录用户）</option><option value="2" {{if eq .visibility 2}}selected{{end}}>私有</option></select>
-						{{end}}
-					</div>
-					<span class="help">{{ctx.Locale.Tr "repo.visibility_description"}}</span>
+					<label for="repo_visibility">{{ctx.Locale.Tr "repo.visibility"}}</label>
+					{{if .IsForcedPrivate}}
+						<input id="repo_visibility" name="visibility" type="hidden" value="2"><span class="inline-right">{{ctx.Locale.Tr "repo.visibility_helper_forced"}}</span>
+					{{else}}
+						<select id="repo_visibility" name="visibility" class="ui dropdown">
+							<option value="0" {{if eq .visibility 0}}selected{{end}}>公开</option>
+							<option value="1" {{if eq .visibility 1}}selected{{end}}>内部（仅登录用户）</option>
+							<option value="2" {{if eq .visibility 2}}selected{{end}}>私有</option>
+						</select>
+					{{end}}
+					<span class="help">公开允许匿名访问；内部仅允许已登录用户访问；私有仅允许获得项目权限的用户访问。父群组更严格时会自动采用父级限制。</span>
 				</div>
 				<div class="inline field {{if .Err_Description}}error{{end}}">
 					<label for="description">{{ctx.Locale.Tr "repo.repo_desc"}}</label>

@@ -1047,7 +1047,7 @@ func handleSettingsPostArchive(ctx *context.Context) {
 		return
 	}
 
-	if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), repo, true); err != nil {
+	if err := governance_service.SetRepositoryArchived(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), repo, true); err != nil {
 		log.Error("Tried to archive a repo: %s", err)
 		ctx.Flash.Error(ctx.Tr("repo.settings.archive.error"))
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings")
@@ -1074,7 +1074,7 @@ func handleSettingsPostUnarchive(ctx *context.Context) {
 		return
 	}
 
-	if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")), repo, false); err != nil {
+	if err := governance_service.SetRepositoryArchived(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), repo, false); err != nil {
 		log.Error("Tried to unarchive a repo: %s", err)
 		ctx.Flash.Error(ctx.Tr("repo.settings.unarchive.error"))
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings")
@@ -1114,7 +1114,7 @@ func handleSettingsPostVisibility(ctx *context.Context) {
 		ctx.JSONError(ctx.Tr("form.repository_force_private"))
 		return
 	}
-	if private && repo.FullName() != ctx.FormString("confirm_repo_name") {
+	if private && repo.FullPath() != ctx.FormString("confirm_repo_name") && repo.FullName() != ctx.FormString("confirm_repo_name") {
 		ctx.JSONError(ctx.Tr("form.enterred_invalid_repo_name"))
 		return
 	}
@@ -1126,7 +1126,11 @@ func handleSettingsPostVisibility(ctx *context.Context) {
 		return
 	}
 
-	ctx.Flash.Success(ctx.Tr("repo.settings.visibility.success"))
+	if repo.EffectiveVisibility() != visibility {
+		ctx.Flash.Warning("受所属群组可见性限制，仓库未设为所选可见性，已采用群组限制。请查看页面中的当前可见性。")
+	} else {
+		ctx.Flash.Success(ctx.Tr("repo.settings.visibility.success"))
+	}
 	ctx.JSONRedirect(ctx.Repo.RepoLink + "/settings")
 }
 

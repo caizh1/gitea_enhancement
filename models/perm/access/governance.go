@@ -17,17 +17,22 @@ import (
 )
 
 func repositoryGovernanceAbilities(ctx context.Context, repo *repo_model.Repository, user *user_model.User) (governance_model.Abilities, error) {
+	abilities, _, err := repositoryGovernanceAccess(ctx, repo, user)
+	return abilities, err
+}
+
+func repositoryGovernanceAccess(ctx context.Context, repo *repo_model.Repository, user *user_model.User) (governance_model.Abilities, bool, error) {
 	if user == nil || user.ID <= 0 || !user.IsActive || user.ProhibitLogin || user.IsOrganization() || user.IsGiteaActions() {
-		return governance_model.Abilities{}, nil
+		return governance_model.Abilities{}, false, nil
 	}
 	grants, err := governance_model.RepositoryGrants(ctx, repo.ID, repo.OwnerID, user.ID, time.Now())
 	if errors.Is(err, governance_model.ErrNotFound) {
 		err = nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return governance_model.EffectiveAbilities(grants), nil
+	return governance_model.EffectiveAbilities(grants), governance_model.HasOwnerGrant(grants), nil
 }
 
 // HasGovernanceAbility 检查独立治理能力，不把该能力折算成原生仓库管理员或代码写权限。
@@ -40,7 +45,7 @@ func HasGovernanceAbility(ctx context.Context, repo *repo_model.Repository, user
 }
 
 // 每个单元单独叠加，禁止用 Planner 或自定义角色的数字提升其他单元。
-func (p *Permission) includeGovernance(abilities governance_model.Abilities) {
+func (p *Permission) includeGovernance(abilities governance_model.Abilities, owner bool) {
 	if len(abilities) == 0 {
 		return
 	}
@@ -83,12 +88,7 @@ func (p *Permission) includeGovernance(abilities governance_model.Abilities) {
 	if fullAdmin {
 		p.AccessMode = max(p.AccessMode, perm.AccessModeAdmin)
 	}
-	owner, _ := governance_model.AbilitiesFor(governance_model.Owner, nil)
-	fullOwner := true
-	for ability := range owner {
-		fullOwner = fullOwner && abilities[ability]
-	}
-	if fullOwner {
+	if owner {
 		p.AccessMode = max(p.AccessMode, perm.AccessModeOwner)
 	}
 }

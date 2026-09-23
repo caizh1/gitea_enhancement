@@ -1945,3 +1945,91 @@ tbody.commit-list {
 .branch-selector-dropdown .scrolling.menu .loading-indicator {
   height: 4em;
 }
+
+.repo-group-shares .repo-share-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 120px 190px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.repo-group-shares .repo-share-row + .repo-share-row {
+  border-top: 1px solid var(--color-secondary);
+}
+
+.repo-group-shares .repo-share-row .svg {
+  flex-shrink: 0;
+}
+
+.repo-share-mobile-label {
+  display: none;
+}
+
+#repo-share-modal .content,
+#repo-share-remove-modal .content {
+  padding: 1.5rem;
+}
+
+#repo-share-modal .actions,
+#repo-share-remove-modal .actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-secondary);
+}
+
+#repo-share-search,
+#repo-share-search input {
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .repo-group-shares .repo-share-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .repo-group-shares .repo-share-head {
+    display: none;
+  }
+
+  .repo-share-mobile-label {
+    display: inline;
+  }
+}
+
+#repo-share-modal select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  color: var(--color-text);
+  background: var(--color-input-background);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius);
+}
+
+#repo-share-modal .help {
+  display: block;
+  margin-top: 8px;
+}
+
+#repo-share-modal .header .actions {
+  padding: 0;
+  border: 0;
+}
+
+.repository.collaboration .member-filters { margin-block: 1.5rem; }
+.repository.collaboration .member-filters .field { margin: 0; min-width: 0; }
+.repository.collaboration .member-entry { padding-block: 1rem; border-bottom: 1px solid var(--color-secondary); }
+.repository.collaboration .member-entry:last-child { border-bottom: 0; }
+.repository.collaboration .member-source-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 1rem; margin-block: .5rem; background: var(--color-box-body); }
+.repository.collaboration .member-source-row > div { min-width: 0; overflow-wrap: anywhere; }
+.repository.collaboration summary { cursor: pointer; }
+.repo-member-change .member-preview:not(:empty) { margin-block: 1rem; padding: 1rem; border: 1px solid var(--color-secondary); }
+@media (max-width: 600px) {
+  .repository.collaboration .member-filters .field { flex: 1 1 100%; }
+  .repository.collaboration .member-source-row { align-items: flex-start; }
+}

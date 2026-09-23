@@ -37,7 +37,7 @@
 			{{if not (or .IsBeingCreated .IsBroken)}}
 				{{/* right part */}}
 				<div class="flex-text-block tw-flex-wrap">
-					{{if $.IsSigned}}<a class="ui compact small basic button" href="{{AppSubUrl}}/governance/repositories/{{.ID}}/access-requests">访问申请</a>{{if $.CanManageGovernanceMembers}}<a class="ui compact small basic button" href="{{AppSubUrl}}/governance/repositories/{{.ID}}/members">项目成员与来源</a>{{end}}{{if $.CanReadGovernanceAudit}}<a class="ui compact small basic button" href="{{AppSubUrl}}/governance/audit?scope_type=repository&amp;scope_id={{.ID}}">项目审计</a>{{end}}{{end}}
+					<a class="ui compact small basic button" href="{{.Link}}/collaborators">协作者</a>{{if $.IsSigned}}<a class="ui compact small basic button" href="{{AppSubUrl}}/governance/repositories/{{.ID}}/access-requests">访问申请</a>{{if $.CanReadGovernanceAudit}}<a class="ui compact small basic button" href="{{AppSubUrl}}/governance/audit?scope_type=repository&amp;scope_id={{.ID}}">项目审计</a>{{end}}{{end}}
 					{{if $.CanUserAcceptOrRejectTransfer}}
 						<button type="button" class="ui compact small basic primary button link-action" data-url="{{$.RepoLink}}/action/accept_transfer"
 							data-tooltip-content="{{ctx.Locale.Tr "repo.transfer.accept_desc" $.RepoTransfer.Recipient.GetDisplayName}}"

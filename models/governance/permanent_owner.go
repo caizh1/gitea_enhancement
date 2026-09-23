@@ -83,7 +83,60 @@ func EnsureUserCanLoseOwnerAccess(ctx context.Context, userID int64) error {
 	if len(groups) > 0 {
 		return fmt.Errorf("%w：必须先为群组 %d 指派其他有效且不过期的 Owner", ErrConflict, groups[0])
 	}
+	var repositories []int64
+	if err := db.GetEngine(ctx).Table("repository").Cols("id").Where("owner_id = ?", userID).Find(&repositories); err != nil {
+		return err
+	}
+	var direct []int64
+	if err := db.GetEngine(ctx).Table(new(Membership)).Cols("scope_id").Where("scope_type = ? AND user_id = ? AND role = ? AND expires_unix = 0", "repository", userID, Owner).Find(&direct); err != nil {
+		return err
+	}
+	for _, id := range append(repositories, direct...) {
+		if err := EnsurePermanentRepositoryOwner(ctx, id, userID); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// EnsurePermanentRepositoryOwner 排除共享、临时授权和站点管理员的兜底身份。
+func EnsurePermanentRepositoryOwner(ctx context.Context, repoID, excludingUserID int64) error {
+	var repo struct {
+		OwnerID int64
+		Name    string
+	}
+	has, err := db.GetEngine(ctx).Table("repository").Where("id = ?", repoID).Get(&repo)
+	if err != nil || !has {
+		return err
+	}
+	var owner struct {
+		Type          int
+		IsActive      bool
+		ProhibitLogin bool
+	}
+	has, err = db.GetEngine(ctx).Table("user").Where("id = ?", repo.OwnerID).Get(&owner)
+	if err != nil {
+		return err
+	}
+	if has && owner.Type == 0 && repo.OwnerID != excludingUserID && owner.IsActive && !owner.ProhibitLogin {
+		return nil
+	}
+	if has && owner.Type == 1 {
+		if err := EnsurePermanentGroupOwner(ctx, repo.OwnerID, excludingUserID); err == nil {
+			return nil
+		} else if !errors.Is(err, ErrConflict) {
+			return err
+		}
+	}
+	query := db.GetEngine(ctx).Table(new(Membership)).Alias("m").Join("INNER", []string{"user", "u"}, "u.id = m.user_id").Where("m.scope_type = ? AND m.scope_id = ? AND m.role = ? AND m.expires_unix = 0 AND u.is_active = ? AND u.prohibit_login = ? AND u.type = 0", "repository", repoID, Owner, true, false)
+	if excludingUserID > 0 {
+		query = query.And("u.id <> ?", excludingUserID)
+	}
+	has, err = query.Exist(new(struct{ ID int64 }))
+	if err != nil || has {
+		return err
+	}
+	return fmt.Errorf("%w：项目 %s（#%d）必须保留至少一位有效、永久且非共享来源的 Owner，请先添加接替所有者", ErrConflict, repo.Name, repoID)
 }
 
 // GroupsRequiringOwnerReplacement 返回移除指定用户后会失去有效永久 Owner 的群组。

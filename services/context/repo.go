@@ -462,7 +462,15 @@ func repoAssignmentLegacy(ctx *Context, data *repoAssignmentPrepareDataStruct) {
 			return
 		}
 	}
-	if !ctx.Repo.Permission.HasAnyUnitAccessOrPublicAccess() && !canWriteAsMaintainer(ctx) {
+	membersMetadata := false
+	if ctx.Req.Method == http.MethodGet && ctx.Link == repo.Link()+"/collaborators" && ctx.Doer != nil && !ctx.DoerNeedTwoFactorAuth() {
+		membersMetadata, err = access_model.HasGovernanceAbility(ctx, repo, ctx.Doer, governance_model.ReadGroup)
+		if err != nil {
+			ctx.ServerError("成员元数据权限", err)
+			return
+		}
+	}
+	if !membersMetadata && !ctx.Repo.Permission.HasAnyUnitAccessOrPublicAccess() && !canWriteAsMaintainer(ctx) {
 		if ctx.FormString("go-get") == "1" {
 			EarlyResponseForGoGetMeta(ctx)
 			return

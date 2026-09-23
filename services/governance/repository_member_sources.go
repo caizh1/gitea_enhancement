@@ -102,6 +102,11 @@ func ListRepositoryAllMembers(ctx context.Context, viewerID, repoID, afterID int
 	if err != nil {
 		return nil, err
 	}
+	return listRepositoryAllMembers(ctx, repo, canManage, afterID)
+}
+
+func listRepositoryAllMembers(ctx context.Context, repo *repo_model.Repository, canManage bool, afterID int64) (*RepositoryMembersState, error) {
+	repoID := repo.ID
 	if err := repo.LoadOwner(ctx); err != nil {
 		return nil, err
 	}

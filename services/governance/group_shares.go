@@ -13,11 +13,19 @@ import (
 )
 
 type GroupShareOption struct {
-	GroupID     int64                 `json:"group_id"`
-	MaxRole     governance_model.Role `json:"max_role"`
-	ExpiresUnix int64                 `json:"expires_unix"`
-	Revision    int64                 `json:"revision"`
+	PreviewToken string                `json:"preview_token,omitempty"`
+	GroupID      int64                 `json:"group_id"`
+	MaxRole      governance_model.Role `json:"max_role"`
+	ExpiresUnix  int64                 `json:"expires_unix"`
+	Revision     int64                 `json:"revision"`
 }
+
+// shareConflict 保留冲突状态码，同时向用户说明实际原因。
+type shareConflict string
+
+func (err shareConflict) Error() string { return string(err) }
+
+func (err shareConflict) Unwrap() error { return governance_model.ErrConflict }
 
 // checkExternalShareRestriction 只限制新建共享；已有关系保留，可单独调整或撤销。
 func checkExternalShareRestriction(ctx context.Context, sourceID, invitedID int64) error {
@@ -61,8 +69,14 @@ func SetGroupShare(ctx context.Context, actor governance_model.Actor, groupID in
 		if err != nil {
 			return err
 		}
-		if source.Revision != option.Revision || source.Archived || source.DeleteAfter != 0 {
-			return governance_model.ErrConflict
+		if source.DeleteAfter != 0 {
+			return shareConflict("当前群组正在等待删除，不能修改共享；请先取消删除")
+		}
+		if source.Archived {
+			return shareConflict("当前群组已归档，不能修改共享；请先取消归档")
+		}
+		if source.Revision != option.Revision {
+			return shareConflict("群组数据已更新，当前页面已过期；请刷新页面后重新确认共享设置")
 		}
 		var previous governance_model.Share
 		exists, err := db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ? AND group_id = ?", "group", groupID, option.GroupID).Get(&previous)
@@ -87,8 +101,11 @@ func SetGroupShare(ctx context.Context, actor governance_model.Actor, groupID in
 			if err != nil {
 				return err
 			}
-			if invited.Archived || invited.DeleteAfter != 0 {
-				return governance_model.ErrConflict
+			if invited.DeleteAfter != 0 {
+				return shareConflict("被邀请群组正在等待删除，不能添加或修改共享；请先取消删除")
+			}
+			if invited.Archived {
+				return shareConflict("被邀请群组已归档，不能添加或修改共享；请先取消归档")
 			}
 			if !exists {
 				if err := checkExternalShareRestriction(ctx, groupID, option.GroupID); err != nil {
@@ -133,12 +150,24 @@ func SetGroupShare(ctx context.Context, actor governance_model.Actor, groupID in
 
 // checkGroupShareCycle 同时检查父级继承与有效共享的依赖方向，禁止闭环。
 func checkGroupShareCycle(ctx context.Context, sourceID, invitedID int64) error {
+	if sourceID == invitedID {
+		return shareConflict("不能将群组共享给自身")
+	}
+	chain, err := governance_model.Ancestors(ctx, invitedID)
+	if err != nil {
+		return err
+	}
+	for _, ancestor := range chain {
+		if ancestor.ID == sourceID {
+			return shareConflict("不能将父群组共享给自己的子群组或更深层后代群组，这会与权限继承形成循环")
+		}
+	}
 	pending, seen := []int64{invitedID}, map[int64]bool{}
 	for len(pending) > 0 {
 		id := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
 		if id == sourceID {
-			return governance_model.ErrConflict
+			return shareConflict("此操作会使群组共享与权限继承形成循环；请先调整已有共享关系")
 		}
 		if seen[id] {
 			continue

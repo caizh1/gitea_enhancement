@@ -7,6 +7,7 @@ package governance
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"gitea.dev/models/db"
@@ -256,5 +257,6 @@ func RepositoryGrants(ctx context.Context, repoID, ownerID, userID int64, now ti
 			grants = append(grants, grant)
 		}
 	}
-	return grants, nil
+	// Minimal Access 只授予群组信息访问，不能继承或共享为项目成员权限。
+	return slices.DeleteFunc(grants, func(grant Grant) bool { return grant.Role == MinimalAccess }), nil
 }

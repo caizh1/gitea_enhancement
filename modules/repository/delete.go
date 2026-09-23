@@ -6,7 +6,7 @@ package repository
 import (
 	"context"
 
-	"gitea.dev/models/organization"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 )
@@ -21,13 +21,7 @@ func CanUserDelete(ctx context.Context, repo *repo_model.Repository, user *user_
 		return false, err
 	}
 
-	if repo.Owner.IsOrganization() {
-		isAdmin, err := organization.OrgFromUser(repo.Owner).IsOrgAdmin(ctx, user.ID)
-		if err != nil {
-			return false, err
-		}
-		return isAdmin, nil
-	}
-
-	return false, nil
+	permission, err := access_model.GetIndividualUserRepoPermission(ctx, repo, user)
+	permission = permission.ForMutation()
+	return permission.IsOwner(), err
 }

@@ -4,6 +4,7 @@
 package user
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	gm "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
@@ -39,7 +41,7 @@ func TestDeleteUser(t *testing.T) {
 		if len(ownedRepos) > 0 {
 			err := DeleteUser(t.Context(), user, false)
 			assert.Error(t, err)
-			assert.True(t, repo_model.IsErrUserOwnRepos(err))
+			assert.True(t, repo_model.IsErrUserOwnRepos(err) || errors.Is(err, gm.ErrConflict))
 			return
 		}
 
@@ -72,6 +74,9 @@ func TestDeleteUser(t *testing.T) {
 		unittest.AssertExistsAndLoadBean(t, &auth.WebAuthnCredential{UserID: 32})
 		unittest.AssertExistsAndLoadBean(t, &activities_model.Notification{UserID: 2})
 		unittest.AssertExistsAndLoadBean(t, &issues_model.IssueWatch{UserID: 2})
+
+		// 清理样本先安排接替所有者，不能通过清除用户绕过永久 Owner 保护。
+		prepareReplacementOwners(t)
 
 		// delete users
 		user24 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 24})
@@ -112,6 +117,7 @@ func TestDeleteUserUnlinkedAttachments(t *testing.T) {
 func TestPurgeUser(t *testing.T) {
 	test := func(userID int64) {
 		assert.NoError(t, unittest.PrepareTestDatabase())
+		prepareReplacementOwners(t)
 		user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: userID})
 
 		err := DeleteUser(t.Context(), user, true)
@@ -262,4 +268,23 @@ func TestDeleteInactiveUsers(t *testing.T) {
 	unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "user-inactive-5"})
 	unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "user-active-10"})
 	unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "user-active-5"})
+}
+
+// 为清理流程样本补齐新规则要求的接替 Owner，另有权限测试覆盖拒绝分支。
+func prepareReplacementOwners(t *testing.T) {
+	t.Helper()
+	ctx := t.Context()
+	require.NoError(t, gm.InitializeLegacyNamespaces(ctx))
+	replacement := &user_model.User{Name: "replacement-owner", LowerName: "replacement-owner", Email: "replacement@example.invalid", IsActive: true}
+	require.NoError(t, db.Insert(ctx, replacement))
+	var repos []*repo_model.Repository
+	require.NoError(t, db.GetEngine(ctx).Find(&repos))
+	for _, repo := range repos {
+		require.NoError(t, db.Insert(ctx, &gm.Membership{ScopeType: "repository", ScopeID: repo.ID, UserID: replacement.ID, Role: gm.Owner}))
+	}
+	var groups []*organization.Organization
+	require.NoError(t, db.GetEngine(ctx).Where("type = 1").Find(&groups))
+	for _, group := range groups {
+		require.NoError(t, db.Insert(ctx, &gm.Membership{ScopeType: "group", ScopeID: group.ID, UserID: replacement.ID, Role: gm.Owner}))
+	}
 }

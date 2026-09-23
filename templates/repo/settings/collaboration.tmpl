@@ -1,130 +1,139 @@
-{{template "repo/settings/layout_head" (dict "pageClass" "repository settings collaboration")}}
-	<div class="repo-setting-content">
-		<h4 class="ui top attached header">
-			{{ctx.Locale.Tr "repo.settings.collaboration"}}
-		</h4>
-		{{if .Collaborators}}
-		<div class="ui attached segment">
-			<div class="flex-divided-list items-with-main">
-				{{range .Collaborators}}
-					<div class="item tw-items-center">
-						<div class="item-leading">
-							<a href="{{.HomeLink}}">{{ctx.AvatarUtils.Avatar . 32}}</a>
-						</div>
-						<div class="item-main">
-							<div class="item-title">
-								{{template "shared/user/name" .}}
-							</div>
-						</div>
-						<div class="item-trailing">
-							<div class="flex-text-block">
-								{{svg "octicon-shield-lock"}}
-								<div class="ui dropdown custom access-mode" data-url="{{$.Link}}/access_mode" data-uid="{{.ID}}" data-last-value="{{.Collaboration.Mode}}">
-									<div class="text">{{if eq .Collaboration.Mode 1}}{{ctx.Locale.Tr "repo.settings.collaboration.read"}}{{else if eq .Collaboration.Mode 2}}{{ctx.Locale.Tr "repo.settings.collaboration.write"}}{{else if eq .Collaboration.Mode 3}}{{ctx.Locale.Tr "repo.settings.collaboration.admin"}}{{else}}{{ctx.Locale.Tr "repo.settings.collaboration.undefined"}}{{end}}</div>
-									{{svg "octicon-triangle-down" 14 "dropdown icon"}}
-									<div class="menu">
-										<div class="item" data-value="3">{{ctx.Locale.Tr "repo.settings.collaboration.admin"}}</div>
-										<div class="item" data-value="2">{{ctx.Locale.Tr "repo.settings.collaboration.write"}}</div>
-										<div class="item" data-value="1">{{ctx.Locale.Tr "repo.settings.collaboration.read"}}</div>
-									</div>
-								</div>
-							</div>
-							<button class="ui red tiny button link-action" data-modal-confirm="#repo-collaborator-delete-modal" data-url="{{$.Link}}/delete?id={{.ID}}">
-								{{ctx.Locale.Tr "repo.settings.delete_collaborator"}}
-							</button>
-						</div>
-					</div>
-				{{end}}
-			</div>
-		</div>
-		{{end}}
-		<div class="ui bottom attached segment">
-			<form class="ui form flex-text-block" id="repo-collab-form" action="{{.Link}}" method="post">
-				<div id="search-user-box" class="ui search input">
-					<input class="prompt" name="collaborator" placeholder="{{ctx.Locale.Tr "search.user_kind"}}" autocomplete="off" autofocus required>
-				</div>
-				<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.add_collaborator"}}</button>
-			</form>
-		</div>
+{{template "base/head" .}}
+<div role="main" class="page-content repository settings collaboration">
+ {{template "repo/header" .}}
+ <div class="ui container repo-setting-content" id="repo-members" data-url="{{.RepoLink}}/collaborators" data-revision="{{.MemberView.Revision}}">
+ {{template "base/alert" .}}
+ <div class="tw-flex tw-items-center tw-justify-between tw-flex-wrap tw-gap-3">
+  <div><h2>协作者</h2><p class="text light-2">每人一行，查看实际角色及全部授权来源。编辑某条来源时，其他授权继续生效。</p></div>
+  {{if .MemberView.CanManage}}<button type="button" class="ui primary button show-modal" data-modal="#repo-member-modal" data-modal-member-name="" data-modal-member-name.read-only="" data-modal-member-role.value="30" data-modal-member-custom.value="0" data-modal-member-expiry="" data-modal-member-expiry-unix="0">{{svg "octicon-plus"}} 添加协作者</button>{{end}}
+ </div>
+ {{if .MemberView.PublicProjection}}<p class="ui info message">当前仅展示公开可见的成员及授权来源；角色按可见来源计算。项目成员登录后可查看允许访问的完整成员信息。</p>{{end}}
+ <form class="ui form member-filters tw-flex tw-items-end tw-flex-wrap tw-gap-3" method="get">
+  <div class="field"><label for="member-q">搜索成员</label><input id="member-q" name="q" value="{{.MemberView.Query.Q}}" placeholder="用户名"></div>
+  <div class="field"><label for="member-filter-role">实际角色</label><select name="role" id="member-filter-role"><option value="0">全部角色</option>{{range $role,$name := .MemberRoleNames}}<option value="{{$role}}" {{if eq $role $.MemberView.Query.Role}}selected{{end}}>{{$name}}</option>{{end}}</select></div>
+  <div class="field"><label for="member-source">权限来源</label><select id="member-source" name="source"><option value="">全部来源</option>{{range $key,$name := dict "direct" "直接授权" "inherited" "所属群组继承" "shared" "邀请群组" "inherited_shared" "继承共享" "native_team" "原生团队" "native_collaborator" "原生协作者" "owner" "个人所有者"}}<option value="{{$key}}" {{if eq $key $.MemberView.Query.Source}}selected{{end}}>{{$name}}</option>{{end}}</select></div>
+  <button class="ui button">筛选</button><a class="ui basic button" href="?role=50">仅看 Owner</a><a href="{{.RepoLink}}/collaborators">清除筛选</a>
+ </form>
+ <div class="ui segment member-list">
+ {{range .MemberView.Members}}
+  <article class="member-entry">
+   <div class="tw-flex tw-items-center tw-justify-between tw-flex-wrap tw-gap-3">
+    <div><strong>{{.Username}}</strong> {{if .SiteAdmin}}<span class="ui basic label">站点管理员</span>{{end}} <span class="ui label">{{.RoleName}}</span>{{if not .Active}}<span class="text red">账号已停用</span>{{end}}</div>
+    {{if .CanEdit}}<button type="button" class="ui small basic button show-modal" data-modal="#repo-member-modal" data-modal-member-name="{{.Username}}" data-modal-member-name.read-only="true" data-modal-member-role.value="{{if .Direct}}{{.Direct.Role}}{{else}}30{{end}}" data-modal-member-custom.value="{{if .Direct}}{{.Direct.CustomRoleID}}{{else}}0{{end}}" data-modal-member-expiry="" data-modal-member-expiry-unix="{{if .Direct}}{{.Direct.ExpiresUnix}}{{else}}0{{end}}">{{if .Direct}}编辑直接授权{{else}}添加直接授权{{end}}</button>{{end}}
+   </div>
+   <details class="tw-mt-3"><summary>查看 {{len .Sources}} 个授权来源</summary>
+    {{$member := .}}{{range .Sources}}<div class="member-source-row">
+     <div><strong>{{.Name}}</strong><div>{{.Role}}{{if .Ceiling}} · 共享上限：{{.Ceiling}}{{end}}</div><div class="text light-2">{{if .ExpiresUnix}}有效至：{{DateUtils.FullTime .ExpiresUnix}}{{else}}永久{{end}}{{if .Expired}} · 已过期{{end}}</div>
+     {{if .Units}}<details><summary>分项权限</summary>{{range $unit,$access:=.Units}}<div>{{$unit}}：{{$access}}</div>{{end}}</details>{{end}}
+     {{if .Abilities}}<details><summary>能力明细</summary>{{range $ability,$enabled:=.Abilities}}{{if $enabled}}<span class="ui basic label">{{$ability}}</span>{{end}}{{end}}</details>{{end}}</div>
+     <div>{{if and (eq .Kind "native_collaborator") .CanEdit}}
+<form class="ui form repo-member-change" data-kind="native" action="{{$.RepoLink}}/collaborators/change" method="post"><input type="hidden" name="user_id" value="{{$member.UserID}}"><input type="hidden" name="revision" value="{{$.MemberView.Revision}}"><label>原生授权角色<select name="role">{{$sourceRole := .Role}}{{range $.MemberView.AllowedRoles}}{{if or (eq . 20) (eq . 30) (eq . 40)}}<option value="{{.}}" {{if eq (index $.MemberRoleNames .) $sourceRole}}selected{{end}}>{{index $.MemberRoleNames .}}</option>{{end}}{{end}}</select></label><label>操作<select name="action"><option value="update">更新此来源</option><option value="remove">移除此来源</option></select></label><div class="member-preview" role="status" aria-live="polite"></div><button class="ui small basic button">预览影响</button></form>
+{{else if .ManageURL}}<a class="ui small basic button" href="{{.ManageURL}}">前往来源管理</a>{{else}}<span class="text light-2">{{.Reason}}</span>{{end}}</div>
+    </div>{{end}}
+   </details>
+   {{if and .CanEdit .Direct}}<form class="ui form repo-member-change tw-mt-3" data-kind="member" method="post" action="{{$.RepoLink}}/collaborators/change"><input type="hidden" name="user_id" value="{{.UserID}}"><input type="hidden" name="action" value="remove"><input type="hidden" name="revision" value="{{$.MemberView.Revision}}"><div class="member-preview" role="status" aria-live="polite"></div><button class="ui small red basic button">预览移除直接授权</button></form>{{end}}
+  </article>
+ {{else}}<p>没有符合条件的成员。</p>{{end}}
+ </div>
+ {{if .MemberView.NextID}}<a class="ui button" href="?after_id={{.MemberView.NextID}}&amp;q={{.MemberView.Query.Q}}&amp;role={{.MemberView.Query.Role}}&amp;source={{.MemberView.Query.Source}}">下一页成员</a>{{end}}
+        <section class="repo-group-shares tw-mt-8" aria-labelledby="repo-group-shares-title">
+            <div class="tw-flex tw-items-center tw-justify-between tw-flex-wrap tw-gap-3">
+                <h4 id="repo-group-shares-title" class="tw-m-0">邀请群组</h4>
+                {{if .MemberView.CanOwn}}
+                    <button type="button" class="ui primary button show-modal" data-modal="#repo-share-modal" data-modal-share-title="邀请群组" data-modal-share-path="" data-modal-share-path.read-only="" data-modal-share-role.value="20" data-modal-share-expiry="" data-modal-share-expiry-unix="0" data-modal-share-submit="预览影响">{{svg "octicon-plus"}} 邀请群组</button>
+                {{end}}
+            </div>
+            <p class="text light-2">将本项目共享给群组，并设置最高角色与有效期。</p>
+            {{if .MemberView.CanOwn}}
+                <div class="ui segment">
+                    <div class="repo-share-row repo-share-head text light-2" aria-hidden="true"><span>群组</span><span>最高角色</span><span>有效至（UTC）</span><span>操作</span></div>
+                    {{range .State.Shares}}
+                        <div class="repo-share-row">
+                            <div class="tw-flex tw-items-center tw-gap-3 tw-min-w-0">
+                                {{svg "octicon-people" 24}}
+                                <div class="tw-min-w-0 tw-break-anywhere"><strong>{{index $.ShareDisplayNames .GroupID}}</strong><div class="text light-2">{{index $.GroupNames .GroupID}}</div></div>
+                            </div>
+                            <div><span class="repo-share-mobile-label">最高角色：</span>{{index $.RoleNames .MaxRole}}</div>
+                            <div><span class="repo-share-mobile-label">有效至：</span>{{if .ExpiresUnix}}{{index $.ShareDates .ID}}{{else}}永久{{end}}</div>
+                            <div class="tw-flex tw-flex-wrap tw-gap-2">
+                                {{if index $.ShareEditable .GroupID}}
+                                    <button type="button" class="ui small basic button show-modal" data-modal="#repo-share-modal" data-modal-share-title="编辑群组共享" data-modal-share-path="{{index $.GroupNames .GroupID}}" data-modal-share-path.read-only="true" data-modal-share-role.value="{{.MaxRole}}" data-modal-share-expiry="{{index $.ShareDates .ID}}" data-modal-share-expiry-unix="{{.ExpiresUnix}}" data-modal-share-submit="预览影响">编辑</button>
+                                {{end}}
+                                <button type="button" class="ui small red basic button show-modal" data-modal="#repo-share-remove-modal" data-modal-remove-group="{{index $.GroupNames .GroupID}}" data-modal-remove-id="{{.GroupID}}">撤销共享</button>
+                            </div>
+                        </div>
+                    {{else}}
+                        <p class="text light-2">尚未邀请群组。邀请后，群组成员可按角色上限访问本项目。</p>
+                    {{end}}
+                </div>
+                {{if .NextID}}<a class="ui button" href="?share_after_id={{.NextID}}#repo-group-shares-title">下一页群组</a>{{end}}
+                {{if .ShareAfterID}}<a class="ui button" href="{{.RepoLink}}/collaborators#repo-group-shares-title">返回首页</a>{{end}}
+                <p class="text light-2">实际权限受成员角色与共享角色上限共同限制；撤销共享不会移除其他来源的权限。</p>
+            {{else}}
+                <div class="ui segment">{{range .MemberView.Shares}}<div class="repo-share-row"><strong>{{.Name}}</strong><span>{{.Role}}</span><span>{{if .ExpiresUnix}}{{DateUtils.FullTime .ExpiresUnix}}{{else}}永久{{end}}{{if .Expired}} · 已过期{{end}}</span><span>仅项目 Owner 可管理</span></div>{{else}}<p>尚未邀请群组。</p>{{end}}</div>
+            {{end}}
 
-		{{if $.Repository.Owner.IsOrganization}}
-			<h4 class="ui top attached header">
-				{{ctx.Locale.Tr "repo.settings.teams"}}
-			</h4>
-			{{$allowedToChangeTeams := .CanChangeRepoTeamAccess}}
-			{{if .Teams}}
-			<div class="ui attached segment">
-				<div class="flex-divided-list items-with-main">
-					{{range $t, $team := .Teams}}
-						<div class="item">
-							<div class="item-main">
-								<a class="item-title tw-text-primary" href="{{AppSubUrl}}/org/{{$.OrgName|PathEscape}}/teams/{{.LowerName|PathEscape}}">
-									{{.Name}}
-								</a>
-								<div class="item-body flex-text-block">
-									{{/*FIXME: TEAM-UNIT-PERMISSION this display is not right, search the fixme keyword to see more details */}}
-									{{svg "octicon-shield-lock"}}
-									{{if eq .AccessMode 0}}
-										{{ctx.Locale.Tr "repo.settings.collaboration.per_unit"}}
-									{{else if eq .AccessMode 1}}
-										{{ctx.Locale.Tr "repo.settings.collaboration.read"}}
-									{{else if eq .AccessMode 2}}
-										{{ctx.Locale.Tr "repo.settings.collaboration.write"}}
-									{{else if eq .AccessMode 3}}
-										{{ctx.Locale.Tr "repo.settings.collaboration.admin"}}
-									{{else if eq .AccessMode 4}}
-										{{ctx.Locale.Tr "repo.settings.collaboration.owner"}}
-									{{else}}
-										{{ctx.Locale.Tr "repo.settings.collaboration.undefined"}}
-									{{end}}
-								</div>
-								{{if or (eq .AccessMode 0) (eq .AccessMode 1) (eq .AccessMode 2)}}
-									{{$first := true}}
-												<div class="item-body" data-tooltip-content="{{ctx.Locale.Tr "repo.settings.change_team_permission_tip"}}">
-										Units:
-										{{range $u, $unit := $.Units}}
-											{{- if and ($.Repo.UnitEnabled ctx $unit.Type) ($team.UnitEnabled ctx $unit.Type) -}}
-												{{- Iif $first "" ", "}}{{ctx.Locale.Tr $unit.NameKey -}}
-												{{- $first = false -}}
-											{{- end -}}
-										{{end}}
-										{{if $first}}None{{end}}
-									</div>
-								{{end}}
-							</div>
-							{{if $allowedToChangeTeams}}
-								<div class="item-trailing" {{if .IncludesAllRepositories}} data-tooltip-content="{{ctx.Locale.Tr "repo.settings.delete_team_tip"}}"{{end}}>
-									<button class="ui red tiny button link-action {{if .IncludesAllRepositories}}disabled{{end}}" data-modal-confirm="#repo-collaborator-delete-modal" data-url="{{$.Link}}/team/delete?id={{.ID}}">
-											{{ctx.Locale.Tr "repo.settings.delete_collaborator"}}
-									</button>
-								</div>
-							{{end}}
-						</div>
-					{{end}}
-				</div>
-			</div>
-			{{end}}
-			<div class="ui bottom attached segment">
-				{{if $allowedToChangeTeams}}
-					<form class="ui form flex-text-block" id="repo-collab-team-form" action="{{.Link}}/team" method="post">
-						<div id="search-team-box" class="ui search input" data-org-name="{{.OrgName}}">
-							<input class="prompt" name="team" placeholder="{{ctx.Locale.Tr "search.team_kind"}}" autocomplete="off" required>
-						</div>
-						<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.add_team"}}</button>
-					</form>
-				{{else}}
-					<div class="item">
-						{{ctx.Locale.Tr "repo.settings.change_team_access_not_allowed"}}
-					</div>
-				{{end}}
-			</div>
-		{{end}}
+        </section>
 	</div>
 
-<div class="ui small modal" id="repo-collaborator-delete-modal">
-	<div class="header">{{svg "octicon-trash"}} {{ctx.Locale.Tr "repo.settings.collaborator_deletion"}}</div>
-	<div class="content"><p>{{ctx.Locale.Tr "repo.settings.collaborator_deletion_desc"}}</p></div>
-	{{template "base/modal_actions_confirm" .}}
+{{if .MemberView.CanOwn}}
+<div class="ui small modal" id="repo-share-modal">
+    <div class="header tw-flex tw-items-center tw-justify-between tw-gap-3"><span id="share-title">邀请群组</span><div class="actions"><button type="button" class="ui cancel icon basic button" aria-label="关闭">{{svg "octicon-x"}}</button></div></div>
+    <form class="ui form repo-member-change" data-kind="share" method="post" action="{{.RepoLink}}/collaborators/change">
+        {{.CsrfTokenHtml}}
+        <input type="hidden" name="revision" value="{{.State.Revision}}">
+        <div class="content">
+            <div class="field">
+                <label for="share-path">群组</label>
+                <div class="ui search" id="repo-share-search" data-url="{{AppSubUrl}}/governance/repositories/{{.Repository.ID}}/shares/groups?q={query}">
+                    <input id="share-path" class="prompt" name="group_path" placeholder="搜索群组名称或完整路径" maxlength="2048" autocomplete="off" required>
+                </div>
+                <p class="help">输入关键词搜索，或填写完整路径；你需要是被邀请群组的成员。</p>
+            </div>
+            <div class="field">
+                <label for="share-role">最高角色</label>
+                <select id="share-role" name="role">{{range $role,$name := .RoleNames}}<option value="{{$role}}" {{if eq $role 20}}selected{{end}}>{{$name}}</option>{{end}}</select>
+                <p class="help">成员通过此次共享获得的权限不会超过此角色。选择 Owner 时，群组中的 Owner 可管理本项目成员及生命周期，但不会成为项目所属组织的 Owner。</p>
+            </div>
+            <div class="field">
+                <label for="share-expiry">有效至（UTC，可选）</label>
+                <input id="share-expiry" name="expires" type="date">
+                <input id="share-expiry-unix" name="expires_unix" type="hidden" value="0">
+                <p class="help">留空表示永久有效；选定日期当天结束后失效。</p>
+            </div>
+        </div>
+        <div class="member-preview content" role="status" aria-live="polite"></div><div class="actions"><button type="button" class="ui cancel button">取消</button><button type="submit" class="ui primary button" id="share-submit">预览影响</button></div>
+    </form>
+</div>
+<div class="ui small modal" id="repo-share-remove-modal">
+    <div class="header">撤销群组共享</div>
+    <form class="ui form repo-member-change" data-kind="share" method="post" action="{{.RepoLink}}/collaborators/change">
+        {{.CsrfTokenHtml}}
+        <input type="hidden" name="revision" value="{{.State.Revision}}">
+        <input type="hidden" name="action" value="remove">
+        <input type="hidden" name="group_id" id="remove-id">
+        <div class="content"><p>确认撤销 <strong id="remove-group"></strong> 对本项目的共享？</p><p>成员通过其他途径获得的权限不受影响。</p></div>
+        <div class="member-preview content" role="status" aria-live="polite"></div><div class="actions"><button type="button" class="ui cancel button">取消</button><button type="submit" class="ui red button">预览撤销影响</button></div>
+    </form>
+</div>
+{{end}}
+
 </div>
 
-{{template "repo/settings/layout_footer" .}}
+{{if .MemberView.CanManage}}
+<div class="ui small modal" id="repo-member-modal">
+ <div class="header">项目直接授权</div>
+ <form class="ui form repo-member-change" data-kind="member" method="post" action="{{.RepoLink}}/collaborators/change">
+  <input type="hidden" name="revision" value="{{.MemberView.Revision}}">
+  <div class="content">
+   <div class="field"><label for="member-name">用户名</label><div id="repo-member-search" class="ui search"><input id="member-name" class="prompt" name="username" required autocomplete="off" placeholder="搜索用户"></div></div>
+   <div class="field"><label for="member-role">角色</label><select name="role" id="member-role">{{range .MemberView.AllowedRoles}}<option value="{{.}}" {{if eq . 30}}selected{{end}}>{{index $.MemberRoleNames .}}</option>{{end}}</select><p class="help">Guest：参与讨论；Planner：规划议题；Reporter：读取代码；Developer：开发提交；Maintainer：维护项目和普通成员；Owner：管理 Owner、群组共享和项目生命周期。</p></div>
+   <div class="field"><label for="member-expiry">有效至（UTC，可选）</label><input type="date" name="expires" id="member-expiry"><input type="hidden" name="expires_unix" id="member-expiry-unix" value="0"><p class="help">留空永久；所选日期当天结束后失效。临时 Owner 不作为永久所有者保障。</p></div>
+   <details><summary>高级选项</summary><div class="field"><label for="member-custom">自定义角色</label><select id="member-custom" name="custom_role_id"><option value="0">使用标准角色</option>{{range .MemberView.Roles}}<option value="{{.ID}}" data-base-role="{{.BaseRole}}">{{.Name}}</option>{{end}}</select></div></details>
+   <div class="member-preview" role="status" aria-live="polite"></div>
+  </div>
+  <div class="actions"><button type="button" class="ui cancel button">取消</button><button type="submit" class="ui primary button">预览影响</button></div>
+ </form>
+</div>
+{{end}}
+{{template "base/footer" .}}

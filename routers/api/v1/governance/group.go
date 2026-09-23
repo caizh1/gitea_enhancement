@@ -319,7 +319,7 @@ func RemoveGroupShare(ctx *context.APIContext) {
 	// responses:
 	//   "204":
 	//     description: 共享已撤销
-	option := GroupShareOption{GroupID: ctx.PathParamInt64("group_id"), Revision: ctx.FormInt64("revision")}
+	option := GroupShareOption{GroupID: ctx.PathParamInt64("group_id"), Revision: ctx.FormInt64("revision"), PreviewToken: ctx.FormString("preview_token")}
 	if err := governance_service.SetGroupShare(ctx, requestActor(ctx), ctx.PathParamInt64("id"), option, true); err != nil {
 		respondError(ctx, err)
 		return
@@ -529,7 +529,7 @@ func RemoveRepositoryShare(ctx *context.APIContext) {
 	// responses:
 	//   "204":
 	//     description: 共享已撤销
-	option := GroupShareOption{GroupID: ctx.PathParamInt64("group_id"), Revision: ctx.FormInt64("revision")}
+	option := GroupShareOption{GroupID: ctx.PathParamInt64("group_id"), Revision: ctx.FormInt64("revision"), PreviewToken: ctx.FormString("preview_token")}
 	if err := governance_service.SetRepositoryShare(ctx, requestActor(ctx), ctx.PathParamInt64("id"), option, true); err != nil {
 		respondError(ctx, err)
 		return

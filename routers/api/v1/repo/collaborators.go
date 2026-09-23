@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	gm "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -185,6 +186,10 @@ func AddOrUpdateCollaborator(ctx *context.APIContext) {
 	}
 
 	if err := repo_service.AddOrUpdateCollaborator(ctx, ctx.Repo.Repository, collaborator, p); err != nil {
+		if errors.Is(err, gm.ErrNotFound) {
+			ctx.APIErrorNotFound()
+			return
+		}
 		if errors.Is(err, user_model.ErrBlockedUser) {
 			ctx.APIError(http.StatusForbidden, err.Error())
 		} else {
@@ -238,6 +243,10 @@ func DeleteCollaborator(ctx *context.APIContext) {
 	}
 
 	if err := repo_service.DeleteCollaboration(ctx, ctx.Repo.Repository, collaborator); err != nil {
+		if errors.Is(err, gm.ErrNotFound) {
+			ctx.APIErrorNotFound()
+			return
+		}
 		ctx.APIErrorInternal(err)
 		return
 	}

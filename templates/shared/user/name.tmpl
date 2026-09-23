@@ -1,1 +1,1 @@
-<a class="text muted" href="{{.HomeLink}}">{{.Name}}{{if .FullName}} ({{.FullName}}){{end}}</a>
+<a class="text muted" href="{{.HomeLink}}">{{if .IsOrganization}}{{if .FullName}}{{.FullName}}{{if ne .FullName .FullPath}} ({{.FullPath}}){{end}}{{else}}{{.FullPath}}{{end}}{{else}}{{.Name}}{{if .FullName}} ({{.FullName}}){{end}}{{end}}</a>

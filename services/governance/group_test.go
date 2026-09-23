@@ -238,6 +238,43 @@ func TestMaintainerCannotManageGroupMembers(t *testing.T) {
 	require.NoError(t, SetGroupMember(ctx, owner, 3, GroupMemberOption{UserID: 5, Role: governance_model.Reporter, Revision: 2}, false))
 }
 
+func TestGroupShareUnavailableMessages(t *testing.T) {
+	for _, sample := range []struct {
+		name, message    string
+		target, archived bool
+	}{
+		{"来源归档", "当前群组已归档，不能修改共享；请先取消归档", false, true},
+		{"来源待删除", "当前群组正在等待删除，不能修改共享；请先取消删除", false, false},
+		{"目标归档", "被邀请群组已归档，不能添加或修改共享；请先取消归档", true, true},
+		{"目标待删除", "被邀请群组正在等待删除，不能添加或修改共享；请先取消删除", true, false},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			unittest.PrepareTestEnv(t)
+			ctx := t.Context()
+			require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+			actor := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}
+			source, err := CreateGroup(ctx, actor, GroupOption{Path: "share-source", Visibility: 2})
+			require.NoError(t, err)
+			target, err := CreateGroup(ctx, actor, GroupOption{Path: "share-target", Visibility: 2})
+			require.NoError(t, err)
+			id := source.ID
+			if sample.target {
+				id = target.ID
+			}
+			state := &governance_model.Namespace{Archived: sample.archived}
+			if !sample.archived {
+				state.DeleteAfter = time.Now().Add(time.Hour).Unix()
+			}
+			_, err = db.GetEngine(ctx).ID(id).Cols("archived", "delete_after").Update(state)
+			require.NoError(t, err)
+			err = SetGroupShare(ctx, actor, source.ID, GroupShareOption{GroupID: target.ID, MaxRole: governance_model.Reporter, Revision: source.Revision}, false)
+			assert.ErrorIs(t, err, governance_model.ErrConflict)
+			assert.EqualError(t, err, sample.message)
+			unittest.AssertCount(t, &governance_model.Share{ScopeType: "group", ScopeID: source.ID}, 0)
+		})
+	}
+}
+
 func TestGroupSharingDirectMembersRevocationAndCycles(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	ctx := t.Context()
@@ -259,8 +296,18 @@ func TestGroupSharingDirectMembersRevocationAndCycles(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, state.Abilities[governance_model.ReadCode])
 	assert.False(t, state.Abilities[governance_model.PushCode], "共享权限受最高角色限制")
-	assert.ErrorIs(t, SetGroupShare(ctx, owner, invited.ID, GroupShareOption{GroupID: source.ID, MaxRole: governance_model.Reporter, Revision: 2}, false), governance_model.ErrConflict)
-	assert.ErrorIs(t, SetGroupShare(ctx, owner, invitedParent.ID, GroupShareOption{GroupID: invited.ID, MaxRole: governance_model.Reporter, Revision: 2}, false), governance_model.ErrConflict, "父组共享给子组会与继承形成循环")
+	err = SetGroupShare(ctx, owner, invited.ID, GroupShareOption{GroupID: source.ID, MaxRole: governance_model.Reporter, Revision: 2}, false)
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
+	assert.EqualError(t, err, "此操作会使群组共享与权限继承形成循环；请先调整已有共享关系")
+	err = SetGroupShare(ctx, owner, invitedParent.ID, GroupShareOption{GroupID: invited.ID, MaxRole: governance_model.Reporter, Revision: 2}, false)
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
+	assert.EqualError(t, err, "不能将父群组共享给自己的子群组或更深层后代群组，这会与权限继承形成循环")
+	err = SetGroupShare(ctx, owner, source.ID, GroupShareOption{GroupID: source.ID, MaxRole: governance_model.Reporter, Revision: 2}, false)
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
+	assert.EqualError(t, err, "不能将群组共享给自身")
+	err = SetGroupShare(ctx, owner, source.ID, GroupShareOption{GroupID: invited.ID, MaxRole: governance_model.Reporter, Revision: 1}, false)
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
+	assert.EqualError(t, err, "群组数据已更新，当前页面已过期；请刷新页面后重新确认共享设置")
 	_, err = MoveGroup(ctx, owner, invited.ID, GroupOption{Path: "invited", ParentID: source.ID, Revision: 2})
 	assert.ErrorIs(t, err, governance_model.ErrConflict, "移动不能绕过共享循环检查")
 	require.NoError(t, SetGroupShare(ctx, owner, source.ID, GroupShareOption{GroupID: invited.ID, Revision: 2}, true))

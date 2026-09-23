@@ -9,7 +9,7 @@
    <p class="tw-break-all">{{.FullPath}} {{if .Archived}}<span class="ui label">已归档</span>{{end}}</p>
    <div class="tw-flex tw-gap-2 tw-flex-wrap">
     <a class="ui button" href="{{AppSubUrl}}/{{.FullPath|PathEscapeSegments}}">查看项目</a>
-    {{if index .Abilities "manage_group"}}<a class="ui button" href="{{AppSubUrl}}/{{.FullPath|PathEscapeSegments}}/settings">原生群组设置</a>{{end}}
+    {{if index .Abilities "manage_group"}}<a class="ui button" href="{{AppSubUrl}}/org/{{.FullPath|PathEscapeSegments}}/settings">原生群组设置</a>{{end}}
     <a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ID}}/access-requests">访问申请</a>
     {{if index .Abilities "manage_group_members"}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ID}}/invitations">成员邀请</a>{{end}}
     {{if $.MoveParentPath}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ParentID}}">父群组</a>{{end}}

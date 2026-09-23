@@ -17,6 +17,9 @@ import (
 	"gitea.dev/modules/json"
 )
 
+// 仅作为调用者资格标记，不属于可配置的自定义角色能力。
+const repositoryOwnerAuthority = "repository_owner_authority"
+
 func repositoryMemberViewer(ctx context.Context, actorID, repoID int64) (*repo_model.Repository, bool, error) {
 	repo, _, err := repositoryMemberManager(ctx, actorID, repoID)
 	if err == nil {
@@ -71,6 +74,7 @@ func repositoryMemberManager(ctx context.Context, actorID, repoID int64) (*repo_
 	if !abilities[governance_model.ManageMembers] {
 		return nil, nil, governance_model.ErrNotFound
 	}
+	abilities[repositoryOwnerAuthority] = permission.IsOwner()
 	return repo, abilities, nil
 }
 
@@ -126,27 +130,26 @@ func CheckRepositoryOwnerMutation(ctx context.Context, actorID, repoID int64) (*
 	if permission.IsOwner() {
 		return repo, nil
 	}
-	grants, err := governance_model.RepositoryGrants(ctx, repo.ID, repo.OwnerID, actorID, time.Now())
-	if err != nil {
-		return nil, err
-	}
-	for _, grant := range grants {
-		if grant.Role == governance_model.Owner && (grant.Source == "direct" || grant.Source == "inherited" || grant.Source == "native_owner") {
-			return repo, nil
-		}
-	}
 	return nil, governance_model.ErrNotFound
 }
 
 // SetRepositoryMember 仅变更治理直接来源；不改写原生协作者、团队或继承授权。
 func SetRepositoryMember(ctx context.Context, actor governance_model.Actor, repoID int64, option GroupMemberOption, remove bool) error {
-	return setRepositoryMember(ctx, actor, actor, repoID, option, remove)
+	err := setRepositoryMember(ctx, actor, actor, repoID, option, remove)
+	auditRepositoryMemberFailure(ctx, actor, repoID, "member.updated", err)
+	return err
 }
 
 func setRepositoryMember(ctx context.Context, actor, auditActor governance_model.Actor, repoID int64, option GroupMemberOption, remove bool) error {
 	return withActorWrite(ctx, actor, []string{governance_model.Resource("repository", repoID), governance_model.Resource("user", option.UserID)}, func(ctx context.Context) error {
 		repo, ceiling, err := repositoryMemberManager(ctx, actor.EffectiveUserID(), repoID)
 		if err != nil {
+			return err
+		}
+		if err := checkRepositoryMemberTarget(ctx, actor.EffectiveUserID(), repo, option.UserID); err != nil {
+			return err
+		}
+		if err := checkRepositoryPreview(ctx, actor.EffectiveUserID(), repoID, option.PreviewToken, RepositoryMemberChange{Kind: "member", Member: option, Remove: remove}); err != nil {
 			return err
 		}
 		chain, err := governance_model.Ancestors(ctx, repo.OwnerID)
@@ -182,6 +185,10 @@ func setRepositoryMember(ctx context.Context, actor, auditActor governance_model
 				return err
 			}
 		}
+		impactBefore, err := repositoryAuditAccessFor(ctx, repo, option.UserID)
+		if err != nil {
+			return err
+		}
 		next := &governance_model.Membership{ID: previous.ID, ScopeType: "repository", ScopeID: repoID, UserID: option.UserID, Role: option.Role, CustomRoleID: option.CustomRoleID, ExpiresUnix: option.ExpiresUnix}
 		kind := "member.added"
 		if remove {
@@ -198,6 +205,12 @@ func setRepositoryMember(ctx context.Context, actor, auditActor governance_model
 			}
 			kind = "member.updated"
 		} else if err := db.Insert(ctx, next); err != nil {
+			return err
+		}
+		if err := auditRepositoryAccessImpact(ctx, auditActor, repo, "direct", map[int64]*repositoryAuditAccess{option.UserID: impactBefore}); err != nil {
+			return err
+		}
+		if err := governance_model.EnsurePermanentRepositoryOwner(ctx, repoID, 0); err != nil {
 			return err
 		}
 		if _, err := db.GetEngine(ctx).ID(repo.OwnerID).Incr("revision").Update(new(governance_model.Namespace)); err != nil {
@@ -223,6 +236,58 @@ func setRepositoryMember(ctx context.Context, actor, auditActor governance_model
 		}
 		return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: kind, Actor: auditActor, ScopeType: "repository", ScopeID: repoID, AncestorIDs: ancestors, ObjectType: "user", ObjectID: option.UserID, ObjectPath: name, Result: "success", Details: details})
 	})
+}
+
+func checkRepositoryMemberTarget(ctx context.Context, actorID int64, repo *repo_model.Repository, targetID int64) error {
+	actor, err := activeActor(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	actorPermission, err := access_model.GetIndividualUserRepoPermission(ctx, repo, actor)
+	if err != nil || actorPermission.IsOwner() {
+		return err
+	}
+	target, err := user_model.GetUserByID(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	permission, err := access_model.GetIndividualUserRepoPermission(ctx, repo, target)
+	if err != nil {
+		return err
+	}
+	var direct governance_model.Membership
+	_, err = db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ? AND user_id = ?", "repository", repo.ID, targetID).Get(&direct)
+	if err != nil {
+		return err
+	}
+	if permission.IsOwner() || direct.Role == governance_model.Owner {
+		return governance_model.ErrNotFound
+	}
+	return nil
+}
+
+// CheckRepositoryMemberMutation 供原生入口在同一个写事务内复核成员操作。
+func CheckRepositoryMemberMutation(ctx context.Context, actor governance_model.Actor, repoID, targetID int64) error {
+	if err := checkDelegation(ctx, actor); err != nil {
+		return err
+	}
+	user, err := activeActor(ctx, actor.EffectiveUserID())
+	if err != nil {
+		return err
+	}
+	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	permission, err := access_model.GetIndividualUserRepoPermission(ctx, repo, user)
+	if err != nil {
+		return err
+	}
+	permission = permission.ForMutation()
+	if !permission.IsAdmin() {
+		return governance_model.ErrNotFound
+	}
+	return checkRepositoryMemberTarget(ctx, actor.EffectiveUserID(), repo, targetID)
 }
 
 // RepositoryMembersState 管理项目直接来源，同时解释这些成员保留的其他授权。
@@ -290,4 +355,21 @@ func ListRepositoryMembers(ctx context.Context, viewerID, repoID, afterID int64)
 		return nil, err
 	}
 	return state, nil
+}
+
+// SetRepositoryArchived 与撤权共用写锁，不能沿用页面进入时的 Owner 身份。
+func SetRepositoryArchived(ctx context.Context, actor governance_model.Actor, repo *repo_model.Repository, archived bool) error {
+	var fresh *repo_model.Repository
+	err := withActorWrite(ctx, actor, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		var err error
+		fresh, err = CheckRepositoryOwnerMutation(ctx, actor.EffectiveUserID(), repo.ID)
+		if err != nil {
+			return err
+		}
+		return repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, actor), fresh, archived)
+	})
+	if err == nil {
+		repo.IsArchived, repo.ArchivedUnix = fresh.IsArchived, fresh.ArchivedUnix
+	}
+	return err
 }
