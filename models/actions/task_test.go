@@ -6,6 +6,7 @@ package actions
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -74,6 +75,98 @@ func TestScheduledTaskCredentialValid(t *testing.T) {
 		Cols("commit_id").Update(&struct{ CommitID string }{CommitID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
 	require.NoError(t, err)
 	valid, err = TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.False(t, valid)
+}
+
+func TestScheduledScopedRunSourceBound(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	ctx := t.Context()
+	require.NoError(t, db.GetXORMEngineForTesting().Sync(new(scheduleBranchState)))
+	consumer, err := repo_model.GetRepositoryByID(ctx, 1)
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: consumer.ID, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	source, err := repo_model.GetRepositoryByID(ctx, 3)
+	require.NoError(t, err)
+	const consumerSHA = "65f1bf27bc3bf70f64657658635e66094edbcb4d"
+	const sourceSHA = "c2d72f548424103f01ee1dc02889c1e2bff816b0"
+	require.NoError(t, db.Insert(ctx, &scheduleBranchState{RepoID: consumer.ID, Name: consumer.DefaultBranch, CommitID: consumerSHA}))
+	require.NoError(t, db.Insert(ctx, &scheduleBranchState{RepoID: source.ID, Name: source.DefaultBranch, CommitID: sourceSHA}))
+	require.NoError(t, AddScopedWorkflowSource(ctx, 0, source.ID))
+	registration, err := GetScopedWorkflowSource(ctx, 0, source.ID)
+	require.NoError(t, err)
+	schedule := &ActionSchedule{
+		RepoID: consumer.ID, OwnerID: consumer.OwnerID, TriggerUserID: user_model.ActionsUserID,
+		WorkflowID: "scoped.yaml", Ref: "refs/heads/" + consumer.DefaultBranch, CommitSHA: consumerSHA,
+		WorkflowRepoID: source.ID, WorkflowCommitSHA: sourceSHA, WorkflowSourceScopeRevision: source.ActionsScopeRevision,
+		ScopedConfigRevisions: map[string]int64{strconv.FormatInt(registration.ID, 10): registration.ConfigRevision},
+		IsScopedRun:           true,
+	}
+	require.NoError(t, db.Insert(ctx, schedule))
+	run := &ActionRun{
+		RepoID: consumer.ID, OwnerID: consumer.OwnerID, ScheduleID: schedule.ID,
+		TriggerUserID: user_model.ActionsUserID, WorkflowID: schedule.WorkflowID,
+		Ref: schedule.Ref, CommitSHA: consumerSHA, WorkflowRepoID: source.ID, WorkflowCommitSHA: sourceSHA,
+		WorkflowSourceScopeRevision: source.ActionsScopeRevision, IsScopedRun: true,
+		ScopedConfigRevisions: schedule.ScopedConfigRevisions,
+	}
+	valid, err := ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.True(t, valid)
+	actionsUnit, err := consumer.GetUnit(ctx, unit.TypeActions)
+	require.NoError(t, err)
+	actionsUnit.ActionsConfig().DisableScopedWorkflow(source.ID, schedule.WorkflowID)
+	require.NoError(t, repo_model.UpdateRepoUnitConfig(ctx, actionsUnit))
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.False(t, valid)
+	actionsUnit.ActionsConfig().EnableScopedWorkflow(source.ID, schedule.WorkflowID)
+	require.NoError(t, repo_model.UpdateRepoUnitConfig(ctx, actionsUnit))
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.True(t, valid)
+	require.NoError(t, SetScopedWorkflowSourceConfigs(ctx, 0, source.ID, map[string]*ScopedWorkflowConfig{"scoped.yaml": {Required: true}}))
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.False(t, valid)
+	registration, err = GetScopedWorkflowSource(ctx, 0, source.ID)
+	require.NoError(t, err)
+	schedule.ScopedConfigRevisions = map[string]int64{strconv.FormatInt(registration.ID, 10): registration.ConfigRevision}
+	run.ScopedConfigRevisions = schedule.ScopedConfigRevisions
+	_, err = db.GetEngine(ctx).ID(schedule.ID).Cols("scoped_config_revisions").Update(schedule)
+	require.NoError(t, err)
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.True(t, valid)
+	require.NoError(t, RemoveScopedWorkflowSource(ctx, 0, source.ID))
+	require.NoError(t, AddScopedWorkflowSource(ctx, 0, source.ID))
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.False(t, valid)
+	registration, err = GetScopedWorkflowSource(ctx, 0, source.ID)
+	require.NoError(t, err)
+	schedule.ScopedConfigRevisions = map[string]int64{strconv.FormatInt(registration.ID, 10): registration.ConfigRevision}
+	run.ScopedConfigRevisions = schedule.ScopedConfigRevisions
+	_, err = db.GetEngine(ctx).ID(schedule.ID).Cols("scoped_config_revisions").Update(schedule)
+	require.NoError(t, err)
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.True(t, valid)
+	_, err = db.GetEngine(ctx).ID(source.ID).Cols("is_archived").Update(&repo_model.Repository{IsArchived: true})
+	require.NoError(t, err)
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.False(t, valid)
+	_, err = db.GetEngine(ctx).ID(source.ID).Cols("is_archived").Update(&repo_model.Repository{IsArchived: false})
+	require.NoError(t, err)
+	valid, err = ScheduledRunValid(ctx, run, consumer)
+	require.NoError(t, err)
+	require.True(t, valid)
+	_, err = db.GetEngine(ctx).Table("branch").Where("repo_id = ? AND name = ?", source.ID, source.DefaultBranch).
+		Cols("commit_id").Update(&struct{ CommitID string }{CommitID: consumerSHA})
+	require.NoError(t, err)
+	valid, err = ScheduledRunValid(ctx, run, consumer)
 	require.NoError(t, err)
 	require.False(t, valid)
 }

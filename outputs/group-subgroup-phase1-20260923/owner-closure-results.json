@@ -1,0 +1,794 @@
+{
+  "说明": "M11-a、M02-a 与 M03-a 三个独立矩阵条目的关闭证据汇总；真实 PostgreSQL、正式 API、真实 Git 与原生 UI 分开标注；不含测试口令。",
+  "源码边界": {
+    "基线HEAD": "a488feb7a4ac2df8a7c17c01c536374b10f33098",
+    "71d开发构建SHA256": "71d19b0d1687ac1e71ccbd5aaec8f79e7c3e5481d8ea749d15377afd360c5ed0",
+    "新增测试文件": "tests/integration/governance_last_permanent_owner_concurrency_test.go",
+    "边界": "初版及lint修订版两份集成测试文件均位于71d构建之后，仅补充测试且不改变业务文件；71d原生页面是既有部署构建。",
+    "新增测试文件最终SHA256": "5758f8e79447ffa0c0d4b38cfa5b9701997b4b564b8011570fba3ea97695a356",
+    "schedule测试文件最终SHA256": "f96a1676ffc8ac1917bd53b7a3fdf8e37df9c55c0b42b10a2f4be2a658d6caf7",
+    "期限断言补齐版SHA256": "70d6d675edae4d5615d07dccacdeb07e63346f8ee4c0d19bc549cb43806c3d94"
+  },
+  "真实PostgreSQL": {
+    "数据库": "gitea_phase1_test",
+    "测试入口": "隔离副本 tests/integration；GITEA_TEST_DATABASE=pgsql；口令仅由私有配置注入环境",
+    "最终运行": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m11-owner-temp-future-expired-pg.jsonl",
+      "SHA256": "ddeea04e79cdcdb7c626fa7e813c557790529831deaafdc3b9ffd3bf5690ca8c",
+      "顶层结果": [
+        {
+          "测试": "TestLastPermanentGroupOwnerConcurrentLeave",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestExpiredTemporaryOwnerCannotReplaceLastPermanentOwner",
+          "结果": "通过"
+        }
+      ],
+      "适用Owner测试SHA256": "70d6d675edae4d5615d07dccacdeb07e63346f8ee4c0d19bc549cb43806c3d94"
+    },
+    "前次运行": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m11-owner-new-pg-final.jsonl",
+      "SHA256": "c46f6e4541bdebbb29e00017897e6cc6987c0d4c8b5e5071cc9595054f0c36f7",
+      "顶层结果": [
+        {
+          "测试": "TestLastPermanentGroupOwnerConcurrentLeave",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestExpiredTemporaryOwnerCannotReplaceLastPermanentOwner",
+          "结果": "通过"
+        }
+      ],
+      "适用源码说明": "此轮在添加临时Owner未到期断言之前，未保留独立测试源码摘要；仅作历史日志，不冒称适用70d6或5758版本。关闭依据为最终测试修订版运行。"
+    },
+    "因果边界": "两个请求由同一起始通道发起；通道不强制数据库锁内部交错。WithWrite 对治理写使用持久行锁，删除直接Owner与校验至少一名有效永久Owner在同一事务；结果为一人退出成功、一人因最后Owner冲突拒绝，且留存一名。临时Owner尚未到期时有Owner能力但不能充当永久兜底；改为已到期后失去该能力，永久Owner退出仍拒绝。",
+    "最终测试修订版运行": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/owner-schedule-pg-lintfix-final-20260924.jsonl",
+      "SHA256": "ffc0e65d17d4b0128b4c5573600a2b89bf068f3f064dc53e3017545c88603525",
+      "实际命令": "python3 /Users/archer/.cache/gitea-phase1-closure-20260924/run-pg.py owner-schedule-pg-lintfix-final-20260924 '^(TestScopedScheduleWithoutConsumerWorkflow|TestScopedScheduleSourceVersionCancelsOldRun|TestScopedScheduleReplacementPreservesOtherPlans|TestScopedScheduleSourceFailureDoesNotBlockPush|TestLastPermanentGroupOwnerConcurrentLeave|TestExpiredTemporaryOwnerCannotReplaceLastPermanentOwner)$'",
+      "数据库": "gitea_phase1_test",
+      "耗时秒": 41.368,
+      "顶层通过": [
+        "TestScopedScheduleWithoutConsumerWorkflow",
+        "TestScopedScheduleSourceVersionCancelsOldRun",
+        "TestScopedScheduleReplacementPreservesOtherPlans",
+        "TestScopedScheduleSourceFailureDoesNotBlockPush",
+        "TestLastPermanentGroupOwnerConcurrentLeave",
+        "TestExpiredTemporaryOwnerCannotReplaceLastPermanentOwner"
+      ],
+      "适用测试文件SHA256": {
+        "actions_scoped_schedule_test.go": "f96a1676ffc8ac1917bd53b7a3fdf8e37df9c55c0b42b10a2f4be2a658d6caf7",
+        "governance_last_permanent_owner_concurrency_test.go": "5758f8e79447ffa0c0d4b38cfa5b9701997b4b564b8011570fba3ea97695a356"
+      }
+    }
+  },
+  "既有SQLite": {
+    "运行": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m11-sqlite-owner-services.jsonl",
+      "SHA256": "1495a473329e1181d3fcda7ef049c45136dc43235c85ccfaec976e2969c056cc",
+      "顶层结果": [
+        {
+          "测试": "TestNativeBotCannotReplaceLastHumanOwner",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestLeaveGroupRejectsLastPermanentOwnerAndDisabledActor",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestDirectBotCannotSatisfyPermanentGroupOwner",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestPermanentOwnerRequiresActiveDirectOrInheritedSource",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestMemberAcceptanceLastPermanentOwner",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestMemberAcceptanceExpiryBoundary",
+          "结果": "通过"
+        },
+        {
+          "测试": "TestUnifiedOwnerConcurrentDemotion",
+          "结果": "通过"
+        }
+      ]
+    },
+    "边界": "services/governance 与 services/org 的 TestMain 固定建立 SQLite；即使环境指定 pgsql，也不将七项计入 PostgreSQL。既有 Bot 与原生 Owners Team 回归及历史 UI 正反例继续保留。"
+  },
+  "原生页面": {
+    "身份": "普通非实例管理员 Owner21；原生群组 Owners Team",
+    "结果": "在原生页面点击 Leave→Yes 后明确拒绝，提示必须保留至少一个有效且不过期的 Owner；刷新后仍为一名成员，Owner21 保留。",
+    "原始界面": [
+      {
+        "场景": "服务端拒绝",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-last-owner-denied.txt",
+        "SHA256": "39a96831250f6d0e1e9f1c237c65bb7d4306117518f0b8a9abeb0034332e77c7",
+        "界面原文": "说明：当前71d候选，普通非实例管理员Owner从成员来源进入原生Owners Team，实际提交退出，服务端拒绝并明确要求永久有效Owner。\nBrowser tab: 2, Title: \"Owners - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/teams/owners\".\n1 AXWebArea Owners - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/teams/owners\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Owners\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 2, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 link Description: Members 1, Value: 127.0.0.1:13043/org/phase1-native-v15/members\n\t\t\t15 link Description: Teams 1, Value: 127.0.0.1:13043/org/phase1-native-v15/teams\n\t\t\t16 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t17 container\n\t\t\t18 heading Owners Visible to all members of this organization. Leave, Value: 4\n\t\t\t\t19 text Owners\n\t\t\t\t20 container Visible to all members of this organization.\n\t\t\t\t\t21 text Limited\n\t\t\t\t22 button Leave\n\t\t\t23 text This team has no description\n\t\t\t24 container\n\t\t\t\t25 text Owners have full access to  all repositories  and have  administrator access  to the organization.\n\t\t\t26 text You can create new teams for members to get fine-grained access control.\n\t\t\t27 link Description: Settings, Value: 127.0.0.1:13043/org/phase1-native-v15/teams/owners/edit\n\t\t28 container\n\t\t\t29 link Description: 1   members, Value: 127.0.0.1:13043/org/phase1-native-v15/teams/owners\n\t\t\t30 link Description: 2   repositories, Value: 127.0.0.1:13043/org/phase1-native-v15/teams/owners/repositories\n\t\t\t31 container\n\t\t\t\t32 text field (settable)\n\t\t\t\t33 button Add team member\n\t\t\t34 link 127.0.0.1:13043/phase1-v15-owner\n\t\t\t35 link Description: phase1-v15-owner, Value: 127.0.0.1:13043/phase1-v15-owner\n\t36 container Footer\n\t\t37 container About Software\n\t\t\t38 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t39 text Version: development Page: \n\t\t\t40 text 9ms\n\t\t\t41 text  Template: \n\t\t\t42 text 1ms\n\t\t43 container Links\n\t\t\t44 text Auto\n\t\t\t45 text English\n\t\t\t46 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t47 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\t48 container\n\t\t49 text 数据已变化或相关合并尚未完成：必须保留至少一个有效且不过期的 Owner\n\t\t50 button\n\t\t51 container org-member-leave-team\n\t\t\t52 text Leave\n\t\t\t53 container\n\t\t\t\t54 text Leave  Owners ?\n\t\t\t\t55 button No\n\t\t\t\t56 button Yes\n\nThe focused UI element is 56 button Yes"
+      },
+      {
+        "场景": "刷新后保留",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-last-owner-retained.txt",
+        "SHA256": "c043ffc2b913d4252b81a45ae3df6e64fe5ec6fdf9829d121393f2c4df79a8f0",
+        "界面原文": "说明：退出被拒绝后刷新，Owners Team仍有同一人，授权没有丢失。\nBrowser tab: 2, Title: \"Owners - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/teams/owners\".\n1 AXWebArea Owners - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/teams/owners\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Owners\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 2, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 link Description: Members 1, Value: 127.0.0.1:13043/org/phase1-native-v15/members\n\t\t\t15 link Description: Teams 1, Value: 127.0.0.1:13043/org/phase1-native-v15/teams\n\t\t\t16 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t17 container\n\t\t\t18 heading Owners Visible to all members of this organization. Leave, Value: 4\n\t\t\t\t19 text Owners\n\t\t\t\t20 container Visible to all members of this organization.\n\t\t\t\t\t21 text Limited\n\t\t\t\t22 button Leave\n\t\t\t23 text This team has no description\n\t\t\t24 container\n\t\t\t\t25 text Owners have full access to  all repositories  and have  administrator access  to the organization.\n\t\t\t26 text You can create new teams for members to get fine-grained access control.\n\t\t\t27 link Description: Settings, Value: 127.0.0.1:13043/org/phase1-native-v15/teams/owners/edit\n\t\t28 container\n\t\t\t29 link Description: 1   members, Value: 127.0.0.1:13043/org/phase1-native-v15/teams/owners\n\t\t\t30 link Description: 2   repositories, Value: 127.0.0.1:13043/org/phase1-native-v15/teams/owners/repositories\n\t\t\t31 container\n\t\t\t\t32 text field (settable)\n\t\t\t\t33 button Add team member\n\t\t\t34 link 127.0.0.1:13043/phase1-v15-owner\n\t\t\t35 link Description: phase1-v15-owner, Value: 127.0.0.1:13043/phase1-v15-owner\n\t36 container Footer\n\t\t37 container About Software\n\t\t\t38 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t39 text Version: development Page: \n\t\t\t40 text 9ms\n\t\t\t41 text  Template: \n\t\t\t42 text 0ms\n\t\t43 container Links\n\t\t\t44 text Auto\n\t\t\t45 text English\n\t\t\t46 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t47 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Owners - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/teams/owners"
+      }
+    ]
+  },
+  "判定": "仅 M11-a 的已冻结并发退出、临时及已过期Owner、原生 UI 拒绝子项关闭；不推导所有账号和 Team 变更组合已经遍历。",
+  "M02纯继承创建与越界": {
+    "判定": "M02-a 已按冻结 R07 权限语义关闭；M03 可见性独立验收，不由本项自动关闭。",
+    "构建SHA256": "71d19b0d1687ac1e71ccbd5aaec8f79e7c3e5481d8ea749d15377afd360c5ed0",
+    "规格来源": [
+      "docs/group-subgroup-phase1-plan.md D-02",
+      "docs/group-subgroup-phase1-matrix.md M02/M02-a",
+      "docs/role-organization-repository-test-matrix.md R07",
+      "models/governance/permissions.go"
+    ],
+    "正式API": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m02-runtime-api.json",
+      "SHA256": "56aca1123649b96dc256475c77ac4d719cf2606885324d663a224c3595e6e3ae",
+      "说明": "M02-a权限验收，UI创建28；测试夹具兄弟29；Maintainer实际创建30返回201符合已有R07角色规格。首轮脚本错误预期拒绝而断言失败，不列为产品缺陷。",
+      "账号与授权": "Owner26、Maintainer27 均非实例管理员，组25授权仅继承自组24。",
+      "实际结果": "Owner26 与 Maintainer27 对父组23、兄弟组29创建均404；Maintainer27 对组25成员写404；Maintainer27 在组25创建组30得201，组28和组30持久对象再读取为200。",
+      "误断言": "首轮脚本误期望 Maintainer 创建被拒，真实201符合 R07；保留原始脚本错误与响应，不列产品缺陷。"
+    },
+    "原生UI": [
+      {
+        "场景": "测试身份与继承授权夹具",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-fixture-grants.txt",
+        "SHA256": "5aebe6fd2f1d137aa7900bf9bd1ed6d37e85b7b7c840581c71cf86d1008b633e",
+        "界面原文": "说明：根Owner使用UI只在子群组24授予两个独立非管理员身份；后代25无直接授权。\nBrowser tab: 2, Title: \"原生设置子群组 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/24?tab=members\".\n1 AXWebArea 原生设置子群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/24?tab=members\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container\n\t\t7 text 当前群组的直接授权已更新；其他来源继续按实际权限生效\n\t\t8 container 面包屑\n\t\t\t9 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t10 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t11 link Description: 原生设置子群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t12 heading 原生设置子群组 私有, Value: 1\n\t\t\t13 text 原生设置子群组 私有\n\t\t14 text phase1-native-v15/native-child 一期原生设置验收：父级 Owner 编辑子群组资料并刷新核对。\n\t\t15 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/24/access-requests\n\t\t16 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/24?create=1\n\t\t17 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=24\n\t\t18 container 群组导航\n\t\t\t19 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t\t20 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-native-v15/native-child?tab=shared_projects\n\t\t\t21 link Description: Issue, Value: 127.0.0.1:13043/phase1-native-v15/native-child?tab=issues\n\t\t\t22 link Description: PR, Value: 127.0.0.1:13043/phase1-native-v15/native-child?tab=pulls\n\t\t\t23 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/24?tab=members\n\t\t\t24 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/24?tab=shares\n\t\t\t25 link Description: 活动, Value: 127.0.0.1:13043/phase1-native-v15/native-child?tab=activity\n\t\t\t26 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/24?tab=settings\n\t\t\t27 link Description: CI/CD, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/settings/actions\n\t\t\t28 link Description: Webhook, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/settings/hooks\n\t\t\t29 link Description: 标签, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/settings/labels\n\t\t\t30 link Description: 高级团队权限, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/teams\n\t\t\t31 link Description: 制品, Value: 127.0.0.1:13043/phase1-native-v15/native-child/-/packages\n\t\t\t32 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/settings/approvals\n\t\t\t33 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=24\n\t\t34 heading 成员与权限来源, Value: 3\n\t\t\t35 text 成员与权限来源\n\t\t36 link Description: 成员邀请, Value: 127.0.0.1:13043/governance/groups/24/invitations\n\t\t37 link Description: 添加成员, Value: 127.0.0.1:13043/governance/groups/24?tab=members#group-member-form\n\t\t38 container\n\t\t\t39 search text field (settable) 搜索成员\n\t\t\t40 pop up button (collapsed, settable) Description: 授权来源, Value: 全部来源, Secondary Actions: Expand\n\t\t\t\t41 menu\n\t\t\t\t\t42 (selected) 全部来源\n\t\t\t\t\t43 直接\n\t\t\t\t\t44 继承\n\t\t\t\t\t45 继承共享\n\t\t\t\t\t46 共享\n\t\t\t\t\t47 原生团队\n\t\t\t48 button 筛选\n\t\t49 table\n\t\t\t50 row\n\t\t\t\t51 cell\n\t\t\t\t\t52 text 成员\n\t\t\t\t53 cell\n\t\t\t\t\t54 text 有效角色\n\t\t\t\t55 cell\n\t\t\t\t\t56 text 授权来源\n\t\t\t\t57 cell\n\t\t\t\t\t58 text 操作\n\t\t\t59 row\n\t\t\t\t60 cell\n\t\t\t\t\t61 image phase1-v15-owner\n\t\t\t\t\t62 text phase1-v15-owner\n\t\t\t\t\t63 text phase1-v15-owner\n\t\t\t\t64 cell\n\t\t\t\t\t65 text Owner\n\t\t\t\t66 cell\n\t\t\t\t\t67 button (collapsed) 原生团队 · phase1-native-v15, Secondary Actions: Expand\n\t\t\t\t\t\t68 text 原生团队 · phase1-native-v15\n\t\t\t\t\t69 button (collapsed) 原生团队 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t70 text 原生团队 · phase1-native-v15/native-child\n\t\t\t\t71 cell\n\t\t\t\t\t72 text 在授权来源处管理\n\t\t\t73 row\n\t\t\t\t74 cell\n\t\t\t\t\t75 image phase1-closure-owner\n\t\t\t\t\t76 text phase1-closure-owner\n\t\t\t\t\t77 text phase1-closure-owner\n\t\t\t\t78 cell\n\t\t\t\t\t79 text Owner\n\t\t\t\t80 cell\n\t\t\t\t\t81 button (collapsed) 直接 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t82 text 直接 · phase1-native-v15/native-child\n\t\t\t\t83 cell\n\t\t\t\t\t84 link Description: 编辑直接授权, Value: 127.0.0.1:13043/governance/groups/24?tab=members#group-member-form\n\t\t\t\t\t85 button 移除直接授权\n\t\t\t86 row\n\t\t\t\t87 cell\n\t\t\t\t\t88 image phase1-closure-maintainer\n\t\t\t\t\t89 text phase1-closure-maintainer\n\t\t\t\t\t90 text phase1-closure-maintainer\n\t\t\t\t91 cell\n\t\t\t\t\t92 text Maintainer\n\t\t\t\t93 cell\n\t\t\t\t\t94 button (collapsed) 直接 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t95 text 直接 · phase1-native-v15/native-child\n\t\t\t\t96 cell\n\t\t\t\t\t97 link Description: 编辑直接授权, Value: 127.0.0.1:13043/governance/groups/24?tab=members#group-member-form\n\t\t\t\t\t98 button 移除直接授权\n\t\t99 button (collapsed) 新增或修改直接授权, Secondary Actions: Expand\n\t\t\t100 text 新增或修改直接授权\n\t101 container Footer\n\t\t102 container About Software\n\t\t\t103 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t104 text Version: development Page: \n\t\t\t105 text 45ms\n\t\t\t106 text  Template: \n\t\t\t107 text 5ms\n\t\t108 container Links\n\t\t\t109 text Auto\n\t\t\t110 text English\n\t\t\t111 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t112 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 原生设置子群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/24?tab=members"
+      },
+      {
+        "场景": "Owner26 组25仅继承来源",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-owner-source.txt",
+        "SHA256": "fdf05ff0b6de81ce14f225fb9180e947aef09a29716b69683c9eb9b60b67729a",
+        "界面原文": "说明：新非管理员账号在25仅继承24的Owner，无25直接或Team来源；父路径显示为文本。\nBrowser tab: 2, Title: \"定时收口深层群组 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/25?tab=members\".\n1 AXWebArea 定时收口深层群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/25?tab=members\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 text phase1-native-v15\n\t\t\t10 link Description: 原生设置子群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t\t11 link Description: 定时收口深层群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t12 heading 定时收口深层群组 私有, Value: 1\n\t\t\t13 text 定时收口深层群组 私有\n\t\t14 text phase1-native-v15/native-child/schedule-deep\n\t\t15 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/25/access-requests\n\t\t16 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/25?create=1\n\t\t17 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=25\n\t\t18 container 群组导航\n\t\t\t19 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t\t20 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=shared_projects\n\t\t\t21 link Description: Issue, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=issues\n\t\t\t22 link Description: PR, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=pulls\n\t\t\t23 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/25?tab=members\n\t\t\t24 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/25?tab=shares\n\t\t\t25 link Description: 活动, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=activity\n\t\t\t26 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/25?tab=settings\n\t\t\t27 link Description: CI/CD, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings/actions\n\t\t\t28 link Description: Webhook, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings/hooks\n\t\t\t29 link Description: 标签, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings/labels\n\t\t\t30 link Description: 高级团队权限, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/teams\n\t\t\t31 link Description: 制品, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/-/packages\n\t\t\t32 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings/approvals\n\t\t\t33 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=25\n\t\t34 heading 成员与权限来源, Value: 3\n\t\t\t35 text 成员与权限来源\n\t\t36 link Description: 成员邀请, Value: 127.0.0.1:13043/governance/groups/25/invitations\n\t\t37 link Description: 添加成员, Value: 127.0.0.1:13043/governance/groups/25?tab=members#group-member-form\n\t\t38 container\n\t\t\t39 search text field (settable) 搜索成员\n\t\t\t40 pop up button (collapsed, settable) Description: 授权来源, Value: 全部来源, Secondary Actions: Expand\n\t\t\t\t41 menu\n\t\t\t\t\t42 (selected) 全部来源\n\t\t\t\t\t43 直接\n\t\t\t\t\t44 继承\n\t\t\t\t\t45 继承共享\n\t\t\t\t\t46 共享\n\t\t\t\t\t47 原生团队\n\t\t\t48 button 筛选\n\t\t49 table\n\t\t\t50 row\n\t\t\t\t51 cell\n\t\t\t\t\t52 text 成员\n\t\t\t\t53 cell\n\t\t\t\t\t54 text 有效角色\n\t\t\t\t55 cell\n\t\t\t\t\t56 text 授权来源\n\t\t\t\t57 cell\n\t\t\t\t\t58 text 操作\n\t\t\t59 row\n\t\t\t\t60 cell\n\t\t\t\t\t61 image phase1-v15-owner\n\t\t\t\t\t62 text phase1-v15-owner\n\t\t\t\t\t63 text phase1-v15-owner\n\t\t\t\t64 cell\n\t\t\t\t\t65 text Owner\n\t\t\t\t66 cell\n\t\t\t\t\t67 button (collapsed) 原生团队 · 受限来源, Secondary Actions: Expand\n\t\t\t\t\t\t68 text 原生团队 · 受限来源\n\t\t\t\t\t69 button (collapsed) 原生团队 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t70 text 原生团队 · phase1-native-v15/native-child\n\t\t\t\t\t71 button (collapsed) 原生团队 · phase1-native-v15/native-child/schedule-deep, Secondary Actions: Expand\n\t\t\t\t\t\t72 text 原生团队 · phase1-native-v15/native-child/schedule-deep\n\t\t\t\t73 cell\n\t\t\t\t\t74 text 在授权来源处管理\n\t\t\t75 row\n\t\t\t\t76 cell\n\t\t\t\t\t77 image phase1-closure-owner\n\t\t\t\t\t78 text phase1-closure-owner\n\t\t\t\t\t79 text phase1-closure-owner\n\t\t\t\t80 cell\n\t\t\t\t\t81 text Owner\n\t\t\t\t82 cell\n\t\t\t\t\t83 button (collapsed) 继承 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t84 text 继承 · phase1-native-v15/native-child\n\t\t\t\t85 cell\n\t\t\t\t\t86 text 在授权来源处管理\n\t\t\t87 row\n\t\t\t\t88 cell\n\t\t\t\t\t89 image phase1-closure-maintainer\n\t\t\t\t\t90 text phase1-closure-maintainer\n\t\t\t\t\t91 text phase1-closure-maintainer\n\t\t\t\t92 cell\n\t\t\t\t\t93 text Maintainer\n\t\t\t\t94 cell\n\t\t\t\t\t95 button (collapsed) 继承 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t96 text 继承 · phase1-native-v15/native-child\n\t\t\t\t97 cell\n\t\t\t\t\t98 text 在授权来源处管理\n\t\t99 button (collapsed) 新增或修改直接授权, Secondary Actions: Expand\n\t\t\t100 text 新增或修改直接授权\n\t101 container Footer\n\t\t102 container About Software\n\t\t\t103 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t104 text Version: development Page: \n\t\t\t105 text 44ms\n\t\t\t106 text  Template: \n\t\t\t107 text 0ms\n\t\t108 container Links\n\t\t\t109 text Auto\n\t\t\t110 text English\n\t\t\t111 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t112 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 定时收口深层群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/25?tab=members"
+      },
+      {
+        "场景": "Owner26 UI 创建组28并刷新保留",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-owner-created.txt",
+        "SHA256": "b52df18e63a62a6e2f28985800922b5e32c883aba3669f554b45c4648540faa0",
+        "界面原文": "说明：仅在父级24获Owner，25只有继承来源；在25点击创建并完成28，刷新后完整路径保留。\nBrowser tab: 2, Title: \"纯继承 Owner 创建验证 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf\".\n1 AXWebArea 纯继承 Owner 创建验证 - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container 纯继承 Owner 创建验证\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 text phase1-native-v15\n\t\t\t10 link Description: 原生设置子群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t\t11 link Description: 定时收口深层群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t\t12 link Description: 纯继承 Owner 创建验证, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf\n\t\t13 heading 纯继承 Owner 创建验证 私有, Value: 1\n\t\t\t14 text 纯继承 Owner 创建验证 私有\n\t\t15 text phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf\n\t\t16 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/28/access-requests\n\t\t17 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/28?create=1\n\t\t18 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=28\n\t\t19 container 群组导航\n\t\t\t20 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf\n\t\t\t21 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf?tab=shared_projects\n\t\t\t22 link Description: Issue, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf?tab=issues\n\t\t\t23 link Description: PR, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf?tab=pulls\n\t\t\t24 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/28?tab=members\n\t\t\t25 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/28?tab=shares\n\t\t\t26 link Description: 活动, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf?tab=activity\n\t\t\t27 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/28?tab=settings\n\t\t\t28 link Description: CI/CD, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/settings/actions\n\t\t\t29 link Description: Webhook, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/settings/hooks\n\t\t\t30 link Description: 标签, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/settings/labels\n\t\t\t31 link Description: 高级团队权限, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/teams\n\t\t\t32 link Description: 制品, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/-/packages\n\t\t\t33 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/settings/approvals\n\t\t\t34 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=28\n\t\t35 container\n\t\t\t36 search text field (settable) 搜索群组与仓库\n\t\t\t37 pop up button (collapsed, settable) Description: 活动状态, Value: 活动, Secondary Actions: Expand\n\t\t\t\t38 menu\n\t\t\t\t\t39 (selected) 活动\n\t\t\t\t\t40 非活动\n\t\t\t41 pop up button (collapsed, settable) Description: 排序字段, Value: 名称, Secondary Actions: Expand\n\t\t\t\t42 menu\n\t\t\t\t\t43 (selected) 名称\n\t\t\t\t\t44 创建时间\n\t\t\t\t\t45 更新时间\n\t\t\t46 pop up button (collapsed, settable) Description: 排序方向, Value: 升序, Secondary Actions: Expand\n\t\t\t\t47 menu\n\t\t\t\t\t48 (selected) 升序\n\t\t\t\t\t49 降序\n\t\t\t50 text 暂无可查看的内容\n\t\t51 link Description: README 与原生组织视图, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf?tab=readme\n\t\t52 link Description: 软件包, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/-/packages\n\t\t53 link Description: 看板, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf/-/projects\n\t54 container Footer\n\t\t55 container About Software\n\t\t\t56 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t57 text Version: development Page: \n\t\t\t58 text 37ms\n\t\t\t59 text  Template: \n\t\t\t60 text 0ms\n\t\t61 container Links\n\t\t\t62 text Auto\n\t\t\t63 text English\n\t\t\t64 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t65 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 纯继承 Owner 创建验证 - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/inherited-owner-leaf"
+      },
+      {
+        "场景": "Owner26 父组23创建页404",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-owner-parent-denied.txt",
+        "SHA256": "3a4fe486fd694fb48b015637fb2086317bb40bde10289148f1176fd8ef3b6bda",
+        "界面原文": "Browser tab: 2, Title: \"Page Not Found - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/23?create=1\".\n1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/23?create=1\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Page Not Found\n\t\t7 text 404 Not Found\n\t\t8 container\n\t\t\t9 text The page you are trying to reach either  does not exist  or  you are not authorized  to view it.\n\t10 container Footer\n\t\t11 container About Software\n\t\t\t12 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t13 text Version: development Page: \n\t\t\t14 text 1ms\n\t\t\t15 text  Template: \n\t\t\t16 text 0ms\n\t\t17 container Links\n\t\t\t18 text Auto\n\t\t\t19 text English\n\t\t\t20 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t21 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/23?create=1"
+      },
+      {
+        "场景": "Owner26 兄弟组29创建页404",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-owner-sibling-denied.txt",
+        "SHA256": "2cedd986f73126d6a653d5fe6a12a8b1422ed97cb824bb2d228f62a27b23aef3",
+        "界面原文": "Browser tab: 2, Title: \"Page Not Found - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/29?create=1\".\n1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/29?create=1\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Page Not Found\n\t\t7 text 404 Not Found\n\t\t8 container\n\t\t\t9 text The page you are trying to reach either  does not exist  or  you are not authorized  to view it.\n\t10 container Footer\n\t\t11 container About Software\n\t\t\t12 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t13 text Version: development Page: \n\t\t\t14 text 1ms\n\t\t\t15 text  Template: \n\t\t\t16 text 0ms\n\t\t17 container Links\n\t\t\t18 text Auto\n\t\t\t19 text English\n\t\t\t20 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t21 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/29?create=1"
+      },
+      {
+        "场景": "Maintainer27 在组25原生创建表单可提交",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-maintainer-create-allowed.txt",
+        "SHA256": "904295f1f126caaf121cfdfedb8f2e01caf9e6ef918f6b956f78a4b2b86f9667",
+        "界面原文": "Browser tab: 2, Title: \"定时收口深层群组 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/25?create=1\".\n1 AXWebArea 定时收口深层群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/25?create=1\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 text phase1-native-v15\n\t\t\t10 link Description: 原生设置子群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t\t11 link Description: 定时收口深层群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t12 heading 定时收口深层群组 私有, Value: 1\n\t\t\t13 text 定时收口深层群组 私有\n\t\t14 text phase1-native-v15/native-child/schedule-deep\n\t\t15 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/25/access-requests\n\t\t16 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/25?create=1\n\t\t17 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=25\n\t\t18 container 群组导航\n\t\t\t19 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t\t20 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=shared_projects\n\t\t\t21 link Description: Issue, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=issues\n\t\t\t22 link Description: PR, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=pulls\n\t\t\t23 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/25?tab=members\n\t\t\t24 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/25?tab=shares\n\t\t\t25 link Description: 活动, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=activity\n\t\t\t26 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/25?tab=settings\n\t\t\t27 link Description: 制品, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/-/packages\n\t\t\t28 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings/approvals\n\t\t\t29 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=25\n\t\t30 button (expanded) 创建子群组, Secondary Actions: Collapse\n\t\t\t31 text 创建子群组\n\t\t32 container\n\t\t\t33 text 显示名称\n\t\t\t34 text field (settable) 显示名称, ID: group-name\n\t\t\t35 text 地址名称\n\t\t\t36 text field (settable) 地址名称, ID: group-path\n\t\t\t37 text 可见性\n\t\t\t38 text 私有\n\t\t\t39 text 完整路径：\n\t\t\t40 text phase1-native-v15/native-child/schedule-deep/\n\t\t\t41 text 子群组不能比父级更开放。支持最多 20 层。\n\t\t\t42 button 创建群组\n\t43 container Footer\n\t\t44 container About Software\n\t\t\t45 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t46 text Version: development Page: \n\t\t\t47 text 41ms\n\t\t\t48 text  Template: \n\t\t\t49 text 0ms\n\t\t50 container Links\n\t\t\t51 text Auto\n\t\t\t52 text English\n\t\t\t53 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t54 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 定时收口深层群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/25?create=1"
+      },
+      {
+        "场景": "Maintainer27 UI 创建组31 maintainer-ui-leaf 并刷新保留",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-maintainer-created.txt",
+        "SHA256": "a7470b6f87d110242442c926c18c7bfa5dc7dba5db18838c8887f08821c4d855",
+        "界面原文": "Browser tab: 2, Title: \"Maintainer 创建能力验证 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf\".\n1 AXWebArea Maintainer 创建能力验证 - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Maintainer 创建能力验证\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 text phase1-native-v15\n\t\t\t10 link Description: 原生设置子群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t\t11 link Description: 定时收口深层群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t\t12 link Description: Maintainer 创建能力验证, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf\n\t\t13 heading Maintainer 创建能力验证 私有, Value: 1\n\t\t\t14 text Maintainer 创建能力验证 私有\n\t\t15 text phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf\n\t\t16 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/31/access-requests\n\t\t17 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/31?create=1\n\t\t18 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=31\n\t\t19 container 群组导航\n\t\t\t20 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf\n\t\t\t21 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf?tab=shared_projects\n\t\t\t22 link Description: Issue, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf?tab=issues\n\t\t\t23 link Description: PR, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf?tab=pulls\n\t\t\t24 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/31?tab=members\n\t\t\t25 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/31?tab=shares\n\t\t\t26 link Description: 活动, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf?tab=activity\n\t\t\t27 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/31?tab=settings\n\t\t\t28 link Description: CI/CD, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/settings/actions\n\t\t\t29 link Description: Webhook, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/settings/hooks\n\t\t\t30 link Description: 标签, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/settings/labels\n\t\t\t31 link Description: 高级团队权限, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/teams\n\t\t\t32 link Description: 制品, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/-/packages\n\t\t\t33 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/settings/approvals\n\t\t\t34 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=31\n\t\t35 container\n\t\t\t36 search text field (settable) 搜索群组与仓库\n\t\t\t37 pop up button (collapsed, settable) Description: 活动状态, Value: 活动, Secondary Actions: Expand\n\t\t\t\t38 menu\n\t\t\t\t\t39 (selected) 活动\n\t\t\t\t\t40 非活动\n\t\t\t41 pop up button (collapsed, settable) Description: 排序字段, Value: 名称, Secondary Actions: Expand\n\t\t\t\t42 menu\n\t\t\t\t\t43 (selected) 名称\n\t\t\t\t\t44 创建时间\n\t\t\t\t\t45 更新时间\n\t\t\t46 pop up button (collapsed, settable) Description: 排序方向, Value: 升序, Secondary Actions: Expand\n\t\t\t\t47 menu\n\t\t\t\t\t48 (selected) 升序\n\t\t\t\t\t49 降序\n\t\t\t50 text 暂无可查看的内容\n\t\t51 link Description: README 与原生组织视图, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf?tab=readme\n\t\t52 link Description: 软件包, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/-/packages\n\t\t53 link Description: 看板, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf/-/projects\n\t54 container Footer\n\t\t55 container About Software\n\t\t\t56 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t57 text Version: development Page: \n\t\t\t58 text 42ms\n\t\t\t59 text  Template: \n\t\t\t60 text 0ms\n\t\t61 container Links\n\t\t\t62 text Auto\n\t\t\t63 text English\n\t\t\t64 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t65 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Maintainer 创建能力验证 - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/maintainer-ui-leaf"
+      },
+      {
+        "场景": "Maintainer27 在组25成员页只读，显示继承来源",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-maintainer-readonly.txt",
+        "SHA256": "7d022e32795d55c25e6b649847fb8ee64843cb39357e9d29b9d500652a6f3534",
+        "界面原文": "Browser tab: 2, Title: \"定时收口深层群组 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/25?tab=members\".\n1 AXWebArea 定时收口深层群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/25?tab=members\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 text phase1-native-v15\n\t\t\t10 link Description: 原生设置子群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t\t11 link Description: 定时收口深层群组, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t12 heading 定时收口深层群组 私有, Value: 1\n\t\t\t13 text 定时收口深层群组 私有\n\t\t14 text phase1-native-v15/native-child/schedule-deep\n\t\t15 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/25/access-requests\n\t\t16 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/25?create=1\n\t\t17 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=25\n\t\t18 container 群组导航\n\t\t\t19 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t\t20 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=shared_projects\n\t\t\t21 link Description: Issue, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=issues\n\t\t\t22 link Description: PR, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=pulls\n\t\t\t23 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/25?tab=members\n\t\t\t24 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/25?tab=shares\n\t\t\t25 link Description: 活动, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep?tab=activity\n\t\t\t26 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/25?tab=settings\n\t\t\t27 link Description: 制品, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/-/packages\n\t\t\t28 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings/approvals\n\t\t\t29 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=25\n\t\t30 heading 成员与权限来源, Value: 3\n\t\t\t31 text 成员与权限来源\n\t\t32 container\n\t\t\t33 search text field (settable) 搜索成员\n\t\t\t34 pop up button (collapsed, settable) Description: 授权来源, Value: 全部来源, Secondary Actions: Expand\n\t\t\t\t35 menu\n\t\t\t\t\t36 (selected) 全部来源\n\t\t\t\t\t37 直接\n\t\t\t\t\t38 继承\n\t\t\t\t\t39 继承共享\n\t\t\t\t\t40 共享\n\t\t\t\t\t41 原生团队\n\t\t\t42 button 筛选\n\t\t43 table\n\t\t\t44 row\n\t\t\t\t45 cell\n\t\t\t\t\t46 text 成员\n\t\t\t\t47 cell\n\t\t\t\t\t48 text 有效角色\n\t\t\t\t49 cell\n\t\t\t\t\t50 text 授权来源\n\t\t\t\t51 cell\n\t\t\t\t\t52 text 操作\n\t\t\t53 row\n\t\t\t\t54 cell\n\t\t\t\t\t55 image phase1-closure-maintainer\n\t\t\t\t\t56 text phase1-closure-maintainer\n\t\t\t\t\t57 text phase1-closure-maintainer\n\t\t\t\t58 cell\n\t\t\t\t\t59 text Maintainer\n\t\t\t\t60 cell\n\t\t\t\t\t61 button (collapsed) 继承 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t62 text 继承 · phase1-native-v15/native-child\n\t\t\t\t63 cell\n\t\t\t\t\t64 text 在授权来源处管理\n\t65 container Footer\n\t\t66 container About Software\n\t\t\t67 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t68 text Version: development Page: \n\t\t\t69 text 36ms\n\t\t\t70 text  Template: \n\t\t\t71 text 0ms\n\t\t72 container Links\n\t\t\t73 text Auto\n\t\t\t74 text English\n\t\t\t75 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t76 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 定时收口深层群组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/25?tab=members"
+      },
+      {
+        "场景": "Maintainer27 原生组织设置页404",
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-inherited-maintainer-settings-denied.txt",
+        "SHA256": "6bbecc8b8b75299ca65b65daa331e71754d3e61ab3dfb29f0c46147ead96e9a0",
+        "界面原文": "Browser tab: 2, Title: \"Page Not Found - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings\".\n1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Page Not Found\n\t\t7 text 404 Not Found\n\t\t8 container\n\t\t\t9 text The page you are trying to reach either  does not exist  or  you are not authorized  to view it.\n\t10 container Footer\n\t\t11 container About Software\n\t\t\t12 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t13 text Version: development Page: \n\t\t\t14 text 1ms\n\t\t\t15 text  Template: \n\t\t\t16 text 0ms\n\t\t17 container Links\n\t\t\t18 text Auto\n\t\t\t19 text English\n\t\t\t20 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t21 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/native-child/schedule-deep/settings"
+      }
+    ],
+    "既有真实PostgreSQL回归": [
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m02-m03-existing-pg.jsonl",
+        "SHA256": "37ac428b82f40db70c8487d23dcd7c0d2453582eceb12065e1edd53c7b0fbdc2",
+        "顶层通过": [
+          "TestGovernanceGroupHTTP",
+          "TestGovernanceGroupShareHTTP",
+          "TestGovernanceOwnerIdentityRealDatabase"
+        ],
+        "适用边界": "原始日志明确输出 PostgreSQL 引擎及 gitea_phase1_test"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m02-m03-visibility-pg.jsonl",
+        "SHA256": "4bf756afca2e88773b95b86b7c10dae8259f1bf010bd3decd690dcfbfe57ec4c",
+        "顶层通过": [
+          "TestRepositoryVisibilityGroupSettings"
+        ],
+        "适用边界": "同一隔离 PostgreSQL 环境运行；日志本身未单独输出引擎断言"
+      }
+    ],
+    "权限边界": "Maintainer 具备 CreateGroup，缺 ManageGroup 与 ManageGroupMembers；允许在授权父组创建子组，不允许操作父组、兄弟组或管理组织成员。"
+  },
+  "lint补验": {
+    "初次增量检查": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/lint-owner-closure.log",
+      "SHA256": "0b8ce09ee7b725000456aadcf00c47e5d04158d90b4eea80a0196b94bbf0b7a1",
+      "结果": "9 条问题，原始失败保留"
+    },
+    "最终LinuxTag检查": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/lint-owner-closure-final-20260924.log",
+      "SHA256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47",
+      "命令": "GOOS=linux TAGS=bindata golangci-lint run --build-tags=linux,bindata ./tests/integration/",
+      "结果": "0 issues."
+    },
+    "边界": "最终命令为全包 Linux tag 检查，不冒称原增量命令重跑；业务文件无修改。"
+  },
+  "M03纯继承资料与可见性": {
+    "判定": "M03-a 按冻结 D-02 样本关闭；Owner26 资料和可见性正例发生于组34仅继承组33 Owner、尚无共享来源时，后加共享仅作低权负例。",
+    "构建SHA256": "71d19b0d1687ac1e71ccbd5aaec8f79e7c3e5481d8ea749d15377afd360c5ed0",
+    "夹具": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m03-fixture.json",
+      "SHA256": "bc86bfe84e143e63894bd0c6a39c70d81a33be83595a0d4dfae1e9fe7b174146",
+      "原始记录": {
+        "说明": "M03-a 本机隔离夹具；仅正式 API 创建新合成对象，凭据不入文件",
+        "时间戳": 1790215777,
+        "服务": "http://127.0.0.1:13043",
+        "创建者": {
+          "用户ID": 21,
+          "用户名": "phase1-v15-owner"
+        },
+        "步骤": [
+          {
+            "操作": "创建公开根群组",
+            "接口": "POST /api/v1/governance/groups",
+            "状态码": 201
+          },
+          {
+            "操作": "创建公开中间群组",
+            "接口": "POST /api/v1/governance/groups",
+            "状态码": 201
+          },
+          {
+            "操作": "仅在中间群组授予账号26永久Owner",
+            "接口": "PUT /api/v1/governance/groups/33/members/26",
+            "状态码": 204
+          },
+          {
+            "操作": "创建公开末级群组",
+            "接口": "POST /api/v1/governance/groups",
+            "状态码": 201
+          },
+          {
+            "操作": "末级群组受限共享给现有组24",
+            "接口": "PUT /api/v1/governance/groups/34/shares/24",
+            "状态码": 204
+          },
+          {
+            "操作": "在末级群组创建公开README仓库",
+            "接口": "POST /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf/repos",
+            "状态码": 201
+          },
+          {
+            "操作": "按正例顺序撤销刚创建的末级至组24受限共享",
+            "接口": "DELETE /api/v1/governance/groups/34/shares/24",
+            "状态码": 204,
+            "时间戳": 1790215801
+          }
+        ],
+        "根群组": {
+          "名称": "公开根组",
+          "ID": 32,
+          "完整路径": "phase1-closure-profile-public",
+          "原生兼容名": "phase1-closure-profile-public",
+          "父组ID": 0,
+          "可见性": 0,
+          "修订号": 1
+        },
+        "中间群组": {
+          "名称": "公开中间组",
+          "ID": 33,
+          "完整路径": "phase1-closure-profile-public/profile-admin",
+          "原生兼容名": "g_22014347201b44ad966b0a067fefdac4",
+          "父组ID": 32,
+          "可见性": 0,
+          "修订号": 2
+        },
+        "末级群组": {
+          "名称": "公开末级组",
+          "ID": 34,
+          "完整路径": "phase1-closure-profile-public/profile-admin/profile-leaf",
+          "原生兼容名": "g_acc28e02c98f44598ca516afd2a9de9b",
+          "父组ID": 33,
+          "可见性": 0,
+          "修订号": 3
+        },
+        "仓库": {
+          "ID": 25,
+          "完整路径": "g_acc28e02c98f44598ca516afd2a9de9b/profile-access",
+          "私有": false,
+          "默认分支": "main",
+          "克隆地址路径": "/g_acc28e02c98f44598ca516afd2a9de9b/profile-access.git"
+        },
+        "身份初始读取": [
+          {
+            "用户ID": 21,
+            "用户名": "phase1-v15-owner",
+            "群组接口状态码": 200,
+            "授权来源": [
+              {
+                "来源": "inherited",
+                "来源群组ID": 32,
+                "角色": 50,
+                "上限角色": null,
+                "原生团队ID": 21
+              },
+              {
+                "来源": "inherited",
+                "来源群组ID": 33,
+                "角色": 50,
+                "上限角色": null,
+                "原生团队ID": 22
+              },
+              {
+                "来源": "direct",
+                "来源群组ID": 34,
+                "角色": 50,
+                "上限角色": null,
+                "原生团队ID": 23
+              },
+              {
+                "来源": "shared",
+                "来源群组ID": 24,
+                "角色": 50,
+                "上限角色": 20,
+                "原生团队ID": 15
+              }
+            ],
+            "可管理群组": true,
+            "可创建子群组": true
+          },
+          {
+            "用户ID": 26,
+            "用户名": "phase1-closure-owner",
+            "群组接口状态码": 200,
+            "授权来源": [
+              {
+                "来源": "inherited",
+                "来源群组ID": 33,
+                "角色": 50,
+                "上限角色": null,
+                "原生团队ID": null
+              },
+              {
+                "来源": "shared",
+                "来源群组ID": 24,
+                "角色": 50,
+                "上限角色": 20,
+                "原生团队ID": null
+              }
+            ],
+            "可管理群组": true,
+            "可创建子群组": true
+          },
+          {
+            "用户ID": 27,
+            "用户名": "phase1-closure-maintainer",
+            "群组接口状态码": 200,
+            "授权来源": [
+              {
+                "来源": "shared",
+                "来源群组ID": 24,
+                "角色": 40,
+                "上限角色": 20,
+                "原生团队ID": null
+              }
+            ],
+            "可管理群组": null,
+            "可创建子群组": null
+          },
+          {
+            "用户ID": 22,
+            "用户名": "phase1-v15-outsider",
+            "群组接口状态码": 200,
+            "授权来源": [],
+            "可管理群组": null,
+            "可创建子群组": null
+          }
+        ],
+        "末级直接或原生来源核对": [
+          {
+            "用户ID": 26,
+            "用户名": "phase1-closure-owner",
+            "直接授权": false,
+            "原生团队": [],
+            "来源": [
+              "inherited",
+              "shared"
+            ]
+          },
+          {
+            "用户ID": 27,
+            "用户名": "phase1-closure-maintainer",
+            "直接授权": false,
+            "原生团队": [],
+            "来源": [
+              "shared"
+            ]
+          }
+        ],
+        "匿名HTTPGit初始读取": {
+          "状态码": 200,
+          "内容类型": "application/x-git-upload-pack-advertisement",
+          "地址路径": "/g_acc28e02c98f44598ca516afd2a9de9b/profile-access.git/info/refs?service=git-upload-pack"
+        },
+        "无关账号仓库初始读取": {
+          "用户ID": 22,
+          "状态码": 200,
+          "仓库ID": 25
+        },
+        "页面链接": {
+          "根群组": "http://127.0.0.1:13043/governance/groups/32",
+          "中间群组": "http://127.0.0.1:13043/governance/groups/33",
+          "末级群组设置": "http://127.0.0.1:13043/governance/groups/34?tab=settings",
+          "末级原生设置": "http://127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings",
+          "公开仓库": "http://127.0.0.1:13043/g_acc28e02c98f44598ca516afd2a9de9b/profile-access"
+        },
+        "共享状态": "已撤销；等待根任务完成纯继承Owner UI正例后再按通知添加",
+        "身份初始读取含共享阶段": "仅供时间线追溯，不代表当前状态",
+        "身份当前读取": [
+          {
+            "用户ID": 26,
+            "群组接口状态码": 200,
+            "授权来源": [
+              {
+                "来源": "inherited",
+                "来源群组ID": 33,
+                "角色": 50,
+                "上限角色": null,
+                "原生团队ID": null
+              }
+            ]
+          },
+          {
+            "用户ID": 27,
+            "群组接口状态码": 200,
+            "授权来源": []
+          }
+        ],
+        "Owner26当前成员来源": {
+          "直接授权": false,
+          "原生团队": [],
+          "来源": [
+            {
+              "类型": "inherited",
+              "角色": 50,
+              "来源群组ID": 33
+            }
+          ]
+        },
+        "仓库初始文件检查": {
+          "README状态码": 200,
+          "工作流目录状态码": 404,
+          "统一工作流目录状态码": 404,
+          "Secrets列表状态码": 200,
+          "Secrets数量": 0
+        }
+      }
+    },
+    "正式API": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m03-runtime-api.json",
+      "SHA256": "e0378575af6af09ab7fcd1dc3068f102dddaff0e819ad4d9ee732d9dfbad8c88",
+      "原始记录": {
+        "说明": "M03-a 本机隔离实例正式 API 与真实 Git 客户端证据；不含凭据",
+        "服务": "http://127.0.0.1:13043",
+        "群组ID": 34,
+        "完整路径": "phase1-closure-profile-public/profile-admin/profile-leaf",
+        "仓库": "phase1-closure-profile-public/profile-admin/profile-leaf/profile-access",
+        "步骤": [
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时读取当前配置"
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 26,
+            "接口": "GET /api/v1/governance/groups/34",
+            "状态码": 200,
+            "授权来源": [
+              {
+                "来源": "inherited",
+                "来源群组ID": 33,
+                "角色": 50,
+                "共享上限": null
+              }
+            ],
+            "可见性": 2,
+            "修订号": 4
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 26,
+            "接口": "GET /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "状态码": 200,
+            "资料名称": "继承 Owner 资料已更新",
+            "资料描述": "一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。",
+            "可见性": "private"
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 26,
+            "接口": "GET /api/v1/repos/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access",
+            "状态码": 200
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 27,
+            "接口": "GET /api/v1/governance/groups/34",
+            "状态码": 404
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 27,
+            "接口": "GET /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "状态码": 404
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 27,
+            "接口": "GET /api/v1/repos/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access",
+            "状态码": 404
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 22,
+            "接口": "GET /api/v1/governance/groups/34",
+            "状态码": 404
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 22,
+            "接口": "GET /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "状态码": 404
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时正式 API 读取",
+            "用户ID": 22,
+            "接口": "GET /api/v1/repos/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access",
+            "状态码": 404
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时真实 Git 读取",
+            "身份": "匿名",
+            "命令": "git ls-remote http://127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access.git",
+            "退出码": 128,
+            "引用行数": 0
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时真实 Git 读取",
+            "身份": "无关账号22",
+            "命令": "git ls-remote http://127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access.git",
+            "退出码": 128,
+            "引用行数": 0
+          },
+          {
+            "时间戳": 1790215955,
+            "操作": "未共享时真实 Git 读取",
+            "身份": "纯继承Owner26",
+            "命令": "git ls-remote http://127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access.git",
+            "退出码": 0,
+            "引用行数": 2
+          },
+          {
+            "时间戳": 1790215966,
+            "操作": "共享前只读校验",
+            "群组ID": 34,
+            "修订号": 4,
+            "可见性": 2,
+            "至组24共享边": false
+          },
+          {
+            "时间戳": 1790215966,
+            "操作": "正式 API 新增末级至组24的 Reporter 上限共享",
+            "接口": "PUT /api/v1/governance/groups/34/shares/24",
+            "请求": {
+              "共享上限角色": 20,
+              "修订号": 4
+            },
+            "状态码": 204
+          },
+          {
+            "时间戳": 1790215994,
+            "操作": "受限共享后账号27真实 Git 读取",
+            "身份": "账号27，仅共享Reporter",
+            "命令": "git ls-remote http://127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access.git",
+            "退出码": 0,
+            "引用行数": 2
+          },
+          {
+            "时间戳": 1790216014,
+            "操作": "原生组织设置越权修改负例",
+            "用户ID": 27,
+            "用户名": "phase1-closure-maintainer",
+            "接口": "PATCH /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "修改字段": "description",
+            "状态码": 403,
+            "Owner读回状态码": 200,
+            "原资料与私有可见性保持": true
+          },
+          {
+            "时间戳": 1790216014,
+            "操作": "原生组织设置越权修改负例",
+            "用户ID": 27,
+            "用户名": "phase1-closure-maintainer",
+            "接口": "PATCH /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "修改字段": "visibility",
+            "状态码": 403,
+            "Owner读回状态码": 200,
+            "原资料与私有可见性保持": true
+          },
+          {
+            "时间戳": 1790216015,
+            "操作": "原生组织设置越权修改负例",
+            "用户ID": 22,
+            "用户名": "phase1-v15-outsider",
+            "接口": "PATCH /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "修改字段": "description",
+            "状态码": 403,
+            "Owner读回状态码": 200,
+            "原资料与私有可见性保持": true
+          },
+          {
+            "时间戳": 1790216015,
+            "操作": "原生组织设置越权修改负例",
+            "用户ID": 22,
+            "用户名": "phase1-v15-outsider",
+            "接口": "PATCH /api/v1/orgs/phase1-closure-profile-public/profile-admin/profile-leaf",
+            "修改字段": "visibility",
+            "状态码": 403,
+            "Owner读回状态码": 200,
+            "原资料与私有可见性保持": true
+          },
+          {
+            "时间戳": 1790216035,
+            "操作": "共享后身份和仓库只读核对",
+            "用户ID": 26,
+            "群组接口状态码": 200,
+            "仓库接口状态码": 200,
+            "授权来源": [
+              {
+                "来源": "inherited",
+                "来源群组ID": 33,
+                "角色": 50,
+                "共享上限": null,
+                "有效可管理群组": true,
+                "有效可读代码": true
+              },
+              {
+                "来源": "shared",
+                "来源群组ID": 24,
+                "角色": 50,
+                "共享上限": 20,
+                "有效可管理群组": false,
+                "有效可读代码": true
+              }
+            ]
+          },
+          {
+            "时间戳": 1790216035,
+            "操作": "共享后身份和仓库只读核对",
+            "用户ID": 27,
+            "群组接口状态码": 200,
+            "仓库接口状态码": 200,
+            "授权来源": [
+              {
+                "来源": "shared",
+                "来源群组ID": 24,
+                "角色": 40,
+                "共享上限": 20,
+                "有效可管理群组": false,
+                "有效可读代码": true
+              }
+            ]
+          },
+          {
+            "时间戳": 1790216035,
+            "操作": "共享后身份和仓库只读核对",
+            "用户ID": 22,
+            "群组接口状态码": 404,
+            "仓库接口状态码": 404,
+            "授权来源": []
+          }
+        ],
+        "时间戳": 1790215955,
+        "UI正例提交后基线": {
+          "full_name": "继承 Owner 资料已更新",
+          "description": "一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。",
+          "visibility": "private"
+        },
+        "最终资料与可见性": {
+          "Owner查询状态码": 200,
+          "显示名称": "继承 Owner 资料已更新",
+          "描述": "一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。",
+          "可见性": "private"
+        },
+        "最终群组修订号": 5,
+        "最终共享": [
+          {
+            "受邀组ID": 24,
+            "上限角色": 20
+          }
+        ]
+      }
+    },
+    "真实Git客户端": {
+      "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/m03-git-client.txt",
+      "SHA256": "77c152498366598065e89aac5e6f51dfa818f038f77260059869f1be5eac5c0a",
+      "原始记录": "M03-a 真实 Git 客户端初始读取；URL 不含凭据。\n匿名：退出码 128；引用 0 行；诊断 fatal: could not read Username for 'http://127.0.0.1:13043': terminal prompts disabled\n无关账号22：退出码 128；引用 0 行；诊断 remote: Repository not found\n纯继承Owner26：退出码 0；引用 2 行；诊断 无\n共享后账号27：git ls-remote 退出码 0；引用 2 行；诊断 无\n",
+      "实际命令": "git ls-remote http://127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access.git",
+      "结果": "组34变私有、共享前：匿名和账号22退出128；纯继承Owner26退出0且两条引用。共享Reporter后账号27退出0且两条引用。",
+      "凭据处理": "私有 helper 仅从进程环境和 Askpass 提供凭据，命令 URL 与汇总不含明文。"
+    },
+    "原生UI": [
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-owner-pure-source.txt",
+        "SHA256": "833cd69e614e9e604782dc417dd82412e6e7c7ac09faa1829aab1a07a633e319",
+        "原始记录": "Browser tab: 2, Title: \"M03 资料可见性末级组 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/34?tab=members\".\n1 AXWebArea M03 资料可见性末级组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/34?tab=members\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 link Description: M03 资料可见性根组, Value: 127.0.0.1:13043/phase1-closure-profile-public\n\t\t\t10 link Description: M03 授权中间组, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin\n\t\t\t11 link Description: M03 资料可见性末级组, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t12 heading M03 资料可见性末级组 公开, Value: 1\n\t\t\t13 text M03 资料可见性末级组 公开\n\t\t14 text phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t15 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/34/access-requests\n\t\t16 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/34?create=1\n\t\t17 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=34\n\t\t18 container 群组导航\n\t\t\t19 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t\t20 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=shared_projects\n\t\t\t21 link Description: Issue, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=issues\n\t\t\t22 link Description: PR, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=pulls\n\t\t\t23 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/34?tab=members\n\t\t\t24 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/34?tab=shares\n\t\t\t25 link Description: 活动, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=activity\n\t\t\t26 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/34?tab=settings\n\t\t\t27 link Description: CI/CD, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/actions\n\t\t\t28 link Description: Webhook, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/hooks\n\t\t\t29 link Description: 标签, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/labels\n\t\t\t30 link Description: 高级团队权限, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/teams\n\t\t\t31 link Description: 制品, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/packages\n\t\t\t32 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/approvals\n\t\t\t33 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=34\n\t\t34 heading 成员与权限来源, Value: 3\n\t\t\t35 text 成员与权限来源\n\t\t36 link Description: 成员邀请, Value: 127.0.0.1:13043/governance/groups/34/invitations\n\t\t37 link Description: 添加成员, Value: 127.0.0.1:13043/governance/groups/34?tab=members#group-member-form\n\t\t38 container\n\t\t\t39 search text field (settable) 搜索成员\n\t\t\t40 pop up button (collapsed, settable) Description: 授权来源, Value: 全部来源, Secondary Actions: Expand\n\t\t\t\t41 menu\n\t\t\t\t\t42 (selected) 全部来源\n\t\t\t\t\t43 直接\n\t\t\t\t\t44 继承\n\t\t\t\t\t45 继承共享\n\t\t\t\t\t46 共享\n\t\t\t\t\t47 原生团队\n\t\t\t48 button 筛选\n\t\t49 table\n\t\t\t50 row\n\t\t\t\t51 cell\n\t\t\t\t\t52 text 成员\n\t\t\t\t53 cell\n\t\t\t\t\t54 text 有效角色\n\t\t\t\t55 cell\n\t\t\t\t\t56 text 授权来源\n\t\t\t\t57 cell\n\t\t\t\t\t58 text 操作\n\t\t\t59 row\n\t\t\t\t60 cell\n\t\t\t\t\t61 image phase1-v15-owner\n\t\t\t\t\t62 text phase1-v15-owner\n\t\t\t\t\t63 text phase1-v15-owner\n\t\t\t\t64 cell\n\t\t\t\t\t65 text Owner\n\t\t\t\t66 cell\n\t\t\t\t\t67 button (collapsed) 原生团队 · phase1-closure-profile-public, Secondary Actions: Expand\n\t\t\t\t\t\t68 text 原生团队 · phase1-closure-profile-public\n\t\t\t\t\t69 button (collapsed) 原生团队 · phase1-closure-profile-public/profile-admin, Secondary Actions: Expand\n\t\t\t\t\t\t70 text 原生团队 · phase1-closure-profile-public/profile-admin\n\t\t\t\t\t71 button (collapsed) 原生团队 · phase1-closure-profile-public/profile-admin/profile-leaf, Secondary Actions: Expand\n\t\t\t\t\t\t72 text 原生团队 · phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t\t\t73 cell\n\t\t\t\t\t74 text 在授权来源处管理\n\t\t\t75 row\n\t\t\t\t76 cell\n\t\t\t\t\t77 image phase1-closure-owner\n\t\t\t\t\t78 text phase1-closure-owner\n\t\t\t\t\t79 text phase1-closure-owner\n\t\t\t\t80 cell\n\t\t\t\t\t81 text Owner\n\t\t\t\t82 cell\n\t\t\t\t\t83 button (collapsed) 继承 · phase1-closure-profile-public/profile-admin, Secondary Actions: Expand\n\t\t\t\t\t\t84 text 继承 · phase1-closure-profile-public/profile-admin\n\t\t\t\t85 cell\n\t\t\t\t\t86 text 在授权来源处管理\n\t\t87 button (collapsed) 新增或修改直接授权, Secondary Actions: Expand\n\t\t\t88 text 新增或修改直接授权\n\t89 container Footer\n\t\t90 container About Software\n\t\t\t91 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t92 text Version: development Page: \n\t\t\t93 text 45ms\n\t\t\t94 text  Template: \n\t\t\t95 text 0ms\n\t\t96 container Links\n\t\t\t97 text Auto\n\t\t\t98 text English\n\t\t\t99 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t100 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea M03 资料可见性末级组 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/34?tab=members",
+        "场景": "Owner26 仅继承组33 Owner，尚未新增共享"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-owner-saved.txt",
+        "SHA256": "048d04099db5be0c5a205a9d1cc47ca8f8a89a30c0a08d16bdda9b9c3475ea69",
+        "原始记录": "Browser tab: 2, Title: \"Settings - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\".\n1 AXWebArea Settings - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Settings\n\t\t7 text 继承 Owner 资料已更新\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf.rss\n\t\t9 button Follow\n\t\t10 text 一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。\n\t\t11 container\n\t\t\t12 link Description: Repositories 1, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t\t13 link Description: Projects, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/projects\n\t\t\t14 link Description: Packages, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/packages\n\t\t\t15 link Description: Members 1, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/members\n\t\t\t16 link Description: Teams 1, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/teams\n\t\t\t17 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t18 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/approvals\n\t\t19 text Settings\n\t\t20 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=34\n\t\t21 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/34\n\t\t22 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\n\t\t23 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/hooks\n\t\t24 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/labels\n\t\t25 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/applications\n\t\t26 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/blocked_users\n\t\t27 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/packages\n\t\t28 button (collapsed) Actions, Secondary Actions: Expand\n\t\t\t29 text Actions\n\t\t30 container\n\t\t\t31 heading Organization, Value: 4\n\t\t\t\t32 text Organization\n\t\t\t33 container\n\t\t\t\t34 text Organization Full Name\n\t\t\t\t35 text field (settable) Organization Full Name, Value: 继承 Owner 资料已更新, ID: full_name\n\t\t\t\t36 text Contact Email Address\n\t\t\t\t37 text field (settable) Contact Email Address\n\t\t\t\t38 text Description\n\t\t\t\t39 text entry area (settable) Description, Value: 一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。, ID: description\n\t\t\t\t40 text Website\n\t\t\t\t41 text field (settable) Website, ID: website\n\t\t\t\t42 text Location\n\t\t\t\t43 text field (settable) Location, ID: location\n\t\t\t\t44 container permission_box\n\t\t\t\t\t45 text Permissions\n\t\t\t\t\t46 container\n\t\t\t\t\t\t47 checkbox (settable, integer) Description: Repository admin can add and remove access for teams, Value: 0\n\t\t\t\t\t\t48 text Repository admin can add and remove access for teams\n\t\t\t\t49 button Update Settings\n\t\t\t50 container\n\t\t\t\t51 text Choose new avatar\n\t\t\t\t52 button Choose new avatar\n\t\t\t\t53 button Update Avatar\n\t\t\t\t54 button Delete Current Avatar\n\t\t55 heading Danger Zone, Value: 4\n\t\t\t56 text Danger Zone\n\t\t57 container\n\t\t\t58 text Visibility Change who can view the organization and its repositories.\n\t\t\t59 button Change Visibility\n\t\t\t60 text Rename Organization Changing the organization name will also change your organization's URL and free the old name.\n\t\t\t61 button Rename Organization\n\t\t\t62 text Delete This Organization 群组及其项目将进入删除保留期；期间可恢复，到期后永久删除。\n\t\t\t63 button Delete This Organization\n\t64 container Footer\n\t\t65 container About Software\n\t\t\t66 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t67 text Version: development Page: \n\t\t\t68 text 9ms\n\t\t\t69 text  Template: \n\t\t\t70 text 1ms\n\t\t71 container Links\n\t\t\t72 text Auto\n\t\t\t73 text English\n\t\t\t74 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t75 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Settings - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings",
+        "场景": "Owner26 原生资料显示名及描述保存并刷新"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-owner-private.txt",
+        "SHA256": "c51af78b9cc13edd80aa89014f8d50dd090d16c35725847248f11aca983b81f4",
+        "原始记录": "Browser tab: 2, Title: \"Settings - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/g_acc28e02c98f44598ca516afd2a9de9b/settings\".\n1 AXWebArea Settings - 群组一期隔离验收, URL: 127.0.0.1:13043/org/g_acc28e02c98f44598ca516afd2a9de9b/settings\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Settings\n\t\t7 text 继承 Owner 资料已更新 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf.rss\n\t\t9 button Follow\n\t\t10 text 一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。\n\t\t11 container\n\t\t\t12 link Description: Repositories 1, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t\t13 link Description: Members 1, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/members\n\t\t\t14 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t15 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/approvals\n\t\t16 text Settings\n\t\t17 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=34\n\t\t18 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/34\n\t\t19 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\n\t\t20 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/hooks\n\t\t21 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/labels\n\t\t22 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/applications\n\t\t23 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/blocked_users\n\t\t24 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/packages\n\t\t25 button (collapsed) Actions, Secondary Actions: Expand\n\t\t\t26 text Actions\n\t\t27 container\n\t\t\t28 heading Organization, Value: 4\n\t\t\t\t29 text Organization\n\t\t\t30 container\n\t\t\t\t31 text Organization Full Name\n\t\t\t\t32 text field (settable) Organization Full Name, Value: 继承 Owner 资料已更新, ID: full_name\n\t\t\t\t33 text Contact Email Address\n\t\t\t\t34 text field (settable) Contact Email Address\n\t\t\t\t35 text Description\n\t\t\t\t36 text entry area (settable) Description, Value: 一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。, ID: description\n\t\t\t\t37 text Website\n\t\t\t\t38 text field (settable) Website, ID: website\n\t\t\t\t39 text Location\n\t\t\t\t40 text field (settable) Location, ID: location\n\t\t\t\t41 container permission_box\n\t\t\t\t\t42 text Permissions\n\t\t\t\t\t43 container\n\t\t\t\t\t\t44 checkbox (settable, integer) Description: Repository admin can add and remove access for teams, Value: 0\n\t\t\t\t\t\t45 text Repository admin can add and remove access for teams\n\t\t\t\t46 button Update Settings\n\t\t\t47 container\n\t\t\t\t48 text Choose new avatar\n\t\t\t\t49 button Choose new avatar\n\t\t\t\t50 button Update Avatar\n\t\t\t\t51 button Delete Current Avatar\n\t\t52 heading Danger Zone, Value: 4\n\t\t\t53 text Danger Zone\n\t\t54 container\n\t\t\t55 text Visibility Change who can view the organization and its repositories.\n\t\t\t56 button Change Visibility\n\t\t\t57 text Rename Organization Changing the organization name will also change your organization's URL and free the old name.\n\t\t\t58 button Rename Organization\n\t\t\t59 text Delete This Organization 群组及其项目将进入删除保留期；期间可恢复，到期后永久删除。\n\t\t\t60 button Delete This Organization\n\t61 container Footer\n\t\t62 container About Software\n\t\t\t63 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t64 text Version: development Page: \n\t\t\t65 text 8ms\n\t\t\t66 text  Template: \n\t\t\t67 text 0ms\n\t\t68 container Links\n\t\t\t69 text Auto\n\t\t\t70 text English\n\t\t\t71 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t72 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Settings - 群组一期隔离验收, URL: 127.0.0.1:13043/org/g_acc28e02c98f44598ca516afd2a9de9b/settings",
+        "场景": "Owner26 将组34 public 改 private 并刷新"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-shared-source.txt",
+        "SHA256": "6fcf9273adb7d5b95f3aeab329aa617146ab37d2bcd25ced6ac42ab9f7a72992",
+        "原始记录": "Browser tab: 2, Title: \"继承 Owner 资料已更新 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/governance/groups/34?tab=members\".\n1 AXWebArea 继承 Owner 资料已更新 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/34?tab=members\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 link Description: M03 资料可见性根组, Value: 127.0.0.1:13043/phase1-closure-profile-public\n\t\t\t10 link Description: M03 授权中间组, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin\n\t\t\t11 link Description: 继承 Owner 资料已更新, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t12 heading 继承 Owner 资料已更新 私有, Value: 1\n\t\t\t13 text 继承 Owner 资料已更新 私有\n\t\t14 text phase1-closure-profile-public/profile-admin/profile-leaf 一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。\n\t\t15 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/34/access-requests\n\t\t16 container 群组导航\n\t\t\t17 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t\t18 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=shared_projects\n\t\t\t19 link Description: Issue, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=issues\n\t\t\t20 link Description: PR, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=pulls\n\t\t\t21 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/34?tab=members\n\t\t\t22 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/34?tab=shares\n\t\t\t23 link Description: 活动, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=activity\n\t\t\t24 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/34?tab=settings\n\t\t\t25 link Description: 制品, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/packages\n\t\t26 heading 成员与权限来源, Value: 3\n\t\t\t27 text 成员与权限来源\n\t\t28 container\n\t\t\t29 search text field (settable) 搜索成员\n\t\t\t30 pop up button (collapsed, settable) Description: 授权来源, Value: 全部来源, Secondary Actions: Expand\n\t\t\t\t31 menu\n\t\t\t\t\t32 (selected) 全部来源\n\t\t\t\t\t33 直接\n\t\t\t\t\t34 继承\n\t\t\t\t\t35 继承共享\n\t\t\t\t\t36 共享\n\t\t\t\t\t37 原生团队\n\t\t\t38 button 筛选\n\t\t39 table\n\t\t\t40 row\n\t\t\t\t41 cell\n\t\t\t\t\t42 text 成员\n\t\t\t\t43 cell\n\t\t\t\t\t44 text 有效角色\n\t\t\t\t45 cell\n\t\t\t\t\t46 text 授权来源\n\t\t\t\t47 cell\n\t\t\t\t\t48 text 操作\n\t\t\t49 row\n\t\t\t\t50 cell\n\t\t\t\t\t51 image phase1-closure-maintainer\n\t\t\t\t\t52 text phase1-closure-maintainer\n\t\t\t\t\t53 text phase1-closure-maintainer\n\t\t\t\t54 cell\n\t\t\t\t\t55 text Reporter\n\t\t\t\t56 cell\n\t\t\t\t\t57 button (collapsed) 共享 · phase1-native-v15/native-child, Secondary Actions: Expand\n\t\t\t\t\t\t58 text 共享 · phase1-native-v15/native-child\n\t\t\t\t59 cell\n\t\t\t\t\t60 text 在授权来源处管理\n\t61 container Footer\n\t\t62 container About Software\n\t\t\t63 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t64 text Version: development Page: \n\t\t\t65 text 43ms\n\t\t\t66 text  Template: \n\t\t\t67 text 0ms\n\t\t68 container Links\n\t\t\t69 text Auto\n\t\t\t70 text English\n\t\t\t71 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t72 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 继承 Owner 资料已更新 - 群组一期隔离验收, URL: 127.0.0.1:13043/governance/groups/34?tab=members",
+        "场景": "账号27 仅共享 Reporter 来源，成员页无编辑表单"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-shared-settings-denied.txt",
+        "SHA256": "2a2b459968f70252ca2677628f69f32dbc817e5102fa4a0f6a38a5d09b2388cc",
+        "原始记录": "Browser tab: 2, Title: \"Page Not Found - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\".\n1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Page Not Found\n\t\t7 text 404 Not Found\n\t\t8 container\n\t\t\t9 text The page you are trying to reach either  does not exist  or  you are not authorized  to view it.\n\t10 container Footer\n\t\t11 container About Software\n\t\t\t12 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t13 text Version: development Page: \n\t\t\t14 text 2ms\n\t\t\t15 text  Template: \n\t\t\t16 text 0ms\n\t\t17 container Links\n\t\t\t18 text Auto\n\t\t\t19 text English\n\t\t\t20 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t21 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings",
+        "场景": "账号27 原生设置页404"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-outsider-settings-denied.txt",
+        "SHA256": "af6e73557dc5daa6b394dc11d1afcec4fc04f7636020589aee7202bdcfab123b",
+        "原始记录": "Browser tab: 2, Title: \"Page Not Found - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\".\n1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Page Not Found\n\t\t7 text 404 Not Found\n\t\t8 container\n\t\t\t9 text The page you are trying to reach either  does not exist  or  you are not authorized  to view it.\n\t10 container Footer\n\t\t11 container About Software\n\t\t\t12 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t13 text Version: development Page: \n\t\t\t14 text 1ms\n\t\t\t15 text  Template: \n\t\t\t16 text 0ms\n\t\t17 container Links\n\t\t\t18 text Auto\n\t\t\t19 text English\n\t\t\t20 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t21 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Page Not Found - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings",
+        "场景": "无关账号22 原生设置页404"
+      },
+      {
+        "路径": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-profile-final-retained.txt",
+        "SHA256": "bc02159a6f1992beeb8871454a7616d1a653aa93708e186814f23dd3bdc47f8b",
+        "原始记录": "Browser tab: 2, Title: \"继承 Owner 资料已更新 - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\".\n1 AXWebArea 继承 Owner 资料已更新 - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container 继承 Owner 资料已更新\n\t\t7 container 面包屑\n\t\t\t8 link Description: 群组, Value: 127.0.0.1:13043/governance/groups\n\t\t\t9 link Description: M03 资料可见性根组, Value: 127.0.0.1:13043/phase1-closure-profile-public\n\t\t\t10 link Description: M03 授权中间组, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin\n\t\t\t11 link Description: 继承 Owner 资料已更新, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t12 heading 继承 Owner 资料已更新 私有, Value: 1\n\t\t\t13 text 继承 Owner 资料已更新 私有\n\t\t14 text phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t15 text 一期收口 M03：纯继承 Owner 通过统一导航编辑，下级仓库按当前可见性鉴权。\n\t\t16 link Description: 访问申请与状态, Value: 127.0.0.1:13043/governance/groups/34/access-requests\n\t\t17 link Description: 创建子群组, Value: 127.0.0.1:13043/governance/groups/34?create=1\n\t\t18 link Description: 创建仓库, Value: 127.0.0.1:13043/repo/create?org=34\n\t\t19 container 群组导航\n\t\t\t20 link Description: 子群组与仓库, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf\n\t\t\t21 link Description: 共享项目, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=shared_projects\n\t\t\t22 link Description: Issue, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=issues\n\t\t\t23 link Description: PR, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=pulls\n\t\t\t24 link Description: 成员, Value: 127.0.0.1:13043/governance/groups/34?tab=members\n\t\t\t25 link Description: 共享, Value: 127.0.0.1:13043/governance/groups/34?tab=shares\n\t\t\t26 link Description: 活动, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=activity\n\t\t\t27 link Description: 设置, Value: 127.0.0.1:13043/governance/groups/34?tab=settings\n\t\t\t28 link Description: CI/CD, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/actions\n\t\t\t29 link Description: Webhook, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/hooks\n\t\t\t30 link Description: 标签, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/labels\n\t\t\t31 link Description: 高级团队权限, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/teams\n\t\t\t32 link Description: 制品, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/packages\n\t\t\t33 link Description: 审批策略, Value: 127.0.0.1:13043/org/phase1-closure-profile-public/profile-admin/profile-leaf/settings/approvals\n\t\t\t34 link Description: 审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=34\n\t\t35 container\n\t\t\t36 search text field (settable) 搜索群组与仓库\n\t\t\t37 pop up button (collapsed, settable) Description: 活动状态, Value: 活动, Secondary Actions: Expand\n\t\t\t\t38 menu\n\t\t\t\t\t39 (selected) 活动\n\t\t\t\t\t40 非活动\n\t\t\t41 pop up button (collapsed, settable) Description: 排序字段, Value: 名称, Secondary Actions: Expand\n\t\t\t\t42 menu\n\t\t\t\t\t43 (selected) 名称\n\t\t\t\t\t44 创建时间\n\t\t\t\t\t45 更新时间\n\t\t\t46 pop up button (collapsed, settable) Description: 排序方向, Value: 升序, Secondary Actions: Expand\n\t\t\t\t47 menu\n\t\t\t\t\t48 (selected) 升序\n\t\t\t\t\t49 降序\n\t\t\t50 content list\n\t\t\t\t51 container\n\t\t\t\t\t52 link Description: profile-access phase1-closure-profile-public/profile-admin/profile-leaf/profile-access, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/profile-access\n\t\t\t\t\t53 text 仓库 公开 2026/9/24\n\t\t54 link Description: README 与原生组织视图, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf?tab=readme\n\t\t55 link Description: 软件包, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/packages\n\t\t56 link Description: 看板, Value: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf/-/projects\n\t57 container Footer\n\t\t58 container About Software\n\t\t\t59 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t60 text Version: development Page: \n\t\t\t61 text 36ms\n\t\t\t62 text  Template: \n\t\t\t63 text 0ms\n\t\t64 container Links\n\t\t\t65 text Auto\n\t\t\t66 text English\n\t\t\t67 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t68 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea 继承 Owner 资料已更新 - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-closure-profile-public/profile-admin/profile-leaf",
+        "场景": "Owner26 最终刷新，资料和私有状态保持，仓库入口可见"
+      }
+    ],
+    "身份与权限边界": "新夹具根32、授权中间组33、末级组34、仓库25。Owner26 对末级纯继承组33 Owner 时先更新名称/描述，再 public→private；随后共享组34至组24且上限Reporter20，账号27仅一条shared来源、原role40但有效cap20，可读Git而不能写资料/可见性；27及无关22各两项PATCH均403，Owner读回不变，原生设置页404。",
+    "限制": "夹具初次共享曾撤销以确保Owner纯继承正例，此时间线在夹具原始记录中保留；匿名初始HTTP Git握手200不等于私有阶段仓库可读。其他权限组合和并发未穷举。"
+  }
+}

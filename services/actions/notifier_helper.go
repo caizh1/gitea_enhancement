@@ -4,10 +4,13 @@
 package actions
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
@@ -216,10 +219,7 @@ func notify(ctx context.Context, input *notifyInput) error {
 			return fmt.Errorf("DetectScheduledWorkflows: %w", err)
 		}
 		if err := handleSchedules(ctx, schedules, scheduleCommit, input, ref); err != nil {
-			if !errors.Is(err, governance_model.ErrConflict) {
-				return err
-			}
-			log.Warn("repo %s: schedule update conflicted at %s; continuing event workflow: %v", input.Repo.RelativePath(), scheduleCommit.ID, err)
+			log.Warn("repo %s: schedule update failed at %s; continuing event workflow: %v", input.Repo.RelativePath(), scheduleCommit.ID, err)
 		}
 	}
 	if skipEvent {
@@ -617,6 +617,12 @@ func handleSchedules(
 
 		crons = append(crons, run)
 	}
+	scoped, err := scopedSchedulesForRepo(ctx, input.Repo, commit)
+	if err != nil {
+		log.Error("scoped schedules for repo %d: %v", input.Repo.ID, err)
+	} else {
+		crons = append(crons, scoped...)
+	}
 
 	if err := replaceSchedulesForRepo(ctx, input.Repo, commit.ID.String(), crons); err != nil {
 		return err
@@ -625,6 +631,101 @@ func handleSchedules(
 		log.Trace("repo %s with commit %s couldn't find schedules", input.Repo.RelativePath(), commit.ID)
 	}
 	return nil
+}
+
+func scopedSchedulesForRepo(ctx context.Context, consumer *repo_model.Repository, commit *git.Commit) ([]*actions_model.ActionSchedule, error) {
+	sources, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, consumer.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return nil, nil
+	}
+	unit, err := consumer.GetUnit(ctx, unit_model.TypeActions)
+	if err != nil {
+		return nil, err
+	}
+	registrations := make(map[int64][]*actions_model.ActionScopedWorkflowSource)
+	for _, source := range sources {
+		valid, err := actions_model.ScopedWorkflowRegistrationValid(ctx, source)
+		if err != nil {
+			log.Error("scoped schedule registration %d: %v", source.ID, err)
+			continue
+		}
+		if valid {
+			registrations[source.SourceRepoID] = append(registrations[source.SourceRepoID], source)
+		}
+	}
+	plans := make([]*actions_model.ActionSchedule, 0)
+	for sourceID, registrationsForRepo := range registrations {
+		sourceRepo, err := repo_model.GetRepositoryByID(ctx, sourceID)
+		if err != nil {
+			log.Error("scoped schedule source %d: %v", sourceID, err)
+			continue
+		}
+		sha, parsed, err := LoadParsedScopedWorkflows(ctx, sourceRepo)
+		if err != nil {
+			log.Error("scoped schedule source %d: %v", sourceID, err)
+			continue
+		}
+		revisions := make(map[string]int64, len(registrationsForRepo))
+		for _, registration := range registrationsForRepo {
+			revisions[strconv.FormatInt(registration.ID, 10)] = registration.ConfigRevision
+		}
+		for _, workflow := range parsed {
+			if actions_model.ScopedWorkflowOptedOut(unit.ActionsConfig(), registrationsForRepo, sourceID, workflow.EntryName) {
+				continue
+			}
+			parsedWorkflow, err := jobparser.ReadWorkflow(workflow.Content)
+			if err != nil {
+				continue
+			}
+			specs := parsedWorkflow.OnSchedule()
+			if len(specs) == 0 {
+				continue
+			}
+			plans = append(plans, &actions_model.ActionSchedule{
+				Title: commit.MessageTitle(), RepoID: consumer.ID, OwnerID: consumer.OwnerID,
+				ScopeRevision: consumer.ActionsScopeRevision, WorkflowID: workflow.EntryName,
+				WorkflowRepoID: sourceID, WorkflowCommitSHA: sha,
+				WorkflowSourceScopeRevision: sourceRepo.ActionsScopeRevision,
+				ScopedConfigRevisions:       maps.Clone(revisions), IsScopedRun: true,
+				TriggerUserID: user_model.ActionsUserID, Ref: git.RefNameFromBranch(consumer.DefaultBranch).String(),
+				CommitSHA: commit.ID.String(), Event: webhook_module.HookEventSchedule,
+				EventPayload: "null", Specs: specs, Content: workflow.Content,
+			})
+		}
+	}
+	return plans, nil
+}
+
+func sameSchedules(current, proposed []*actions_model.ActionSchedule) bool {
+	if len(current) != len(proposed) {
+		return false
+	}
+	matched := make([]bool, len(current))
+	for _, next := range proposed {
+		found := false
+		for i, old := range current {
+			if matched[i] || !sameSchedule(old, next) {
+				continue
+			}
+			matched[i], found = true, true
+			break
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func sameSchedule(old, next *actions_model.ActionSchedule) bool {
+	return old.RepoID == next.RepoID && old.OwnerID == next.OwnerID && old.ScopeRevision == next.ScopeRevision &&
+		old.WorkflowID == next.WorkflowID && old.WorkflowRepoID == next.WorkflowRepoID && old.WorkflowCommitSHA == next.WorkflowCommitSHA &&
+		old.WorkflowSourceScopeRevision == next.WorkflowSourceScopeRevision && old.IsScopedRun == next.IsScopedRun &&
+		old.Ref == next.Ref && old.CommitSHA == next.CommitSHA && old.TriggerUserID == next.TriggerUserID &&
+		maps.Equal(old.ScopedConfigRevisions, next.ScopedConfigRevisions) && slices.Equal(old.Specs, next.Specs) && bytes.Equal(old.Content, next.Content)
 }
 
 func replaceSchedulesForRepo(ctx context.Context, preparedRepo *repo_model.Repository, commitSHA string, crons []*actions_model.ActionSchedule) error {
@@ -644,17 +745,67 @@ func replaceSchedulesForRepo(ctx context.Context, preparedRepo *repo_model.Repos
 		if !current {
 			return governance_model.ErrConflict
 		}
-		count, err := db.Count[actions_model.ActionSchedule](ctx, actions_model.FindScheduleOptions{RepoID: preparedRepo.ID})
+		for _, plan := range crons {
+			if !plan.IsScopedRun {
+				continue
+			}
+			run := &actions_model.ActionRun{
+				OwnerID: freshRepo.OwnerID, WorkflowRepoID: plan.WorkflowRepoID,
+				WorkflowSourceScopeRevision: plan.WorkflowSourceScopeRevision, ScopedConfigRevisions: plan.ScopedConfigRevisions,
+			}
+			valid, err := actions_model.ScopedWorkflowRunValid(ctx, run)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				return governance_model.ErrConflict
+			}
+			source, err := repo_model.GetRepositoryByID(ctx, plan.WorkflowRepoID)
+			if err != nil {
+				return err
+			}
+			valid, err = actions_model.LockScheduleBranchCurrent(ctx, source, git.RefNameFromBranch(source.DefaultBranch).String(), plan.WorkflowCommitSHA)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				return governance_model.ErrConflict
+			}
+		}
+		existing, err := db.Find[actions_model.ActionSchedule](ctx, actions_model.FindScheduleOptions{RepoID: preparedRepo.ID})
 		if err != nil {
 			return err
 		}
-		if count > 0 {
-			cancelledJobs, err = actions_model.CleanRepoScheduleTasks(ctx, freshRepo)
+		if sameSchedules(existing, crons) {
+			return nil
+		}
+		retained := make([]bool, len(existing))
+		toCreate := make([]*actions_model.ActionSchedule, 0, len(crons))
+		for _, next := range crons {
+			found := false
+			for i, old := range existing {
+				if !retained[i] && sameSchedule(old, next) {
+					retained[i], found = true, true
+					break
+				}
+			}
+			if !found {
+				toCreate = append(toCreate, next)
+			}
+		}
+		staleIDs := make([]int64, 0, len(existing))
+		for i, old := range existing {
+			if !retained[i] {
+				staleIDs = append(staleIDs, old.ID)
+			}
+		}
+		if len(staleIDs) > 0 {
+			cancelledJobs, err = actions_model.CleanScheduleTasksByIDs(ctx, freshRepo.ID, staleIDs)
 			if err != nil {
 				return err
 			}
 		}
-		return actions_model.CreateScheduleTask(ctx, crons)
+		return actions_model.CreateScheduleTask(ctx, toCreate)
 	})
 	if err != nil {
 		return err
@@ -720,7 +871,7 @@ func detectAndHandleScopedWorkflows(
 	consumerGitRepo *git.Repository,
 	consumerCommit *git.Commit,
 ) error {
-	// TODO: support workflow_run and schedule
+	// Scoped workflow_run detection remains unsupported; schedule runs use the scheduler.
 	if input.Event == webhook_module.HookEventWorkflowRun || input.Event == webhook_module.HookEventSchedule {
 		return nil
 	}

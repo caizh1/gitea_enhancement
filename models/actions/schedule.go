@@ -20,23 +20,28 @@ import (
 
 // ActionSchedule represents a schedule of a workflow file
 type ActionSchedule struct {
-	ID            int64
-	Title         string
-	Specs         []string
-	RepoID        int64                  `xorm:"index"`
-	Repo          *repo_model.Repository `xorm:"-"`
-	OwnerID       int64                  `xorm:"index"`
-	ScopeRevision int64                  `xorm:"NOT NULL DEFAULT 0"`
-	WorkflowID    string
-	TriggerUserID int64
-	TriggerUser   *user_model.User `xorm:"-"`
-	Ref           string
-	CommitSHA     string
-	Event         webhook_module.HookEventType
-	EventPayload  string `xorm:"LONGTEXT"`
-	Content       []byte
-	Created       timeutil.TimeStamp `xorm:"created"`
-	Updated       timeutil.TimeStamp `xorm:"updated"`
+	ID                          int64
+	Title                       string
+	Specs                       []string
+	RepoID                      int64                  `xorm:"index"`
+	Repo                        *repo_model.Repository `xorm:"-"`
+	OwnerID                     int64                  `xorm:"index"`
+	ScopeRevision               int64                  `xorm:"NOT NULL DEFAULT 0"`
+	WorkflowID                  string
+	WorkflowRepoID              int64            `xorm:"NOT NULL DEFAULT 0"`
+	WorkflowCommitSHA           string           `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
+	WorkflowSourceScopeRevision int64            `xorm:"NOT NULL DEFAULT 0"`
+	ScopedConfigRevisions       map[string]int64 `xorm:"JSON TEXT"`
+	IsScopedRun                 bool             `xorm:"NOT NULL DEFAULT false"`
+	TriggerUserID               int64
+	TriggerUser                 *user_model.User `xorm:"-"`
+	Ref                         string
+	CommitSHA                   string
+	Event                       webhook_module.HookEventType
+	EventPayload                string `xorm:"LONGTEXT"`
+	Content                     []byte
+	Created                     timeutil.TimeStamp `xorm:"created"`
+	Updated                     timeutil.TimeStamp `xorm:"updated"`
 }
 
 type scheduleBranchState struct {
@@ -163,6 +168,47 @@ func DeleteScheduleTaskByRepo(ctx context.Context, id int64) error {
 	})
 }
 
+// CleanScheduleTasksByIDs removes replaced plans and settles runs without a current plan.
+func CleanScheduleTasksByIDs(ctx context.Context, repoID int64, scheduleIDs []int64) ([]*ActionRunJob, error) {
+	if len(scheduleIDs) == 0 {
+		return nil, nil
+	}
+	var cancelledJobs []*ActionRunJob
+	err := db.WithTx(ctx, func(ctx context.Context) error {
+		if _, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).In("schedule_id", scheduleIDs).Delete(new(ActionScheduleSpec)); err != nil {
+			return err
+		}
+		if _, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).In("id", scheduleIDs).Delete(new(ActionSchedule)); err != nil {
+			return err
+		}
+		var runs []*ActionRun
+		if err := db.GetEngine(ctx).Where("action_run.repo_id = ?", repoID).
+			And("action_run.trigger_event = ?", webhook_module.HookEventSchedule).
+			And("NOT EXISTS (SELECT 1 FROM action_schedule WHERE action_schedule.id = action_run.schedule_id AND action_schedule.repo_id = action_run.repo_id)").
+			In("action_run.status", StatusRunning, StatusWaiting, StatusBlocked, StatusCancelling).Find(&runs); err != nil {
+			return err
+		}
+		for _, run := range runs {
+			jobs, err := db.Find[ActionRunJob](ctx, FindRunJobOptions{RunID: run.ID})
+			if err != nil {
+				return err
+			}
+			cancelled, err := CancelJobs(ctx, jobs)
+			if err != nil {
+				return err
+			}
+			cancelledJobs = append(cancelledJobs, cancelled...)
+			if len(cancelled) == 0 {
+				if err := SettleRunAfterCancel(ctx, run); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return cancelledJobs, err
+}
+
 func CleanRepoScheduleTasks(ctx context.Context, repo *repo_model.Repository) ([]*ActionRunJob, error) {
 	// If actions disabled when there is schedule task, this will remove the outdated schedule tasks
 	// There is no other place we can do this because the app.ini will be changed manually
@@ -173,7 +219,7 @@ func CleanRepoScheduleTasks(ctx context.Context, repo *repo_model.Repository) ([
 	jobs, err := CancelPreviousJobs(
 		ctx,
 		repo.ID,
-		repo.DefaultBranch,
+		"",
 		"",
 		webhook_module.HookEventSchedule,
 	)

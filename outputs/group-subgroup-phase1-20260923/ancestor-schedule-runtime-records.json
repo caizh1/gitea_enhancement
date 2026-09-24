@@ -1,0 +1,2268 @@
+{
+  "说明": "实际隔离调度器、Runner及服务端状态；没有人工插入运行记录，凭据明文未纳入",
+  "记录": {
+    "runtime-red.json": {
+      "SHA256": "0d8d6ecad2159707f418cf64ce7b72ce060e9255fe7f3f6a142546590fb09bdd",
+      "内容": {
+        "说明": "修复前，正常调度周期已通过，仅读取佐证",
+        "时间": 1790209506.123893,
+        "计划": [
+          {
+            "id": 5,
+            "repo_id": 22,
+            "workflow_id": "native-schedule.yaml"
+          }
+        ],
+        "运行": [
+          {
+            "id": 93,
+            "repo_id": 22,
+            "workflow_id": "native-schedule.yaml",
+            "trigger_event": "schedule",
+            "status": 1
+          }
+        ]
+      }
+    },
+    "runtime-final-deployment.json": {
+      "SHA256": "2b8d97468cf13a838a2256ad3d960ae14773ca3b70ac123dba1fcc61fa3e5b4e",
+      "内容": {
+        "说明": "PG红绿通过后替换隔离实例；候选使用不可变SHA文件名，已备份SQLite",
+        "PID": 96084,
+        "二进制": "/Users/archer/Work/gitea-enhancement/outputs/group-subgroup-phase1-20260923/gitea-phase1-closure-schedule-9f77cd831306",
+        "SHA256": "9f77cd8313062b0cf34c9758d492db830041659719c8b9df2a18b78480ceac09",
+        "时间": "2026-09-24 09:06:20+0800"
+      }
+    },
+    "run-visibility.json": {
+      "SHA256": "3305a42700345753d57ff8d10def39dc0d3e447260bc982e2c0f62c38478d976",
+      "内容": {
+        "说明": "首次探针把无关账号outsider误写outside得到401，修正实际账号并以/user验证身份后执行权限断言。真实定时运行：普通Owner200、无关用户404、匿名404。",
+        "结果": [
+          {
+            "身份": "phase1-v15-owner",
+            "身份确认": 200,
+            "状态": 200
+          },
+          {
+            "身份": "phase1-v15-outsider",
+            "身份确认": 200,
+            "状态": 404
+          },
+          {
+            "身份": "匿名",
+            "状态": 404
+          }
+        ]
+      }
+    },
+    "consumer-archive-after.json": {
+      "SHA256": "07bf4b8d39518d32414f091f789b352aecd37c8c14bd04a06cfc41c9f5c76de5",
+      "内容": {
+        "说明": "UI归档后真实时钟跨周期验证；39秒早期探针未满足观察时长，不计通过",
+        "时间戳": 1790211337,
+        "间隔秒": 80,
+        "运行数量": 7,
+        "计划数量": 0
+      }
+    },
+    "consumer-transfer-out-after.json": {
+      "SHA256": "4596125f2cdf9c2fde6936761b279713ccbef7c97644697838d5b20190009e1c",
+      "内容": {
+        "说明": "消费者移出祖先后跨实际周期，未插入运行；首次58秒观察提前，不计通过",
+        "间隔秒": 80,
+        "运行数量": 13,
+        "计划数量": 0
+      }
+    },
+    "runtime-required-config.json": {
+      "SHA256": "42b6608431265e5cad9a5ecb8c3b4bddd0411469bfe5773a7e711698c6f0b4ed",
+      "内容": {
+        "说明": "最终候选源码已固定，真实UI强制配置修订后的当前状态",
+        "时间": "2026-09-24 09:08:06+0800",
+        "注册": [
+          {
+            "id": 2,
+            "owner_id": 23,
+            "source_repo_id": 22,
+            "config_revision": 2
+          }
+        ],
+        "取消": [
+          {
+            "id": 119,
+            "status": 3
+          },
+          {
+            "id": 120,
+            "status": 3
+          },
+          {
+            "id": 121,
+            "status": 3
+          },
+          {
+            "id": 122,
+            "status": 3
+          },
+          {
+            "id": 123,
+            "status": 3
+          }
+        ],
+        "最新消费运行": [
+          {
+            "id": 187,
+            "status": 1,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "scoped_config_revisions": "{\"2\":1}",
+            "schedule_id": 27
+          },
+          {
+            "id": 182,
+            "status": 1,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "scoped_config_revisions": "{\"2\":1}",
+            "schedule_id": 27
+          },
+          {
+            "id": 165,
+            "status": 1,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "scoped_config_revisions": "{\"2\":1}",
+            "schedule_id": 26
+          }
+        ],
+        "计划": [
+          {
+            "id": 31,
+            "repo_id": 23,
+            "scoped_config_revisions": "{\"2\":1}"
+          }
+        ]
+      }
+    },
+    "runtime-final-required-success.json": {
+      "SHA256": "a087bbbbbd1cc92c49708e20bdc8522f253b3038084e090fac1e785b16bf373e",
+      "内容": {
+        "说明": "最终候选 + 必选配置新修订的真实运行；取实际调度结果",
+        "时间": "2026-09-24 09:09:47+0800",
+        "运行": [
+          {
+            "id": 197,
+            "status": 1,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "scoped_config_revisions": "{\"2\":2}",
+            "schedule_id": 34
+          },
+          {
+            "id": 187,
+            "status": 1,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "scoped_config_revisions": "{\"2\":1}",
+            "schedule_id": 27
+          }
+        ]
+      }
+    },
+    "source-archive-after.json": {
+      "SHA256": "88d5a59307a286082b980008a518726dbda76dc68fae8e6f65b028de0dc8ff8b",
+      "内容": {
+        "说明": "来源归档后，真实调度扫描清除后代计划，消费运行数不增加",
+        "间隔秒": 74,
+        "消费运行数量": 16,
+        "消费计划数量": 0
+      }
+    },
+    "source-archive-rerun-denied.json": {
+      "SHA256": "1e67abe92cb8db7380b3323e843ee68c4c8b80bf2f772f20b071c4e03375d288",
+      "内容": {
+        "说明": "来源归档后Owner请求重跑旧祖先schedule，服务端拒绝且未创建新attempt",
+        "状态": 409,
+        "前后attempt数": [
+          1,
+          1
+        ]
+      }
+    },
+    "source-restored-success.json": {
+      "SHA256": "c3eebb7ef6a3f4b16fa5cc7f354695917173b417a4453df123add46713813f94",
+      "内容": {
+        "说明": "来源归档恢复后自然调度成功",
+        "run": {
+          "id": 202,
+          "status": 1
+        }
+      }
+    },
+    "source-transfer-out.json": {
+      "SHA256": "dbe3362c45b9911d12833ad0f4849a744abe6e859975bb95cfb137a21fb69f22",
+      "内容": {
+        "说明": "注册来源仓库移出原群组，验证旧授权不随仓库ID复用",
+        "状态": 202,
+        "时间戳": 1790212414,
+        "消费者Run数量": 17
+      }
+    },
+    "source-transfer-out-after.json": {
+      "SHA256": "7e1fc7993cac22d2685d6d9bee3d955231c4b19a6e8609f5997aa0d5f50a334f",
+      "内容": {
+        "说明": "来源移出后跨真实周期，旧注册不再调度消费者",
+        "间隔秒": 77,
+        "消费者Run数量": 17,
+        "消费者计划数": 0
+      }
+    },
+    "source-transfer-back.json": {
+      "SHA256": "a101caaf1f63953d75203a33456f0ba245f9f5f82d1810fbd6c7f63dc1217bc4",
+      "内容": {
+        "说明": "移回原来源群组后旧注册仍需重新信任，不恢复旧计划",
+        "状态": 202,
+        "时间戳": 1790212491,
+        "消费者Run数量": 17
+      }
+    },
+    "source-returned-untrusted.json": {
+      "SHA256": "37f0dcb7268d32ea6f4fe8436ca366b2f4b3a4dd9415910b3ab3fa96e2f4ded5",
+      "内容": {
+        "说明": "来源移回后的旧注册不自动恢复；跨实际扫描周期不新增消费Run",
+        "间隔秒": 91,
+        "消费者Run数量": 17,
+        "消费者计划数": 0
+      }
+    },
+    "runtime-source-reregistered.json": {
+      "SHA256": "360780008a512cbb4faf0c00e12511162aa6b4dabe72e7dbf1f3d80e77c617d4",
+      "内容": {
+        "说明": "真实调度只读证据；未插入或修改运行记录",
+        "时间": "2026-09-24 09:22:29+0800",
+        "计划": [
+          {
+            "id": 45,
+            "repo_id": 22,
+            "owner_id": 23,
+            "workflow_id": "native-schedule.yaml",
+            "workflow_repo_id": 0,
+            "workflow_commit_sha": "",
+            "scope_revision": 2,
+            "is_scoped_run": 0
+          },
+          {
+            "id": 46,
+            "repo_id": 22,
+            "owner_id": 23,
+            "workflow_id": "ancestor-schedule.yaml",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "scope_revision": 2,
+            "is_scoped_run": 1
+          },
+          {
+            "id": 44,
+            "repo_id": 23,
+            "owner_id": 25,
+            "workflow_id": "ancestor-schedule.yaml",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "scope_revision": 2,
+            "is_scoped_run": 1
+          }
+        ],
+        "运行": [
+          {
+            "id": 101,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 6,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 103,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 9,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 104,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 7,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 106,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 9,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 107,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 8,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 108,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 7,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 111,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 9,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 112,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "3e1e67bcb3aff5135b09276bbee6b02cfa361061",
+            "schedule_id": 7,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 113,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 13,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 114,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 12,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 116,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 15,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 118,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 13,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 120,
+            "repo_id": 23,
+            "status": 3,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 15,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 122,
+            "repo_id": 22,
+            "status": 3,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 13,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 123,
+            "repo_id": 22,
+            "status": 3,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "e7d7e0ebbeb3f0b864919f2d61368ad5d46f9ed2",
+            "schedule_id": 12,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 124,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "schedule_id": 18,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 126,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "schedule_id": 20,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 128,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "schedule_id": 18,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 129,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "schedule_id": 17,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 131,
+            "repo_id": 23,
+            "status": 2,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "schedule_id": 20,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 133,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "d182e2c89ae868950951add21e1346eb99060c26",
+            "schedule_id": 18,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 134,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 135,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 138,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 139,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 140,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 26,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 143,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 144,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 145,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 26,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 148,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 149,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 150,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 26,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 153,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 154,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 155,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 26,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 158,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 159,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 160,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 26,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 163,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 164,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 165,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 26,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 168,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 169,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 172,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 173,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 176,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 177,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 180,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 181,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 182,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 27,
+            "is_scoped_run": 1,
+            "scope_invalidated": 0
+          },
+          {
+            "id": 185,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 186,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 187,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 27,
+            "is_scoped_run": 1,
+            "scope_invalidated": 0
+          },
+          {
+            "id": 190,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 23,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 191,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94ac5761b1791c4267c76ed9552aea52bdbda960",
+            "schedule_id": 22,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 192,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 29,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 193,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 28,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 195,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 36,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 196,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 35,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 197,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 34,
+            "is_scoped_run": 1,
+            "scope_invalidated": 0
+          },
+          {
+            "id": 199,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 39,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 200,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 38,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 202,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 41,
+            "is_scoped_run": 1,
+            "scope_invalidated": 0
+          },
+          {
+            "id": 204,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 39,
+            "is_scoped_run": 1,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 205,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 38,
+            "is_scoped_run": 0,
+            "scope_invalidated": 1
+          },
+          {
+            "id": 207,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 46,
+            "is_scoped_run": 1,
+            "scope_invalidated": 0
+          },
+          {
+            "id": 208,
+            "repo_id": 22,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 45,
+            "is_scoped_run": 0,
+            "scope_invalidated": 0
+          },
+          {
+            "id": 209,
+            "repo_id": 23,
+            "status": 1,
+            "trigger_event": "schedule",
+            "trigger_user_id": -2,
+            "commit_sha": "16b864570a7379c10ad8b24a05a578d28c732ba2",
+            "workflow_repo_id": 22,
+            "workflow_commit_sha": "94b67ca2fb213a898fefa951bf8e76ed6c6e75d3",
+            "schedule_id": 44,
+            "is_scoped_run": 1,
+            "scope_invalidated": 0
+          }
+        ],
+        "任务": [
+          {
+            "id": 101,
+            "job_id": 108,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 102,
+            "job_id": 109,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 103,
+            "job_id": 110,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 106,
+            "job_id": 113,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 107,
+            "job_id": 114,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 112,
+            "job_id": 119,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 113,
+            "job_id": 120,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 114,
+            "job_id": 121,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 123,
+            "job_id": 130,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 124,
+            "job_id": 131,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 127,
+            "job_id": 134,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 128,
+            "job_id": 135,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 129,
+            "job_id": 136,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 4
+          },
+          {
+            "id": 130,
+            "job_id": 137,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 140,
+            "job_id": 147,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 141,
+            "job_id": 148,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 142,
+            "job_id": 149,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 4
+          },
+          {
+            "id": 143,
+            "job_id": 163,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 144,
+            "job_id": 164,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 145,
+            "job_id": 165,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 4
+          },
+          {
+            "id": 155,
+            "job_id": 175,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 156,
+            "job_id": 176,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 157,
+            "job_id": 177,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 4
+          },
+          {
+            "id": 158,
+            "job_id": 178,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 168,
+            "job_id": 188,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 169,
+            "job_id": 189,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 170,
+            "job_id": 190,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 4
+          },
+          {
+            "id": 171,
+            "job_id": 191,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 172,
+            "job_id": 192,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 173,
+            "job_id": 193,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 178,
+            "job_id": 198,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 179,
+            "job_id": 199,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 180,
+            "job_id": 200,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 187,
+            "job_id": 207,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 188,
+            "job_id": 208,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 189,
+            "job_id": 209,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 196,
+            "job_id": 216,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 197,
+            "job_id": 217,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 198,
+            "job_id": 218,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 205,
+            "job_id": 225,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 206,
+            "job_id": 226,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 207,
+            "job_id": 227,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 214,
+            "job_id": 234,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 215,
+            "job_id": 235,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 216,
+            "job_id": 236,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 223,
+            "job_id": 243,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 224,
+            "job_id": 244,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 225,
+            "job_id": 245,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 232,
+            "job_id": 252,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 233,
+            "job_id": 253,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 234,
+            "job_id": 254,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 239,
+            "job_id": 259,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 240,
+            "job_id": 260,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 241,
+            "job_id": 261,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 246,
+            "job_id": 266,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 247,
+            "job_id": 267,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 248,
+            "job_id": 268,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 253,
+            "job_id": 273,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 254,
+            "job_id": 274,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 255,
+            "job_id": 275,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 262,
+            "job_id": 282,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 263,
+            "job_id": 283,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 264,
+            "job_id": 284,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 271,
+            "job_id": 291,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 272,
+            "job_id": 292,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 273,
+            "job_id": 293,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 274,
+            "job_id": 294,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 275,
+            "job_id": 295,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 276,
+            "job_id": 296,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 279,
+            "job_id": 299,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 280,
+            "job_id": 300,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 281,
+            "job_id": 301,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 286,
+            "job_id": 306,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 287,
+            "job_id": 307,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 288,
+            "job_id": 308,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 295,
+            "job_id": 315,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 296,
+            "job_id": 316,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 297,
+            "job_id": 317,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 300,
+            "job_id": 320,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 301,
+            "job_id": 321,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 302,
+            "job_id": 322,
+            "repo_id": 22,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 108,
+            "job_id": 115,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 109,
+            "job_id": 116,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 115,
+            "job_id": 122,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 116,
+            "job_id": 123,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 117,
+            "job_id": 124,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 118,
+            "job_id": 125,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 125,
+            "job_id": 132,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 126,
+            "job_id": 133,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 134,
+            "job_id": 141,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 135,
+            "job_id": 142,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 136,
+            "job_id": 143,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 4
+          },
+          {
+            "id": 149,
+            "job_id": 169,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 150,
+            "job_id": 170,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 151,
+            "job_id": 171,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 162,
+            "job_id": 182,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 163,
+            "job_id": 183,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 164,
+            "job_id": 184,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 2
+          },
+          {
+            "id": 181,
+            "job_id": 201,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 182,
+            "job_id": 202,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 190,
+            "job_id": 210,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 191,
+            "job_id": 211,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 199,
+            "job_id": 219,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 200,
+            "job_id": 220,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 208,
+            "job_id": 228,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 209,
+            "job_id": 229,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 217,
+            "job_id": 237,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 218,
+            "job_id": 238,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 226,
+            "job_id": 246,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 227,
+            "job_id": 247,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 256,
+            "job_id": 276,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 257,
+            "job_id": 277,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 265,
+            "job_id": 285,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 266,
+            "job_id": 286,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 282,
+            "job_id": 302,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 283,
+            "job_id": 303,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 291,
+            "job_id": 311,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 292,
+            "job_id": 312,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 303,
+            "job_id": 323,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          },
+          {
+            "id": 304,
+            "job_id": 324,
+            "repo_id": 23,
+            "runner_id": 3,
+            "status": 1
+          }
+        ],
+        "重跑身份": [
+          {
+            "id": 110,
+            "run_id": 104,
+            "attempt": 1,
+            "trigger_user_id": -2,
+            "status": 1
+          },
+          {
+            "id": 115,
+            "run_id": 104,
+            "attempt": 2,
+            "trigger_user_id": 21,
+            "status": 1
+          }
+        ]
+      }
+    },
+    "native-cron-delete-start.json": {
+      "SHA256": "f937e453d34d0d195de59301123372b0f815305a2395c0a196af507899aa10ff",
+      "内容": {
+        "说明": "正式HTTP Git删除测试来源仓原生cron；祖先YAML保持",
+        "时间戳": 1790213081,
+        "原生最后运行": [
+          {
+            "id": 218,
+            "status": 1,
+            "workflow_id": "native-schedule.yaml"
+          }
+        ],
+        "消费者运行数": 20,
+        "来源提交": "173e2716bd1e796b42cc530c5273e5026e619a18"
+      }
+    },
+    "native-cron-delete-after.json": {
+      "SHA256": "70bd42771fe379485f5772642ad0bcf63399a7850be7b5322f4068d142a70db6",
+      "内容": {
+        "说明": "删除本仓原生定时配置，祖先定时继续自然运行",
+        "间隔秒": 136,
+        "原生最新运行": [
+          {
+            "id": 218,
+            "status": 1,
+            "workflow_id": "native-schedule.yaml"
+          }
+        ],
+        "原生计划数": 0,
+        "最新消费者运行": [
+          {
+            "id": 223,
+            "status": 1,
+            "workflow_commit_sha": "173e2716bd1e796b42cc530c5273e5026e619a18"
+          }
+        ]
+      }
+    },
+    "ancestor-cron-delete-start.json": {
+      "SHA256": "61879e2eb415da058eb16c56c8218ff3a34f0858e7704a60870093628bd7359f",
+      "内容": {
+        "说明": "正式HTTP Git删除祖先cron，消费仓无本地YAML，观察真实周期不再新增",
+        "时间戳": 1790213266,
+        "消费者运行数": 22,
+        "来源提交": "b590eb703153c8bc050d5249475161081437a041"
+      }
+    },
+    "ancestor-cron-delete-after.json": {
+      "SHA256": "239c019a62a0f955e5f031834f6a96b4d62b7b41c5148d59945426122c634a1e",
+      "内容": {
+        "说明": "删除祖先cron后的真实周期观察，历史运行保留",
+        "间隔秒": 120,
+        "开始消费者运行数": 22,
+        "消费者运行数": 22,
+        "来源及消费仓计划数": 0
+      }
+    },
+    "native-preserve-start.json": {
+      "SHA256": "5995859359d95a78cd1c81ff9e8b24a66c3737bb0bb5f249c698bbeb4c33c071",
+      "内容": {
+        "说明": "最终71d候选，真实原生cron任务已进入HTTP屏障；下一步只改祖先来源",
+        "时间戳": 1790214314,
+        "运行": {
+          "id": 234,
+          "status": 6,
+          "schedule_id": 52,
+          "commit_sha": "1650f7c16efc78d1595a4ee766968ca1b15e919f"
+        },
+        "规格": {
+          "id": 52,
+          "next": 1790217840,
+          "prev": 1790214240
+        },
+        "Job": [
+          {
+            "id": 371,
+            "status": 6
+          }
+        ],
+        "Task": [
+          {
+            "id": 351,
+            "runner_id": 3,
+            "status": 6
+          }
+        ],
+        "屏障": {
+          "到达数": 1,
+          "已释放": false
+        }
+      }
+    },
+    "native-preserve-after-source-change.json": {
+      "SHA256": "424f8a3dcea2d8b76960dc73de07035244bfdbdfb27e82b6b8e323a3ef66c478",
+      "内容": {
+        "说明": "祖先来源已由真实周期扫描更新；原生任务仍运行且plan ID、Next、消费者SHA保持",
+        "来源变更后秒数": 73,
+        "运行": {
+          "id": 234,
+          "status": 6,
+          "schedule_id": 52,
+          "commit_sha": "1650f7c16efc78d1595a4ee766968ca1b15e919f"
+        },
+        "规格": {
+          "id": 52,
+          "next": 1790217840,
+          "prev": 1790214240
+        },
+        "当前祖先计划": [
+          {
+            "id": 59,
+            "repo_id": 23,
+            "workflow_commit_sha": "d13dfd207fa5a296997a8dac33b63b01eaa07a85"
+          },
+          {
+            "id": 58,
+            "repo_id": 24,
+            "workflow_commit_sha": "d13dfd207fa5a296997a8dac33b63b01eaa07a85"
+          }
+        ]
+      }
+    },
+    "native-preserve-success.json": {
+      "SHA256": "ca7530b36ceda6a927f4f5d336631bbd9d02092b370f8f2eb790345327da59a2",
+      "内容": {
+        "说明": "最终候选的真实原生长任务在祖先源变化之后成功，未重跑",
+        "运行": {
+          "id": 234,
+          "status": 1,
+          "schedule_id": 52,
+          "commit_sha": "1650f7c16efc78d1595a4ee766968ca1b15e919f"
+        },
+        "Task": [
+          {
+            "id": 351,
+            "runner_id": 3,
+            "status": 1
+          }
+        ],
+        "UI": "ui-native-preserve-success.txt",
+        "时间": "2026-09-24 09:47:55+0800"
+      }
+    },
+    "runtime-final-current.json": {
+      "SHA256": "3b4a3cf9b2977c72aa66fb2c5ef83f4464ca9994c1f4ccb144847f66c30d2624",
+      "内容": {
+        "说明": "最终71d候选删除探针后跨真实周期，历史保留，无新定时任务",
+        "间隔秒": 266,
+        "消费者运行数": 26,
+        "测试三仓计划数": 0,
+        "非终态任务数": 0,
+        "最终真实运行": [
+          {
+            "id": 231,
+            "repo_id": 23,
+            "status": 1,
+            "workflow_commit_sha": "02084f600af0d5a73bc248afdc01135f20cd5ae5"
+          },
+          {
+            "id": 234,
+            "repo_id": 24,
+            "status": 1,
+            "workflow_commit_sha": "1650f7c16efc78d1595a4ee766968ca1b15e919f"
+          },
+          {
+            "id": 236,
+            "repo_id": 23,
+            "status": 1,
+            "workflow_commit_sha": "d13dfd207fa5a296997a8dac33b63b01eaa07a85"
+          },
+          {
+            "id": 240,
+            "repo_id": 23,
+            "status": 1,
+            "workflow_commit_sha": "d13dfd207fa5a296997a8dac33b63b01eaa07a85"
+          }
+        ]
+      }
+    }
+  },
+  "界面证据": {
+    "ui-run104.png": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-run104.png",
+      "SHA256": "282e390ff2609bf6d17d94c019dbee0a9a58a15c82f2ffac2509b891718a9336"
+    },
+    "ui-run126-full.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-run126-full.txt",
+      "SHA256": "98e9f2fee8482c78ce41ef842a4a4ec90975e5b79035d45bec89209d627e1af7",
+      "界面原文": "说明：保留完整UI日志证据；原增量快照不替代本文件。\nBrowser tab: 2, Title: \"token-revoke - Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171\".\n1 AXWebArea token-revoke - Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171\n\t2 container\n\t\t3 container Description: Navigation Bar, ID: navbar\n\t\t\t4 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t\t5 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t\t6 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t\t7 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t8 text /\n\t\t9 link Description: native-child, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t10 text /\n\t\t11 link Description: schedule-deep, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t12 text /\n\t\t13 link Description: ancestor-schedule-consumer, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer\n\t\t14 container Private\n\t\t15 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/collaborators\n\t\t16 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/23/access-requests\n\t\t17 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=23\n\t\t18 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer.rss\n\t\t19 button Unwatch\n\t\t20 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/watchers\n\t\t21 button Star\n\t\t22 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/stars\n\t\t23 button\n\t\t24 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/forks\n\t\t25 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/\n\t\t26 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/issues\n\t\t27 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/pulls\n\t\t28 link Description: Actions, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions\n\t\t29 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t30 container repo-action-view\n\t\t\t31 link Description: Back to workflow ancestor-schedule, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/?workflow=ancestor-schedule.yaml&scoped_workflow_source_repo_id=22\n\t\t\t32 image Success\n\t\t\t33 heading Initial commit, Value: 2\n\t\t\t\t34 text Initial commit\n\t\t\t35 text #6\n\t\t\t36 button Re-run all jobs\n\t\t\t37 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126\n\t\t\t38 text All jobs\n\t\t\t39 link Description: Success schedule-proof 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/169\n\t\t\t40 link Description: Success empty-token 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/170\n\t\t\t41 link Description: Success token-revoke 43s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171\n\t\t\t42 text Run Details\n\t\t\t43 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/workflow\n\t\t\t44 container\n\t\t\t\t45 heading token-revoke, Value: 3\n\t\t\t\t\t46 text token-revoke\n\t\t\t\t47 text Success\n\t\t\t\t48 button\n\t\t\t49 container\n\t\t\t\t50 image success\n\t\t\t\t51 text Set up job 0s\n\t\t\t\t52 image success\n\t\t\t\t53 text 运行中撤销跨仓许可\n\t\t\t\t68 button Copy output\n\t\t\t\t69 text 43s\n\t\t\t\t70 button (collapsed) Secondary Actions: Expand, 1 Run target=\"$API_URL/repos/g_4894ca36254040d48eca660d24f9da75/schedule-token-target/contents/README.md\"\n\t\t\t\t\t71 container jobstep-1-1\n\t\t\t\t\t\t72 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171#jobstep-1-1\n\t\t\t\t\t\t73 text Run target=\"$API_URL/repos/g_4894ca36254040d48eca660d24f9da75/schedule-token-target/contents/README.md\"\n\t\t\t\t74 container jobstep-1-15\n\t\t\t\t\t75 link Description: 15, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171#jobstep-1-15\n\t\t\t\t\t76 text 撤权前允许跨仓：200\n\t\t\t\t77 container jobstep-1-16\n\t\t\t\t\t78 link Description: 16, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171#jobstep-1-16\n\t\t\t\t\t79 text 屏障已释放撤权后拒绝跨仓：404\n\t\t\t\t54 image success\n\t\t\t\t55 text Complete job 0s\n\t\t56 container Footer\n\t\t\t57 container About Software\n\t\t\t\t58 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t\t59 text Version: development Page: \n\t\t\t\t60 text 6ms\n\t\t\t\t61 text  Template: \n\t\t\t\t62 text 0ms\n\t\t\t63 container Links\n\t\t\t\t64 text Auto\n\t\t\t\t65 text English\n\t\t\t\t66 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t\t67 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea token-revoke - Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/126/jobs/171"
+    },
+    "ui-final-run197.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-final-run197.txt",
+      "SHA256": "6da076fee7aa0b5d33f05d9fdecfefa1b0a617e6852adfd3cf037622b5fd26b5",
+      "界面原文": "说明：最终候选真实调度成功；来源必选配置修订2；页面恢复非必选后保留历史运行。\nBrowser tab: 2, Title: \"Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197\".\n1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t7 text /\n\t8 link Description: native-child, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t9 text /\n\t10 link Description: schedule-deep, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t11 text /\n\t12 link Description: ancestor-schedule-consumer, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer\n\t13 container Private\n\t14 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/collaborators\n\t15 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/23/access-requests\n\t16 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=23\n\t17 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer.rss\n\t18 button Unwatch\n\t19 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/watchers\n\t20 button Star\n\t21 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/stars\n\t22 button\n\t23 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/forks\n\t24 container\n\t\t25 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/\n\t\t26 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/issues\n\t\t27 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/pulls\n\t\t28 link Description: Actions, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions\n\t\t29 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t30 container repo-action-view\n\t\t31 link Description: Back to workflow ancestor-schedule, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/?workflow=ancestor-schedule.yaml&scoped_workflow_source_repo_id=22\n\t\t32 image Success\n\t\t33 heading Initial commit, Value: 2\n\t\t\t34 text Initial commit\n\t\t35 text #16\n\t\t36 button Re-run all jobs\n\t\t37 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197\n\t\t38 text All jobs\n\t\t39 link Description: Success schedule-proof 1s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197/jobs/302\n\t\t40 link Description: Success empty-token 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197/jobs/303\n\t\t41 text Run Details\n\t\t42 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197/workflow\n\t\t43 text Triggered via schedule \n\t\t44 container Sep 24, 2026, 09:09\n\t\t\t45 text now\n\t\t46 link Description: gitea-actions gitea-actions, Value: 127.0.0.1:13043/gitea-actions\n\t\t47 link Description: main, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/branch/main\n\t\t48 text Status Success Total duration 1s Artifacts –\n\t\t49 link Description: ancestor-schedule.yaml, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197/workflow\n\t\t50 text on: schedule\n\t\t51 text 2 jobs • 0 dependencies • 100% success\n\t\t52 button (disabled) Already at 100% zoom\n\t\t53 button Reset view\n\t\t54 button Zoom out (Ctrl/Cmd + scroll on graph)\n\t\t55 image\n\t\t\t56 container schedule-proof\n\t\t\t\t57 image success\n\t\t\t\t58 text schedule-proof 1s\n\t\t\t59 container empty-token\n\t\t\t\t60 image success\n\t\t\t\t61 text empty-token 0s\n\t62 container Footer\n\t\t63 container About Software\n\t\t\t64 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t65 text Version: development Page: \n\t\t\t66 text 8ms\n\t\t\t67 text  Template: \n\t\t\t68 text 1ms\n\t\t69 container Links\n\t\t\t70 text Auto\n\t\t\t71 text English\n\t\t\t72 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t73 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/197"
+    },
+    "ui-old-run122-cancelled.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-old-run122-cancelled.txt",
+      "SHA256": "e3ab3c600324eeb2bbcc3c3867a159789f730725cc20010641b3c0504c3320c5",
+      "界面原文": "说明：实际来源切换后旧等待Run已取消，页面状态与执行一致。\nBrowser tab: 2, Title: \"test(ci): 验证来源更新和运行中作业令牌撤权 - ancestor-schedule.yaml - ancestor-schedule-source - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122\".\n1 AXWebArea test(ci): 验证来源更新和运行中作业令牌撤权 - ancestor-schedule.yaml - ancestor-schedule-source - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t7 text /\n\t8 link Description: ancestor-schedule-source, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source\n\t9 container Archived\n\t10 container Private\n\t11 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/collaborators\n\t12 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/22/access-requests\n\t13 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=22\n\t14 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source.rss\n\t15 button Unwatch\n\t16 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/watchers\n\t17 button Star\n\t18 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/stars\n\t19 button\n\t20 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/forks\n\t21 container\n\t\t22 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/src/\n\t\t23 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/issues\n\t\t24 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/pulls\n\t\t25 link Description: Actions, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions\n\t\t26 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t27 container repo-action-view\n\t\t28 link Description: Back to workflow ancestor-schedule, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/?workflow=ancestor-schedule.yaml&scoped_workflow_source_repo_id=22\n\t\t29 image Canceled\n\t\t30 heading test(ci): 验证来源更新和运行中作业令牌撤权, Value: 2\n\t\t\t31 text test(ci): 验证来源更新和运行中作业令牌撤权\n\t\t32 text #17\n\t\t33 button Re-run failed jobs\n\t\t34 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122\n\t\t35 text All jobs\n\t\t36 link Description: Canceled schedule-proof 0s, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122/jobs/159\n\t\t37 link Description: Canceled empty-token 0s, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122/jobs/160\n\t\t38 link Description: Canceled token-revoke 0s, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122/jobs/161\n\t\t39 text Run Details\n\t\t40 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122/workflow\n\t\t41 text Triggered via schedule \n\t\t42 container Sep 24, 2026, 08:50\n\t\t\t43 text 20 minutes ago\n\t\t44 link Description: gitea-actions gitea-actions, Value: 127.0.0.1:13043/gitea-actions\n\t\t45 link Description: main, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/src/branch/main\n\t\t46 text Status Canceled Total duration 0s Artifacts –\n\t\t47 link Description: ancestor-schedule.yaml, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122/workflow\n\t\t48 text on: schedule\n\t\t49 text 3 jobs • 0 dependencies • 0% success\n\t\t50 button (disabled) Already at 100% zoom\n\t\t51 button Reset view\n\t\t52 button Zoom out (Ctrl/Cmd + scroll on graph)\n\t\t53 image\n\t\t\t54 container schedule-proof\n\t\t\t\t55 image cancelled\n\t\t\t\t56 text schedule-proof 0s\n\t\t\t57 container empty-token\n\t\t\t\t58 image cancelled\n\t\t\t\t59 text empty-token 0s\n\t\t\t60 container token-revoke\n\t\t\t\t61 image cancelled\n\t\t\t\t62 text token-revoke 0s\n\t63 container Footer\n\t\t64 container About Software\n\t\t\t65 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t66 text Version: development Page: \n\t\t\t67 text 5ms\n\t\t\t68 text  Template: \n\t\t\t69 text 1ms\n\t\t70 container Links\n\t\t\t71 text Auto\n\t\t\t72 text English\n\t\t\t73 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t74 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea test(ci): 验证来源更新和运行中作业令牌撤权 - ancestor-schedule.yaml - ancestor-schedule-source - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source/actions/runs/122"
+    },
+    "ui-consumer-moved.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-consumer-moved.txt",
+      "SHA256": "4ebc1292a829213c55570aa3eee126a443f25fa9ec5911c48d7fbd9247da5b8f",
+      "界面原文": "说明：消费者移出群组后的实际Actions页面。\nBrowser tab: 2, Title: \"Actions - ancestor-schedule-consumer - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions\".\n1 AXWebArea Actions - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 link Description: phase1-v15-owner, Value: 127.0.0.1:13043/phase1-v15-owner\n\t7 text /\n\t8 link Description: ancestor-schedule-consumer, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer\n\t9 container Private\n\t10 link Description: 协作者, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/collaborators\n\t11 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/23/access-requests\n\t12 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer.rss\n\t13 button Unwatch\n\t14 link Description: 1, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/watchers\n\t15 button Star\n\t16 link Description: 0, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/stars\n\t17 button\n\t18 link Description: 0, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/forks\n\t19 container\n\t\t20 link Description: Code, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/\n\t\t21 link Description: Issues, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/issues\n\t\t22 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/pulls\n\t\t23 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t24 link Description: All Workflows, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions?actor=0&status=0&branch=\n\t25 container\n\t\t26 text 13 workflow runs\n\t\t27 combo box (collapsed) Value: Actor, Secondary Actions: Expand\n\t\t\t28 text Actor\n\t\t29 combo box (collapsed) Value: Status, Secondary Actions: Expand\n\t\t\t30 text Status\n\t\t31 combo box (collapsed) Value: Branch, Secondary Actions: Expand\n\t\t\t32 text Branch\n\t33 container\n\t\t34 container Success\n\t\t35 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/165\n\t\t36 text ancestor-schedule.yaml #13 : Scheduled\n\t\t37 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t38 container Sep 24, 2026, 09:02\n\t\t\t39 text now\n\t\t40 text 0s\n\t\t41 container Success\n\t\t42 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/160\n\t\t43 text ancestor-schedule.yaml #12 : Scheduled\n\t\t44 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t45 container Sep 24, 2026, 09:02\n\t\t\t46 text now\n\t\t47 text 1s\n\t\t48 container Success\n\t\t49 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/155\n\t\t50 text ancestor-schedule.yaml #11 : Scheduled\n\t\t51 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t52 container Sep 24, 2026, 09:02\n\t\t\t53 text now\n\t\t54 text 1s\n\t\t55 container Success\n\t\t56 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/150\n\t\t57 text ancestor-schedule.yaml #10 : Scheduled\n\t\t58 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t59 container Sep 24, 2026, 09:02\n\t\t\t60 text now\n\t\t61 text 0s\n\t\t62 container Success\n\t\t63 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/145\n\t\t64 text ancestor-schedule.yaml #9 : Scheduled\n\t\t65 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t66 container Sep 24, 2026, 09:02\n\t\t\t67 text now\n\t\t68 text 1s\n\t\t69 container Success\n\t\t70 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/140\n\t\t71 text ancestor-schedule.yaml #8 : Scheduled\n\t\t72 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t73 container Sep 24, 2026, 09:02\n\t\t\t74 text now\n\t\t75 text 0s\n\t\t76 container Failure\n\t\t77 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/131\n\t\t78 text ancestor-schedule.yaml #7 : Scheduled\n\t\t79 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t80 container Sep 24, 2026, 09:02\n\t\t\t81 text now\n\t\t82 text 0s\n\t\t83 container Success\n\t\t84 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/126\n\t\t85 text ancestor-schedule.yaml #6 : Scheduled\n\t\t86 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t87 container Sep 24, 2026, 09:02\n\t\t\t88 text now\n\t\t89 text 43s\n\t\t90 container Canceled\n\t\t91 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/120\n\t\t92 text ancestor-schedule.yaml #5 : Scheduled\n\t\t93 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t94 container Sep 24, 2026, 09:02\n\t\t\t95 text now\n\t\t96 text 0s\n\t\t97 container Success\n\t\t98 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/116\n\t\t99 text ancestor-schedule.yaml #4 : Scheduled\n\t\t100 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t101 container Sep 24, 2026, 09:02\n\t\t\t102 text now\n\t\t103 text 0s\n\t\t104 container Success\n\t\t105 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/112\n\t\t106 text ancestor-schedule.yaml #3 : Scheduled\n\t\t107 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t108 container Sep 24, 2026, 09:02\n\t\t\t109 text now\n\t\t110 text 0s\n\t\t111 container Success\n\t\t112 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/108\n\t\t113 text ancestor-schedule.yaml #2 : Scheduled\n\t\t114 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t115 container Sep 24, 2026, 09:02\n\t\t\t116 text now\n\t\t117 text 0s\n\t\t118 container Success\n\t\t119 link Description: Initial commit, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions/runs/104\n\t\t120 text ancestor-schedule.yaml #1 : Scheduled\n\t\t121 link Description: main, Value: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/src/branch/main\n\t\t122 container Sep 24, 2026, 09:02\n\t\t\t123 text now\n\t\t124 text 1s\n\t125 container Footer\n\t\t126 container About Software\n\t\t\t127 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t128 text Version: development Page: \n\t\t\t129 text 18ms\n\t\t\t130 text  Template: \n\t\t\t131 text 3ms\n\t\t132 container Links\n\t\t\t133 text Auto\n\t\t\t134 text English\n\t\t\t135 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t136 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Actions - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-v15-owner/ancestor-schedule-consumer/actions"
+    },
+    "ui-source-moved.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-source-moved.txt",
+      "SHA256": "7de4664312350cae2b7114144390450ccdcbf1b4cf8e194d7e9c97210e87422d",
+      "界面原文": "说明：祖先来源移出后的注册页面状态。\nBrowser tab: 2, Title: \"Scoped Workflows - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\".\n1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Scoped Workflows\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 1, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t15 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/approvals\n\t\t16 text Settings\n\t\t17 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=23\n\t\t18 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/23\n\t\t19 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-native-v15/settings\n\t\t20 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/hooks\n\t\t21 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/labels\n\t\t22 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/applications\n\t\t23 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/blocked_users\n\t\t24 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/packages\n\t\t25 container\n\t\t\t26 button (expanded) Actions, Secondary Actions: Collapse\n\t\t\t\t27 text Actions\n\t\t\t28 link Description: General, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions\n\t\t\t29 link Description: Runners, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/runners\n\t\t\t30 link Description: Secrets, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/secrets\n\t\t\t31 link Description: Variables, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/variables\n\t\t\t32 link Description: Scoped Workflows, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t\t33 heading Scoped Workflows, Value: 4\n\t\t\t34 text Scoped Workflows\n\t\t35 container\n\t\t\t36 text Register repositories as scoped-workflow sources. Workflow files under the scoped workflow directories of a source repository's default branch run on this group's repositories and descendant groups' repositories, in each consumer's own context. To provide scoped workflows from a repository, commit the workflow files under \n\t\t\t37 text .gitea/scoped_workflows\n\t\t\t38 text  on its default branch, then register the repository as a source below. A source repository's workflow content is executed in every repository it applies to, and its step scripts and their output are written to that repository's Actions logs and readable by anyone who can view the consuming repository's Actions. Registering a private repository as a source therefore discloses its workflow logic through those logs. Only register repositories whose workflow content may be shared with every consuming repository. If a scoped workflow references a reusable workflow from a private repository, make sure every consuming repository can read it, otherwise the workflow will fail there.\n\t\t\t39 text field (settable)\n\t\t\t40 button Add source repository\n\t\t41 container\n\t\t\t42 text #22\n\t\t\t43 button Remove\n\t\t\t44 text This source moved or changed scope. Its old registration cannot run workflows. Required checks remain in force. If you still trust the source under its current owner, remove this registration and add it again.\n\t45 container Footer\n\t\t46 container About Software\n\t\t\t47 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t48 text Version: development Page: \n\t\t\t49 text 12ms\n\t\t\t50 text  Template: \n\t\t\t51 text 0ms\n\t\t52 container Links\n\t\t\t53 text Auto\n\t\t\t54 text English\n\t\t\t55 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t56 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows"
+    },
+    "ui-source-returned-full.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-source-returned-full.txt",
+      "SHA256": "e0e9c842524125ea05f12c001d0a0f185c164481a1eb857bfab032eb0d047a7a",
+      "界面原文": "说明：来源移回后旧注册仍不能运行，完整UI树。\nBrowser tab: 2, Title: \"Scoped Workflows - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\".\n1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Scoped Workflows\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 2, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t15 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/approvals\n\t\t16 text Settings\n\t\t17 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=23\n\t\t18 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/23\n\t\t19 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-native-v15/settings\n\t\t20 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/hooks\n\t\t21 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/labels\n\t\t22 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/applications\n\t\t23 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/blocked_users\n\t\t24 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/packages\n\t\t25 container\n\t\t\t26 button (expanded) Actions, Secondary Actions: Collapse\n\t\t\t\t27 text Actions\n\t\t\t28 link Description: General, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions\n\t\t\t29 link Description: Runners, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/runners\n\t\t\t30 link Description: Secrets, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/secrets\n\t\t\t31 link Description: Variables, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/variables\n\t\t\t32 link Description: Scoped Workflows, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t\t33 heading Scoped Workflows, Value: 4\n\t\t\t34 text Scoped Workflows\n\t\t35 container\n\t\t\t36 text Register repositories as scoped-workflow sources. Workflow files under the scoped workflow directories of a source repository's default branch run on this group's repositories and descendant groups' repositories, in each consumer's own context. To provide scoped workflows from a repository, commit the workflow files under \n\t\t\t37 text .gitea/scoped_workflows\n\t\t\t38 text  on its default branch, then register the repository as a source below. A source repository's workflow content is executed in every repository it applies to, and its step scripts and their output are written to that repository's Actions logs and readable by anyone who can view the consuming repository's Actions. Registering a private repository as a source therefore discloses its workflow logic through those logs. Only register repositories whose workflow content may be shared with every consuming repository. If a scoped workflow references a reusable workflow from a private repository, make sure every consuming repository can read it, otherwise the workflow will fail there.\n\t\t\t39 text field (settable)\n\t\t\t40 button Add source repository\n\t\t41 container\n\t\t\t42 text #22\n\t\t\t43 button Remove\n\t\t\t44 text This source moved or changed scope. Its old registration cannot run workflows. Required checks remain in force. If you still trust the source under its current owner, remove this registration and add it again.\n\t45 container Footer\n\t\t46 container About Software\n\t\t\t47 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t48 text Version: development Page: \n\t\t\t49 text 14ms\n\t\t\t50 text  Template: \n\t\t\t51 text 1ms\n\t\t52 container Links\n\t\t\t53 text Auto\n\t\t\t54 text English\n\t\t\t55 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t56 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows"
+    },
+    "ui-source-removed-full.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-source-removed-full.txt",
+      "SHA256": "51090aeb47d7e4fb39b3a76268712237ff7f9faa9948e753fd1d03883c37ae00",
+      "界面原文": "说明：普通群组 Owner 在隔离实例中移除已失效的来源登记。\nBrowser tab: 2, Title: \"Scoped Workflows - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\".\n1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Scoped Workflows\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 2, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t15 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/approvals\n\t\t16 text Settings\n\t\t17 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=23\n\t\t18 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/23\n\t\t19 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-native-v15/settings\n\t\t20 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/hooks\n\t\t21 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/labels\n\t\t22 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/applications\n\t\t23 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/blocked_users\n\t\t24 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/packages\n\t\t25 container\n\t\t\t26 button (expanded) Actions, Secondary Actions: Collapse\n\t\t\t\t27 text Actions\n\t\t\t28 link Description: General, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions\n\t\t\t29 link Description: Runners, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/runners\n\t\t\t30 link Description: Secrets, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/secrets\n\t\t\t31 link Description: Variables, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/variables\n\t\t\t32 link Description: Scoped Workflows, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t\t33 text Source repository removed.\n\t\t34 heading Scoped Workflows, Value: 4\n\t\t\t35 text Scoped Workflows\n\t\t36 container\n\t\t\t37 text Register repositories as scoped-workflow sources. Workflow files under the scoped workflow directories of a source repository's default branch run on this group's repositories and descendant groups' repositories, in each consumer's own context. To provide scoped workflows from a repository, commit the workflow files under \n\t\t\t38 text .gitea/scoped_workflows\n\t\t\t39 text  on its default branch, then register the repository as a source below. A source repository's workflow content is executed in every repository it applies to, and its step scripts and their output are written to that repository's Actions logs and readable by anyone who can view the consuming repository's Actions. Registering a private repository as a source therefore discloses its workflow logic through those logs. Only register repositories whose workflow content may be shared with every consuming repository. If a scoped workflow references a reusable workflow from a private repository, make sure every consuming repository can read it, otherwise the workflow will fail there.\n\t\t\t40 text field (settable)\n\t\t\t41 button Add source repository\n\t42 container Footer\n\t\t43 container About Software\n\t\t\t44 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t45 text Version: development Page: \n\t\t\t46 text 8ms\n\t\t\t47 text  Template: \n\t\t\t48 text 0ms\n\t\t49 container Links\n\t\t\t50 text Auto\n\t\t\t51 text English\n\t\t\t52 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t53 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows"
+    },
+    "ui-source-readded-full.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-source-readded-full.txt",
+      "SHA256": "ee0385b9e7d184fa44e448ce515ccb87c6f6d7878cfc407ff2ab0b5642e1ef0c",
+      "界面原文": "说明：来源移出再移回后，普通 Owner 在 UI 重新登记授权。\nBrowser tab: 2, Title: \"Scoped Workflows - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\".\n1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Scoped Workflows\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 2, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t15 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/approvals\n\t\t16 text Settings\n\t\t17 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=23\n\t\t18 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/23\n\t\t19 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-native-v15/settings\n\t\t20 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/hooks\n\t\t21 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/labels\n\t\t22 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/applications\n\t\t23 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/blocked_users\n\t\t24 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/packages\n\t\t25 container\n\t\t\t26 button (expanded) Actions, Secondary Actions: Collapse\n\t\t\t\t27 text Actions\n\t\t\t28 link Description: General, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions\n\t\t\t29 link Description: Runners, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/runners\n\t\t\t30 link Description: Secrets, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/secrets\n\t\t\t31 link Description: Variables, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/variables\n\t\t\t32 link Description: Scoped Workflows, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t\t33 text Source repository added.\n\t\t34 heading Scoped Workflows, Value: 4\n\t\t\t35 text Scoped Workflows\n\t\t36 container\n\t\t\t37 text Register repositories as scoped-workflow sources. Workflow files under the scoped workflow directories of a source repository's default branch run on this group's repositories and descendant groups' repositories, in each consumer's own context. To provide scoped workflows from a repository, commit the workflow files under \n\t\t\t38 text .gitea/scoped_workflows\n\t\t\t39 text  on its default branch, then register the repository as a source below. A source repository's workflow content is executed in every repository it applies to, and its step scripts and their output are written to that repository's Actions logs and readable by anyone who can view the consuming repository's Actions. Registering a private repository as a source therefore discloses its workflow logic through those logs. Only register repositories whose workflow content may be shared with every consuming repository. If a scoped workflow references a reusable workflow from a private repository, make sure every consuming repository can read it, otherwise the workflow will fail there.\n\t\t\t40 text field (settable)\n\t\t\t41 button Add source repository\n\t\t42 container\n\t\t\t43 link Description: phase1-native-v15/ancestor-schedule-source, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source\n\t\t\t44 button Remove\n\t\t\t45 text Mark workflows as required (a required workflow cannot be disabled by repositories):\n\t\t\t46 table\n\t\t\t\t47 row\n\t\t\t\t\t48 cell\n\t\t\t\t\t\t49 text Workflow file\n\t\t\t\t\t50 cell\n\t\t\t\t\t\t51 text Required\n\t\t\t\t\t52 cell\n\t\t\t\t\t\t53 text Required status check patterns  (only enforced while the workflow is required)\n\t\t\t\t54 row\n\t\t\t\t\t55 cell\n\t\t\t\t\t\t56 text ancestor-schedule.yaml\n\t\t\t\t\t57 cell\n\t\t\t\t\t\t58 container\n\t\t\t\t\t\t\t59 checkbox (settable, integer) Description: ancestor-schedule.yaml, Value: 0\n\t\t\t\t\t60 cell\n\t\t\t\t\t\t61 text Mark the workflow as required to configure its status check patterns.\n\t\t\t62 text One job context pattern (glob) per line. Every pattern must match a successful job in the same latest trusted run for the pull request head, current configuration, and current source default-branch commit. Configure patterns for the event that runs this workflow; a missing matching job blocks the merge. This applies without branch protection or repository Actions. Ordinary statuses cannot satisfy it. After changing the configuration or source default branch, trigger a new run for the pull request head; rerunning an existing run preserves its original source and configuration revisions.\n\t\t\t63 button Save\n\t64 container Footer\n\t\t65 container About Software\n\t\t\t66 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t67 text Version: development Page: \n\t\t\t68 text 11ms\n\t\t\t69 text  Template: \n\t\t\t70 text 0ms\n\t\t71 container Links\n\t\t\t72 text Auto\n\t\t\t73 text English\n\t\t\t74 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t75 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows"
+    },
+    "ui-source-restored-run202.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-source-restored-run202.txt",
+      "SHA256": "185204be31011321c9560cb1be348556d54f7e771e55c98f416094cda7c80e3c",
+      "界面原文": "说明：来源归档恢复后，自然调度产生的消费仓运行。\nBrowser tab: 2, Title: \"Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202\".\n1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t7 text /\n\t8 link Description: native-child, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t9 text /\n\t10 link Description: schedule-deep, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t11 text /\n\t12 link Description: ancestor-schedule-consumer, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer\n\t13 container Private\n\t14 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/collaborators\n\t15 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/23/access-requests\n\t16 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=23\n\t17 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer.rss\n\t18 button Unwatch\n\t19 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/watchers\n\t20 button Star\n\t21 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/stars\n\t22 button\n\t23 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/forks\n\t24 container\n\t\t25 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/\n\t\t26 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/issues\n\t\t27 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/pulls\n\t\t28 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t29 container repo-action-view\n\t\t30 link Description: Back to workflow ancestor-schedule, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/?workflow=ancestor-schedule.yaml&scoped_workflow_source_repo_id=22\n\t\t31 image Success\n\t\t32 heading Initial commit, Value: 2\n\t\t\t33 text Initial commit\n\t\t34 text #17\n\t\t35 button Re-run all jobs\n\t\t36 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202\n\t\t37 text All jobs\n\t\t38 link Description: Success schedule-proof 1s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202/jobs/311\n\t\t39 link Description: Success empty-token 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202/jobs/312\n\t\t40 text Run Details\n\t\t41 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202/workflow\n\t\t42 text Triggered via schedule \n\t\t43 container Sep 24, 2026, 09:13\n\t\t\t44 text 9 minutes ago\n\t\t45 link Description: gitea-actions gitea-actions, Value: 127.0.0.1:13043/gitea-actions\n\t\t46 link Description: main, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/branch/main\n\t\t47 text Status Success Total duration 1s Artifacts –\n\t\t48 link Description: ancestor-schedule.yaml, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202/workflow\n\t\t49 text on: schedule\n\t\t50 text 2 jobs • 0 dependencies • 100% success\n\t\t51 button (disabled) Already at 100% zoom\n\t\t52 button Reset view\n\t\t53 button Zoom out (Ctrl/Cmd + scroll on graph)\n\t\t54 image\n\t\t\t55 container schedule-proof\n\t\t\t\t56 image success\n\t\t\t\t57 text schedule-proof 1s\n\t\t\t58 container empty-token\n\t\t\t\t59 image success\n\t\t\t\t60 text empty-token 0s\n\t61 container Footer\n\t\t62 container About Software\n\t\t\t63 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t64 text Version: development Page: \n\t\t\t65 text 10ms\n\t\t\t66 text  Template: \n\t\t\t67 text 1ms\n\t\t68 container Links\n\t\t\t69 text Auto\n\t\t\t70 text English\n\t\t\t71 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t72 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/202"
+    },
+    "ui-reregistered-run209.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-reregistered-run209.txt",
+      "SHA256": "67282506d783f1ae910090eacac69631ae76807f5506c0a4eb8d1aff018650bd",
+      "界面原文": "说明：来源移回并由普通 Owner 重新登记后，真实调度恢复。\nBrowser tab: 2, Title: \"Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209\".\n1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t7 text /\n\t8 link Description: native-child, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t9 text /\n\t10 link Description: schedule-deep, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t11 text /\n\t12 link Description: ancestor-schedule-consumer, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer\n\t13 container Private\n\t14 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/collaborators\n\t15 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/23/access-requests\n\t16 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=23\n\t17 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer.rss\n\t18 button Unwatch\n\t19 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/watchers\n\t20 button Star\n\t21 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/stars\n\t22 button\n\t23 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/forks\n\t24 container\n\t\t25 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/\n\t\t26 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/issues\n\t\t27 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/pulls\n\t\t28 link Description: Actions, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions\n\t\t29 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t30 container repo-action-view\n\t\t31 link Description: Back to workflow ancestor-schedule, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/?workflow=ancestor-schedule.yaml&scoped_workflow_source_repo_id=22\n\t\t32 image Success\n\t\t33 heading Initial commit, Value: 2\n\t\t\t34 text Initial commit\n\t\t35 text #18\n\t\t36 button Re-run all jobs\n\t\t37 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209\n\t\t38 text All jobs\n\t\t39 link Description: Success schedule-proof 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209/jobs/323\n\t\t40 link Description: Success empty-token 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209/jobs/324\n\t\t41 text Run Details\n\t\t42 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209/workflow\n\t\t43 text Triggered via schedule \n\t\t44 container Sep 24, 2026, 09:22\n\t\t\t45 text now\n\t\t46 link Description: gitea-actions gitea-actions, Value: 127.0.0.1:13043/gitea-actions\n\t\t47 link Description: main, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/branch/main\n\t\t48 text Status Success Total duration 1s Artifacts –\n\t\t49 link Description: ancestor-schedule.yaml, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209/workflow\n\t\t50 text on: schedule\n\t\t51 text 2 jobs • 0 dependencies • 100% success\n\t\t52 button (disabled) Already at 100% zoom\n\t\t53 button Reset view\n\t\t54 button Zoom out (Ctrl/Cmd + scroll on graph)\n\t\t55 image\n\t\t\t56 container schedule-proof\n\t\t\t\t57 image success\n\t\t\t\t58 text schedule-proof 0s\n\t\t\t59 container empty-token\n\t\t\t\t60 image success\n\t\t\t\t61 text empty-token 0s\n\t62 container Footer\n\t\t63 container About Software\n\t\t\t64 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t65 text Version: development Page: \n\t\t\t66 text 9ms\n\t\t\t67 text  Template: \n\t\t\t68 text 1ms\n\t\t69 container Links\n\t\t\t70 text Auto\n\t\t\t71 text English\n\t\t\t72 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t73 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/209"
+    },
+    "ui-final-current-run.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-final-current-run.txt",
+      "SHA256": "668e971415742c73dbf078430e3cdeeb06ecec5a277ef7dee8d87263f8ff3d64",
+      "界面原文": "说明：71d19最终候选在09:44自然产生Run231；无本仓YAML，真实Runner成功。先前查看的Run227是历史9f77记录，不计最终版本重测。\nBrowser tab: 2, Title: \"Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231\".\n1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t7 text /\n\t8 link Description: native-child, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t9 text /\n\t10 link Description: schedule-deep, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t11 text /\n\t12 link Description: ancestor-schedule-consumer, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer\n\t13 container Private\n\t14 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/collaborators\n\t15 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/23/access-requests\n\t16 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=23\n\t17 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer.rss\n\t18 button Unwatch\n\t19 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/watchers\n\t20 button Star\n\t21 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/stars\n\t22 button\n\t23 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/forks\n\t24 container\n\t\t25 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/\n\t\t26 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/issues\n\t\t27 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/pulls\n\t\t28 link Description: Actions, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions\n\t\t29 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t30 container repo-action-view\n\t\t31 link Description: Back to workflow ancestor-schedule, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/?workflow=ancestor-schedule.yaml&scoped_workflow_source_repo_id=22\n\t\t32 image Success\n\t\t33 heading Initial commit, Value: 2\n\t\t\t34 text Initial commit\n\t\t35 text #23\n\t\t36 button Re-run all jobs\n\t\t37 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231\n\t\t38 text All jobs\n\t\t39 link Description: Success schedule-proof 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231/jobs/365\n\t\t40 link Description: Success empty-token 0s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231/jobs/366\n\t\t41 text Run Details\n\t\t42 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231/workflow\n\t\t43 text Triggered via schedule \n\t\t44 container Sep 24, 2026, 09:44\n\t\t\t45 text 1 minute ago\n\t\t46 link Description: gitea-actions gitea-actions, Value: 127.0.0.1:13043/gitea-actions\n\t\t47 link Description: main, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/src/branch/main\n\t\t48 text Status Success Total duration 0s Artifacts –\n\t\t49 link Description: ancestor-schedule.yaml, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231/workflow\n\t\t50 text on: schedule\n\t\t51 text 2 jobs • 0 dependencies • 100% success\n\t\t52 button (disabled) Already at 100% zoom\n\t\t53 button Reset view\n\t\t54 button Zoom out (Ctrl/Cmd + scroll on graph)\n\t\t55 image\n\t\t\t56 container schedule-proof\n\t\t\t\t57 image success\n\t\t\t\t58 text schedule-proof 0s\n\t\t\t59 container empty-token\n\t\t\t\t60 image success\n\t\t\t\t61 text empty-token 0s\n\t62 container Footer\n\t\t63 container About Software\n\t\t\t64 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t65 text Version: development Page: \n\t\t\t66 text 6ms\n\t\t\t67 text  Template: \n\t\t\t68 text 0ms\n\t\t69 container Links\n\t\t\t70 text Auto\n\t\t\t71 text English\n\t\t\t72 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t73 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Initial commit - ancestor-schedule.yaml - ancestor-schedule-consumer - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/ancestor-schedule-consumer/actions/runs/231"
+    },
+    "ui-native-preserve-success.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-native-preserve-success.txt",
+      "SHA256": "c9c290f2e19e7befc4f1ba50c9678b70ea931676896f64a7def7042c99114199",
+      "界面原文": "说明：71d19最终候选真实原生长任务234/371，在祖先来源更新后继续完成，未重跑。\nBrowser tab: 2, Title: \"native-preserve - test(ci): 添加原生定时连续性探针 [skip ci] - native-preserve.yaml - schedule-token-target - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371\".\n1 AXWebArea native-preserve - test(ci): 添加原生定时连续性探针 [skip ci] - native-preserve.yaml - schedule-token-target - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371\n\t2 container\n\t\t3 container Description: Navigation Bar, ID: navbar\n\t\t\t4 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t\t5 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t\t6 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t\t7 link Description: phase1-native-v15, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t8 text /\n\t\t9 link Description: native-child, Value: 127.0.0.1:13043/phase1-native-v15/native-child\n\t\t10 text /\n\t\t11 link Description: schedule-deep, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep\n\t\t12 text /\n\t\t13 link Description: schedule-token-target, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target\n\t\t14 container Private\n\t\t15 link Description: 协作者, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/collaborators\n\t\t16 link Description: 访问申请, Value: 127.0.0.1:13043/governance/repositories/24/access-requests\n\t\t17 link Description: 项目审计, Value: 127.0.0.1:13043/governance/audit?scope_type=repository&scope_id=24\n\t\t18 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target.rss\n\t\t19 button Unwatch\n\t\t20 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/watchers\n\t\t21 button Star\n\t\t22 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/stars\n\t\t23 button\n\t\t24 link Description: 0, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/forks\n\t\t25 link Description: Code, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/src/\n\t\t26 link Description: Issues, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/issues\n\t\t27 link Description: Pull Requests, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/pulls\n\t\t28 link Description: Actions, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions\n\t\t29 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t30 container repo-action-view\n\t\t\t31 link Description: Back to workflow native-preserve, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/?workflow=native-preserve.yaml\n\t\t\t32 image Success\n\t\t\t33 heading test(ci): 添加原生定时连续性探针 [skip ci], Value: 2\n\t\t\t\t34 text test(ci): 添加原生定时连续性探针 [skip ci]\n\t\t\t35 text #26\n\t\t\t36 button Re-run all jobs\n\t\t\t37 link Description: Summary, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234\n\t\t\t38 text All jobs\n\t\t\t39 link Description: Success native-preserve 2m8s, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371\n\t\t\t40 text Run Details\n\t\t\t41 link Description: Workflow file, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/workflow\n\t\t\t42 container\n\t\t\t\t43 heading native-preserve, Value: 3\n\t\t\t\t\t44 text native-preserve\n\t\t\t\t45 text Success\n\t\t\t\t46 button\n\t\t\t47 container\n\t\t\t\t48 image success\n\t\t\t\t49 text Set up job 0s\n\t\t\t\t50 image success\n\t\t\t\t51 text 等待来源更新后继续执行\n\t\t\t\t66 button Copy output\n\t\t\t\t67 text 2m8s\n\t\t\t\t68 button (collapsed) 1 Run test \"$EVENT_NAME\" = schedule, Secondary Actions: Expand\n\t\t\t\t\t69 container jobstep-1-1\n\t\t\t\t\t\t70 link Description: 1, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371#jobstep-1-1\n\t\t\t\t\t\t71 text Run test \"$EVENT_NAME\" = schedule\n\t\t\t\t72 container jobstep-1-10\n\t\t\t\t\t73 link Description: 10, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371#jobstep-1-10\n\t\t\t\t\t74 text 原生任务已开始，等待受控来源更新\n\t\t\t\t75 container jobstep-1-11\n\t\t\t\t\t76 link Description: 11, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371#jobstep-1-11\n\t\t\t\t\t77 text   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n\t\t\t\t78 container jobstep-1-12\n\t\t\t\t\t79 link Description: 12, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371#jobstep-1-12\n\t\t\t\t\t80 text                                  Dload  Upload   Total   Spent    Left  Speed\n\t\t\t\t81 container jobstep-1-13\n\t\t\t\t\t82 link Description: 13, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371#jobstep-1-13\n\t\t\t\t\t83 text   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:02 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:03 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:04 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:05 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:06 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:07 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:08 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:09 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:10 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:11 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:12 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:13 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:14 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:15 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:16 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:17 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:18 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:19 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:20 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:21 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:22 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:23 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:24 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:25 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:26 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:27 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:28 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:29 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:30 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:31 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:32 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:33 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:34 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:35 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:36 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:37 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:38 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:39 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:40 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:41 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:42 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:43 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:44 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:45 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:46 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:47 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:48 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:49 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:50 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:51 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:52 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:53 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:54 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:55 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:56 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:57 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:58 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:00:59 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:00 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:01 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:02 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:03 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:04 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:05 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:06 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:07 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:08 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:09 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:10 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:11 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:12 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:13 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:14 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:15 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:16 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:17 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:18 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:19 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:20 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:21 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:22 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:23 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:24 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:25 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:26 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:27 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:28 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:29 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:30 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:31 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:32 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:33 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:34 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:35 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:36 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:37 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:38 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:39 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:40 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:41 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:42 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:43 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:44 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:45 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:46 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:47 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:48 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:49 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:50 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:51 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:52 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:53 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:54 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:55 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:56 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:57 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:58 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:01:59 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:00 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:01 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:02 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:03 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:04 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:05 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:06 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:07 --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:--  0:02:08 --:--:--     0\n100    15    0    15    0     0      0      0 --:--:--  0:02:08 --:--:--     3\n\t\t\t\t84 container jobstep-1-14\n\t\t\t\t\t85 link Description: 14, Value: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371#jobstep-1-14\n\t\t\t\t\t86 text 屏障已释放来源更新后原生定时任务继续并成功\n\t\t\t\t52 image success\n\t\t\t\t53 text Complete job 0s\n\t\t54 container Footer\n\t\t\t55 container About Software\n\t\t\t\t56 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t\t57 text Version: development Page: \n\t\t\t\t58 text 8ms\n\t\t\t\t59 text  Template: \n\t\t\t\t60 text 1ms\n\t\t\t61 container Links\n\t\t\t\t62 text Auto\n\t\t\t\t63 text English\n\t\t\t\t64 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t\t65 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea native-preserve - test(ci): 添加原生定时连续性探针 [skip ci] - native-preserve.yaml - schedule-token-target - 群组一期隔离验收, URL: 127.0.0.1:13043/phase1-native-v15/native-child/schedule-deep/schedule-token-target/actions/runs/234/jobs/371"
+    },
+    "ui-no-scoped-files.txt": {
+      "位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/ui-no-scoped-files.txt",
+      "SHA256": "01f5bf1d0248f2dc97cd3c38e0b74f25ab064a5f43ed18cb5066cfd0a186348c",
+      "界面原文": "说明：通过正常HTTP Git删除祖先定时文件后的Owner来源页面，登记保留但不再有可执行文件。\nBrowser tab: 2, Title: \"Scoped Workflows - 群组一期隔离验收\", URL: \"http://127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\".\n1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t2 container Description: Navigation Bar, ID: navbar\n\t\t3 link Description: Dashboard, Value: 127.0.0.1:13043/, ID: navbar-logo\n\t\t4 link Description: Notifications, Value: 127.0.0.1:13043/notifications\n\t\t5 button Description: Navigation Menu, ID: navbar-expand-toggle\n\t6 container Scoped Workflows\n\t\t7 text phase1-native-v15 Private\n\t\t8 link Description: RSS Feed, Value: 127.0.0.1:13043/phase1-native-v15.rss\n\t\t9 button Follow\n\t\t10 container\n\t\t\t11 link Description: Repositories 2, Value: 127.0.0.1:13043/phase1-native-v15\n\t\t\t12 link Description: Projects, Value: 127.0.0.1:13043/phase1-native-v15/-/projects\n\t\t\t13 link Description: Packages, Value: 127.0.0.1:13043/phase1-native-v15/-/packages\n\t\t\t14 pop up button (collapsed) Description: More items, Secondary Actions: Expand\n\t\t15 link Description: 合并请求审批, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/approvals\n\t\t16 text Settings\n\t\t17 link Description: 操作审计, Value: 127.0.0.1:13043/governance/audit?scope_type=group&scope_id=23\n\t\t18 link Description: 群组与权限继承, Value: 127.0.0.1:13043/governance/groups/23\n\t\t19 link Description: Organization, Value: 127.0.0.1:13043/org/phase1-native-v15/settings\n\t\t20 link Description: Webhooks, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/hooks\n\t\t21 link Description: Labels, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/labels\n\t\t22 link Description: Applications, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/applications\n\t\t23 link Description: Blocked users, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/blocked_users\n\t\t24 link Description: Packages, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/packages\n\t\t25 container\n\t\t\t26 button (expanded) Actions, Secondary Actions: Collapse\n\t\t\t\t27 text Actions\n\t\t\t28 link Description: General, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions\n\t\t\t29 link Description: Runners, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/runners\n\t\t\t30 link Description: Secrets, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/secrets\n\t\t\t31 link Description: Variables, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/variables\n\t\t\t32 link Description: Scoped Workflows, Value: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows\n\t\t33 heading Scoped Workflows, Value: 4\n\t\t\t34 text Scoped Workflows\n\t\t35 container\n\t\t\t36 text Register repositories as scoped-workflow sources. Workflow files under the scoped workflow directories of a source repository's default branch run on this group's repositories and descendant groups' repositories, in each consumer's own context. To provide scoped workflows from a repository, commit the workflow files under \n\t\t\t37 text .gitea/scoped_workflows\n\t\t\t38 text  on its default branch, then register the repository as a source below. A source repository's workflow content is executed in every repository it applies to, and its step scripts and their output are written to that repository's Actions logs and readable by anyone who can view the consuming repository's Actions. Registering a private repository as a source therefore discloses its workflow logic through those logs. Only register repositories whose workflow content may be shared with every consuming repository. If a scoped workflow references a reusable workflow from a private repository, make sure every consuming repository can read it, otherwise the workflow will fail there.\n\t\t\t39 text field (settable)\n\t\t\t40 button Add source repository\n\t\t41 container\n\t\t\t42 link Description: phase1-native-v15/ancestor-schedule-source, Value: 127.0.0.1:13043/phase1-native-v15/ancestor-schedule-source\n\t\t\t43 button Remove\n\t\t\t44 text No scoped workflow files were found on the default branch.\n\t45 container Footer\n\t\t46 container About Software\n\t\t\t47 link Description: Powered by Gitea, Value: about.gitea.com/\n\t\t\t48 text Version: development Page: \n\t\t\t49 text 12ms\n\t\t\t50 text  Template: \n\t\t\t51 text 0ms\n\t\t52 container Links\n\t\t\t53 text Auto\n\t\t\t54 text English\n\t\t\t55 link Description: Licenses, Value: 127.0.0.1:13043/assets/licenses.txt\n\t\t\t56 link Description: API, Value: 127.0.0.1:13043/api/swagger\n\nThe focused UI element is 1 AXWebArea Scoped Workflows - 群组一期隔离验收, URL: 127.0.0.1:13043/org/phase1-native-v15/settings/actions/scoped-workflows"
+    }
+  }
+}

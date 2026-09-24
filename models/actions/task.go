@@ -8,6 +8,8 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/actions/jobparser"
+	"gitea.dev/modules/git"
 	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
@@ -271,7 +274,59 @@ func ScheduledRunValid(ctx context.Context, run *ActionRun, repo *repo_model.Rep
 		return false, err
 	}
 	if schedule.RepoID != repo.ID || schedule.OwnerID != repo.OwnerID || schedule.TriggerUserID != user_model.ActionsUserID || schedule.ScopeRevision != repo.ActionsScopeRevision ||
-		run.Ref != schedule.Ref || run.CommitSHA != schedule.CommitSHA || run.WorkflowCommitSHA != schedule.CommitSHA || run.WorkflowID != schedule.WorkflowID {
+		run.Ref != schedule.Ref || run.CommitSHA != schedule.CommitSHA || run.WorkflowID != schedule.WorkflowID || run.IsScopedRun != schedule.IsScopedRun {
+		return false, nil
+	}
+	if schedule.IsScopedRun {
+		if run.WorkflowRepoID != schedule.WorkflowRepoID || run.WorkflowCommitSHA != schedule.WorkflowCommitSHA ||
+			run.WorkflowSourceScopeRevision != schedule.WorkflowSourceScopeRevision || !maps.Equal(run.ScopedConfigRevisions, schedule.ScopedConfigRevisions) {
+			return false, nil
+		}
+		registrations, err := GetEffectiveScopedWorkflowSources(ctx, repo.OwnerID)
+		if err != nil {
+			return false, err
+		}
+		currentRevisions := make(map[string]int64)
+		validRegistrations := make([]*ActionScopedWorkflowSource, 0)
+		for _, registration := range registrations {
+			if registration.SourceRepoID != schedule.WorkflowRepoID {
+				continue
+			}
+			valid, err := ScopedWorkflowRegistrationValid(ctx, registration)
+			if err != nil {
+				return false, err
+			}
+			if valid {
+				validRegistrations = append(validRegistrations, registration)
+				currentRevisions[strconv.FormatInt(registration.ID, 10)] = registration.ConfigRevision
+			}
+		}
+		if len(currentRevisions) == 0 || !maps.Equal(currentRevisions, schedule.ScopedConfigRevisions) {
+			return false, nil
+		}
+		unit, err := repo.GetUnit(ctx, unit.TypeActions)
+		if repo_model.IsErrUnitTypeNotExist(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if ScopedWorkflowOptedOut(unit.ActionsConfig(), validRegistrations, schedule.WorkflowRepoID, schedule.WorkflowID) {
+			return false, nil
+		}
+		valid, err := ScopedWorkflowRunValid(ctx, run)
+		if err != nil || !valid {
+			return valid, err
+		}
+		source, err := repo_model.GetRepositoryByID(ctx, schedule.WorkflowRepoID)
+		if err != nil {
+			return false, err
+		}
+		current, err := ScheduleBranchCurrent(ctx, source, git.RefNameFromBranch(source.DefaultBranch).String(), schedule.WorkflowCommitSHA)
+		if err != nil || !current {
+			return current, err
+		}
+	} else if run.WorkflowCommitSHA != schedule.CommitSHA || run.WorkflowRepoID != 0 && run.WorkflowRepoID != repo.ID {
 		return false, nil
 	}
 	return ScheduleBranchCurrent(ctx, repo, schedule.Ref, schedule.CommitSHA)
@@ -283,7 +338,15 @@ func ScheduledRunValidForWrite(ctx context.Context, run *ActionRun, repo *repo_m
 	if err != nil || !valid {
 		return valid, err
 	}
-	return LockScheduleBranchCurrent(ctx, repo, run.Ref, run.CommitSHA)
+	valid, err = LockScheduleBranchCurrent(ctx, repo, run.Ref, run.CommitSHA)
+	if err != nil || !valid || !run.IsScopedRun {
+		return valid, err
+	}
+	source, err := repo_model.GetRepositoryByID(ctx, run.WorkflowRepoID)
+	if err != nil {
+		return false, err
+	}
+	return LockScheduleBranchCurrent(ctx, source, git.RefNameFromBranch(source.DefaultBranch).String(), run.WorkflowCommitSHA)
 }
 
 func ownerActionsActive(ctx context.Context, ownerID int64) (bool, error) {

@@ -232,4 +232,12 @@ go test -count=1 ./cmd ./services/repository ./routers/web/shared/actions ./rout
 
 [v16 整合](../outputs/group-subgroup-phase1-20260923/parent-v16-integrated-validation.md)记录原生屏蔽审计红绿、PG 最终七项全部通过、Actions 全包 71 顶层、四个屏蔽／审计包 55 顶层与最终增量 lint 零问题。真实浏览器完成屏蔽、备注和解除，父子审计均有 638～640 三类事件且详情不含备注；真实 Runner 完成 Run92。定时计划冲突不能吞普通 push，并保留范围变化时不建 Run 的固定反例。本机已切换 v16，构建 SHA-256 为 `85167c3625a6550b2351b6656d3e22f05f7d1885642d994f6b609b62528e04b2`。其余未验条目、容量和效率保持原判定。
 
-仍需开发的 CI 范围：`detectAndHandleScopedWorkflows` 当前显式跳过 `schedule`／`workflow_run`，定时检测仅扫描消费仓库自身。祖先统一来源的定时闭环尚未接通，不能将本级 Run90／91 的定时正例当成祖先统一工作流该触发能力已完成。此项保留在一期 CI05 待开发，不在本轮失败后移至二期。
+第十六版时确认的 CI 缺口：当时祖先统一来源的定时闭环尚未接通，本级 Run90／91 不能代表祖先能力；该缺口未移至二期。2026-09-24 收口已实现并真实验收，见下节。`workflow_run` 未列为本期新增承诺。
+
+## 2026-09-24 收口记录
+
+唯一状态台账仍是[矩阵剩余明细](group-subgroup-phase1-matrix.md)。`CI05-SCH-01`～`09` 已关闭，适用 HEAD `a488feb7a4ac2df8a7c17c01c536374b10f33098` 加所列工作树差异，构建时源码指纹 `1b485408ab940a5693a89dfd29581f6e5e73d355344ccf11a83a0f6702f9c547`，实际运行构建 `71d19b0d1687…`。真实调度、Runner、UI、版本变化、凭据与 token、原生定时回归及所有首错详见[祖先定时验收](../outputs/group-subgroup-phase1-20260923/ancestor-schedule-acceptance.md)。最终 PG 10 顶层／含子项21通过；四包单元137顶层／含子项311通过、2项既有跳过；增量 lint 0。跨层来源更新期间，原生 Run234 同一任务继续执行并成功，没有因重扫被取消。
+
+最后有效人类 Owner 的真实 PG 并发退出与临时来源到期前后补测，以及普通 Owner UI 拒绝和刷新保留，记入既有[Owner 数据库证据](../outputs/group-subgroup-phase1-20260923/owner-identity-db-evidence.md)。这是追加验收；没有重写成员授权。M02-a／M03-a 的纯继承创建、资料与可见性修改、受限共享及越界拒绝也在同一既有Owner证据中记录，真实UI/API/Git闭环通过。构建后的新增测试文件与测试lint修正单列摘要，不混入旧二进制构建清单。
+
+Linux arm64 专用容器已有独立安装／替换启动证据；指定 Linux amd64 容量、其他数据库和最终候选发布门槛仍未通过。真实人工效率尚无样本，测量步骤及模板已备好，不能填写80%达标。此前 OAuth／屏蔽／审计及冲突修复的关闭子项保留，未将其重开。

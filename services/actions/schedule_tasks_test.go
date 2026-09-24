@@ -5,6 +5,7 @@ package actions
 
 import (
 	"testing"
+	"time"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
@@ -50,6 +51,13 @@ func TestReplaceSchedulesRejectsStaleRepoSnapshot(t *testing.T) {
 	require.NoError(t, db.Insert(ctx, secondPlan))
 	require.ErrorIs(t, replaceSchedulesForRepo(ctx, oldSnapshot, "stale", nil), governance_model.ErrConflict)
 	unittest.AssertExistsAndLoadBean(t, &actions_model.ActionSchedule{ID: secondPlan.ID})
+}
+
+func TestNextScheduleTimeKeepsNextMinute(t *testing.T) {
+	now := time.Date(2026, time.September, 24, 8, 0, 30, 0, time.UTC)
+	next, err := nextScheduleTime(&actions_model.ActionScheduleSpec{Spec: "* * * * *"}, now)
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2026, time.September, 24, 8, 1, 0, 0, time.UTC).Unix(), int64(next))
 }
 
 func TestWithScheduleInEventPayload(t *testing.T) {

@@ -26,6 +26,10 @@ import (
 // It parses the workflow content, evaluates concurrency if needed, and inserts the run and its jobs into the database.
 // The title will be cut off at 255 characters if it's longer than 255 characters.
 func PrepareRunAndInsert(ctx context.Context, content []byte, run *actions_model.ActionRun, inputsWithDefaults map[string]any) error {
+	return prepareRunAndInsert(ctx, content, run, inputsWithDefaults, nil)
+}
+
+func prepareRunAndInsert(ctx context.Context, content []byte, run *actions_model.ActionRun, inputsWithDefaults map[string]any, scheduleSpec *actions_model.ActionScheduleSpec) error {
 	if run.WorkflowRepoID == 0 {
 		return fmt.Errorf("WorkflowRepoID must be set before insert (repo %d, workflow %q)", run.RepoID, run.WorkflowID)
 	}
@@ -44,7 +48,7 @@ func PrepareRunAndInsert(ctx context.Context, content []byte, run *actions_model
 		return fmt.Errorf("ReadWorkflowRawConcurrency: %w", err)
 	}
 
-	if err = InsertRun(ctx, run, content, vars, inputsWithDefaults, wfRawConcurrency); err != nil {
+	if err = insertRun(ctx, run, content, vars, inputsWithDefaults, wfRawConcurrency, scheduleSpec); err != nil {
 		return fmt.Errorf("InsertRun: %w", err)
 	}
 
@@ -64,6 +68,10 @@ func PrepareRunAndInsert(ctx context.Context, content []byte, run *actions_model
 // InsertRun inserts a run
 // The title will be cut off at 255 characters if it's longer than 255 characters.
 func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte, vars map[string]string, inputs map[string]any, wfRawConcurrency *act_model.RawConcurrency) error {
+	return insertRun(ctx, run, content, vars, inputs, wfRawConcurrency, nil)
+}
+
+func insertRun(ctx context.Context, run *actions_model.ActionRun, content []byte, vars map[string]string, inputs map[string]any, wfRawConcurrency *act_model.RawConcurrency, scheduleSpec *actions_model.ActionScheduleSpec) error {
 	var organizationTrigger bool
 	if run.TriggerUserID > 0 {
 		trigger, err := user_model.GetUserByID(ctx, run.TriggerUserID)
@@ -95,7 +103,7 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 			run.Status = actions_model.StatusCancelled
 			run.Stopped = timeutil.TimeStampNow()
 		}
-		if run.IsScopedRun {
+		if run.IsScopedRun && run.ScheduleID == 0 {
 			sources, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, run.OwnerID)
 			if err != nil {
 				return err
@@ -230,6 +238,16 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 				}
 				if !valid {
 					return fmt.Errorf("%w：定时计划的仓库范围已变化，请重新检测并触发工作流", governance_model.ErrConflict)
+				}
+				if scheduleSpec != nil {
+					updated, err := db.GetEngine(ctx).Where("id = ? AND next = ? AND schedule_id = ?", scheduleSpec.ID, scheduleSpec.Prev, run.ScheduleID).
+						Cols("prev", "next").Update(&actions_model.ActionScheduleSpec{Prev: scheduleSpec.Prev, Next: scheduleSpec.Next})
+					if err != nil {
+						return err
+					}
+					if updated == 0 {
+						return governance_model.ErrConflict
+					}
 				}
 			}
 			return nil

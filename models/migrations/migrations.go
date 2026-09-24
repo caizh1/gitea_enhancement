@@ -455,6 +455,7 @@ func prepareMigrationTasks() []*migration {
 		newMigration(374, "增加 Actions 凭据的受保护分支限制", v1_27.AddProtectedActionsSecrets),
 		newMigration(375, "保存顶级群组基础分支保护规则", v1_27.AddGroupProtectedBranches),
 		newMigration(376, "保存 Webhook 重投的稳定事件标识", v1_27.AddWebhookEventID),
+		newMigration(377, "保存祖先定时工作流来源与注册快照", v1_27.AddScopedScheduleProvenance),
 	}
 	return preparedMigrations
 }

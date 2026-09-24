@@ -1,0 +1,4783 @@
+{
+  "说明": "祖先定时收口的逐版源码与实际运行证据；中间红例保留，最终候选的记录以closure-final后缀标识",
+  "HEAD": "a488feb7a4ac2df8a7c17c01c536374b10f33098",
+  "branch": "codex/group-subgroup-phase1-alignment",
+  "源码指纹": "1b485408ab940a5693a89dfd29581f6e5e73d355344ccf11a83a0f6702f9c547",
+  "业务及测试文件SHA256": {
+    "models/actions/schedule.go": "0ecfe0728cf013db8fc0af315500e9fd6d437cd511149466ff36dc3b0fb292b9",
+    "models/actions/schedule_spec_list.go": "c9ebc794e3b33a9f97eafbac53415ba58f527600b671507458da4160316a3aa3",
+    "models/actions/task.go": "391b46bb72491ca6ba4849fb309d070176e1ae792973a95ffacbbf8e3fbc2b99",
+    "models/actions/task_test.go": "4d1aa17c70e34cfa90ec02569de09a0c54d08b5cf633f7bfa90bfdf3367331b7",
+    "models/migrations/migrations.go": "368529af42c449b55a2d2754cced82787e87b464e280ad244bb98e0320ad43fa",
+    "models/migrations/v1_27/v349.go": "9e321a1ae22b7fdf1bb1d7022fbc179560e48ccb8b3c158d370c430420ea11b1",
+    "services/actions/notifier_helper.go": "b9a500fd201abe1f76e373c150ee17fb71a563db3f663f485b9506eabdb0877d",
+    "services/actions/run.go": "940854958f65149a2c7ca54f164c72dfd706740f705038c16a459537873f26a7",
+    "services/actions/schedule_tasks.go": "7f491766d911172fc037880ffc8696ad692da41f6191428c0492cc0213718143",
+    "services/actions/schedule_tasks_test.go": "559277de404f513d054c07a462b889915618b091964a4b69bdd6e66f59562a56",
+    "tests/integration/actions_scoped_schedule_test.go": "e3257b7e9b65da582d5e7d2837514bb41c0a4ee836483bfbe410855a32f9c1ca"
+  },
+  "候选SHA256": "71d19b0d1687ac1e71ccbd5aaec8f79e7c3e5481d8ea749d15377afd360c5ed0",
+  "测试": {
+    "pg-schedule-first": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-schedule-first.jsonl",
+      "SHA256": "758c02ee80c83c5a957d2f8a7f9c5e0d933192a407d4b282fb033de8c49d66f8",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleConcurrency",
+          "Action": "pass",
+          "Elapsed": 9.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleBranchAuthorizationLock",
+          "Action": "pass",
+          "Elapsed": 0.66
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/Push",
+          "Action": "pass",
+          "Elapsed": 3.38
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/merge",
+          "Action": "pass",
+          "Elapsed": 5.46
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase",
+          "Action": "pass",
+          "Elapsed": 6.38
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase-merge",
+          "Action": "pass",
+          "Elapsed": 5.75
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/squash",
+          "Action": "pass",
+          "Elapsed": 5.5
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/fast-forward-only",
+          "Action": "pass",
+          "Elapsed": 5.45
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/manually-merged",
+          "Action": "pass",
+          "Elapsed": 5.21
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge",
+          "Action": "pass",
+          "Elapsed": 33.74
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/DisableAndEnableActionsUnit",
+          "Action": "pass",
+          "Elapsed": 2.52
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/ArchiveAndUnarchive",
+          "Action": "pass",
+          "Elapsed": 2.54
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/MirrorSync",
+          "Action": "pass",
+          "Elapsed": 3.89
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate",
+          "Action": "pass",
+          "Elapsed": 46.08
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "fail",
+          "Elapsed": 4.1
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+          "Action": "fail",
+          "Elapsed": 4.8
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedSourceArchiveOrdersConcurrentRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGroupMoveOrdersConcurrentScheduleRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.42
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGovernanceOwnerIdentityRealDatabase",
+          "Action": "pass",
+          "Elapsed": 0.72
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "fail",
+          "Elapsed": 68.394
+        }
+      ]
+    },
+    "pg-schedule-fixed": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-schedule-fixed.jsonl",
+      "SHA256": "7d4868155f15f30017b34d65ce4a15bbcef5232e6d2e31ffeb7ff7c2405668a0",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "pass",
+          "Elapsed": 5.96
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+          "Action": "pass",
+          "Elapsed": 5.97
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "pass",
+          "Elapsed": 13.662
+        }
+      ]
+    },
+    "pg-schedule-final": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-schedule-final.jsonl",
+      "SHA256": "ae667cc985e8a29ae8e9218e20c9a2bc64b9152bf79c0958af808ba3a775d892",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleConcurrency",
+          "Action": "pass",
+          "Elapsed": 8.02
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleBranchAuthorizationLock",
+          "Action": "pass",
+          "Elapsed": 0.67
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/Push",
+          "Action": "pass",
+          "Elapsed": 3.39
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/merge",
+          "Action": "pass",
+          "Elapsed": 5.47
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase",
+          "Action": "pass",
+          "Elapsed": 5.51
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase-merge",
+          "Action": "pass",
+          "Elapsed": 5.42
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/squash",
+          "Action": "pass",
+          "Elapsed": 5.61
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/fast-forward-only",
+          "Action": "pass",
+          "Elapsed": 5.49
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/manually-merged",
+          "Action": "pass",
+          "Elapsed": 5.2
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge",
+          "Action": "pass",
+          "Elapsed": 32.7
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/DisableAndEnableActionsUnit",
+          "Action": "pass",
+          "Elapsed": 2.59
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/ArchiveAndUnarchive",
+          "Action": "pass",
+          "Elapsed": 2.56
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/MirrorSync",
+          "Action": "pass",
+          "Elapsed": 4.13
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate",
+          "Action": "pass",
+          "Elapsed": 45.37
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "pass",
+          "Elapsed": 3.86
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+          "Action": "pass",
+          "Elapsed": 6.01
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedSourceArchiveOrdersConcurrentRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGroupMoveOrdersConcurrentScheduleRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGovernanceOwnerIdentityRealDatabase",
+          "Action": "pass",
+          "Elapsed": 0.73
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "pass",
+          "Elapsed": 67.106
+        }
+      ]
+    },
+    "pg-source-aba": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-source-aba.jsonl",
+      "SHA256": "d9ed450c16ab0d2fe073790078be320a2fcf3bf379be6bedafbedb1f17548889",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "pass",
+          "Elapsed": 5.25
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "pass",
+          "Elapsed": 7.321
+        }
+      ]
+    },
+    "pg-stale-schedule-red": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-stale-schedule-red.jsonl",
+      "SHA256": "0ee7e119fde0be587e12792e53fe6a1d27ffbab23c5276baaa980218f6786c92",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceVersionCancelsOldRun",
+          "Action": "fail",
+          "Elapsed": 7.77
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "fail",
+          "Elapsed": 10.072
+        }
+      ]
+    },
+    "pg-schedule-cancel-fixed": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-schedule-cancel-fixed.jsonl",
+      "SHA256": "4ae48b36c209ce33458398bc1aa2889b10609411aa9851fc2c10c922c6ec7004",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleConcurrency",
+          "Action": "pass",
+          "Elapsed": 8.79
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleBranchAuthorizationLock",
+          "Action": "pass",
+          "Elapsed": 0.66
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/Push",
+          "Action": "pass",
+          "Elapsed": 3.39
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/merge",
+          "Action": "pass",
+          "Elapsed": 5.52
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase",
+          "Action": "pass",
+          "Elapsed": 5.59
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase-merge",
+          "Action": "pass",
+          "Elapsed": 6.71
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/squash",
+          "Action": "pass",
+          "Elapsed": 5.52
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/fast-forward-only",
+          "Action": "pass",
+          "Elapsed": 5.68
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/manually-merged",
+          "Action": "pass",
+          "Elapsed": 5.12
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge",
+          "Action": "pass",
+          "Elapsed": 34.14
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/DisableAndEnableActionsUnit",
+          "Action": "pass",
+          "Elapsed": 2.49
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/ArchiveAndUnarchive",
+          "Action": "pass",
+          "Elapsed": 2.48
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/MirrorSync",
+          "Action": "pass",
+          "Elapsed": 3.93
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate",
+          "Action": "pass",
+          "Elapsed": 46.43
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "pass",
+          "Elapsed": 4.19
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceVersionCancelsOldRun",
+          "Action": "pass",
+          "Elapsed": 5.07
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+          "Action": "pass",
+          "Elapsed": 6.47
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedSourceArchiveOrdersConcurrentRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.47
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGroupMoveOrdersConcurrentScheduleRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGovernanceOwnerIdentityRealDatabase",
+          "Action": "pass",
+          "Elapsed": 0.74
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "pass",
+          "Elapsed": 75.326
+        }
+      ]
+    },
+    "unit-cancel-final": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/unit-cancel-final.jsonl",
+      "SHA256": "70675a382eb6b6ba64b769aaaf2040a7fe3c4959879703f781d49049f5e78a25",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestKeepLatestAttemptArtifacts",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/child_group",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/repo",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/parent_group",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/instance",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/unrelated_group",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary",
+          "Action": "pass",
+          "Elapsed": 0.06
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerClaimAndCredential",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/matrix_group_sorted_naturally",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/non-adjacent_same_JobID_stays_in_input_order",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/groups_stay_in_input_order",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/empty_and_singleton",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatus",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetPriorAttemptChildrenByParent/matrix_instances_and_non-matrix_sibling_are_indexed_by_(JobID,_Name)",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetPriorAttemptChildrenByParent/walkback_past_an_attempt_where_the_caller_had_no_children",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetPriorAttemptChildrenByParent",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestCancelJobs_NestedBlockedReusableCaller",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/done_job",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/done_job_on_a_legacy_run_without_attempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/no_job_at_all",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/no_job_at_all_on_a_legacy_run_without_attempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetRunWorkflowIDs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetRepoRunWorkflowIDs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetStatusInfoList",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestFindRunOptions_WorkflowRepoID",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestFindRunOptions_IsScopedRun",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestUpdateRepoRunsNumbers",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionRun_Duration_NonNegative",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionRun_WorkflowLink",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetWorkflowLatestRun_RepoLevelOnly",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAncestorRunnerScopeAndNotification",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestVariablesPreferNearestNamespaceAndRepo",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/fresh,_skip_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/exactly_at_interval,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/stale,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/zero_(never_seen),_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/fresh,_skip_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/exactly_at_interval,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/stale,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/zero_(never_seen),_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetLatestRunnerToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestNewRunnerToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestUpdateRunnerToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/regular",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/invalid",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/with_timezone",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/timezone_irrelevant",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowSource_IsWorkflowRequired",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestIsWorkflowRequiredInSources",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetEffectiveScopedWorkflowSources",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowSourceValidLifecycle",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowAncestorSources",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowSourceCRUD",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowRunDoesNotReviveAfterSourceReRegistration",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStatusAsResult",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStatusFromResult",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/all_success",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/one_failure_without_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/one_failure_with_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/only_continued-failure",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/continued-failure_plus_real_failure",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/all_skipped",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/continued-failure_plus_skipped_counts_as_success",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionTask_GetRunJobLink",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScheduledTaskCredentialValid",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScheduledScopedRunSourceBound",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCredentialUsesCurrentAttemptTriggerer",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/explicit_name",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/uses_step",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/single-line_run",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/multi-line_run_block_scalar",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/fallback_to_id",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/very_long_name_truncated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/very_long_run_truncated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCancellingFinalizesToCancelled/runner_reports_success",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCancellingFinalizesToCancelled/runner_reports_failure",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCancellingFinalizesToCancelled",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled/legacy_runner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled/missing_runner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled/silent_runner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingKeepsReportTime",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestReleaseTaskForRunner",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestCreateTaskForRunnerPagination",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAncestorRunnerClaimAndMoveRevocation",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestClaimJobRejectsOwnerChangedAfterScan",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestEphemeralRunnerCannotClaimSecondCandidate",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestUpdateTaskByStateIsAtomic",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskTokenAncestorDefaultAndAbsoluteMaximum",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestLogIndexes_ToDB/#00",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestLogIndexes_ToDB",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/unknown",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/running",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_zero_no_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_zero_uses_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_before_started_no_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_before_started_uses_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Action": "pass",
+          "Elapsed": 1.722
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_AddActionRunAttemptModel",
+          "Action": "pass",
+          "Elapsed": 0.06
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_AddBranchProtectionBypassAllowlist",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddCancellingSupportToActionRunner",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_ExpandIssueAndCommentLongTextFieldsForMSSQL",
+          "Action": "skip",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_AddCreatedUnixToActionUserIsDeletedIndex",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_FixLegacyMSSQLDateTimeColumns",
+          "Action": "skip",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddActionsScopeSafety",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddTrustedScopedWorkflowRevisions",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddWebhookDeliverySnapshots",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddProtectedActionsSecrets",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddGroupProtectedBranches",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddWebhookEventID",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Action": "pass",
+          "Elapsed": 0.971
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestTaskSecretsPreferNearestNamespaceAndKeepForkBoundary",
+          "Action": "pass",
+          "Elapsed": 0.06
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestProtectedSecretsUseSelectedSourceAndCurrentRules",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/TopLevelJob_ReturnsBaseUnchanged",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerInherit_PassesParentScopeThrough",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerEmptySecrets_ExposesOnlyAutoTokens",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerMapping_OnlyMappedAliasesPlusTokens",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerMapping_CaseInsensitiveSource",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerMapping_UnknownSourceDropsAlias",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_InheritThenInherit_FullScope",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_InheritThenMapping_InnerNarrows",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_MappingThenInherit_OuterNarrows",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_MappingThenMapping_InnerSourceMustExistInOuterScope",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Action": "pass",
+          "Elapsed": 1.306
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestApproveRuns/approve_blocked_run",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestApproveRuns/re-approving_an_approved_run_is_a_no-op",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestApproveRuns",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateAuthorizationToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAuthorizationToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAuthorizationTokenNoAuthHeader",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestShouldBlockJobByConcurrency_CancellingJobBlocks",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestShouldBlockRunByConcurrency_CancellingJobBlocks",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestStopEndlessTasksSkipsCancelling",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCommitStatusDescription",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_Dedupe",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetCommitActionsStatusMap",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_DistinctWorkflowFilesSameName",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_LegacyHashRecovery",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_LegacyHashExternalNotAdopted",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_UnnamedWorkflowUsesFileName",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_ScopedSourcePrefix",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRedactScopedCommitStatusContexts",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestEvaluateRunConcurrency_RunIDFallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPrepareRunAndInsert_ExpressionsSeeRunID",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPrepareRunAndInsertOrganizationTriggerCannotQueue",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPrepareRunAndInsertRejectsChangedScopedSource",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/returns_empty_when_callee_declares_no_outputs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/unexpanded_(skipped)_caller_yields_empty_outputs_without_error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/literal_output_value_passes_through",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/output_expression_reads_child_task_outputs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/CallPayload_inputs_reachable_in_output_expression",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/nested_caller_outputs_propagate_to_outer",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/matrix_children_with_same_JobID_prefer_non-empty_values",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestFindTaskNeeds",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGenerateGiteaContextPullRequestTarget",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGenerateGiteaContext_NilAttempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGenerateGiteaContextProtectedRefUsesCurrentRules",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestDispatchInputsForRunJobs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/pull_request_target_with_base_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/non_pull_request_target_trigger",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/missing_base_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/invalid_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/NoToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/EnvToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/EnvFileToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/InvalidToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/no_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/single_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/multiple_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/chain_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/loop_need",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_not_empty_and_all_jobs_in_`needs`_completed_successfully",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_not_empty_and_not_all_jobs_in_`needs`_completed_successfully",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_empty_and_not_all_jobs_in_`needs`_completed_successfully",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_empty_and_a_failed_need_has_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_compares_a_workflow_dispatch_boolean_input",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkRunConcurrency_NoDuplicateConcurrencyGroupCheck",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkJobsOfCurrentRunAttempt_RunLevelConcurrencyKeepsJobsBlocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkJobsOfCurrentRunAttempt_NeedApprovalKeepsJobsBlocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkRunConcurrency_HeldGroupDoesNotWake",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_findConcurrencyWaiterToWake",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/not_a_fork_PR_never_needs_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/pull_request_target_never_needs_approval_even_when_fork",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/restricted_user_always_needs_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/fork_PR_with_write_permission_does_not_need_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/fork_PR_with_merged_PR_but_no_write_permission_does_not_need_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/fork_PR_with_no_write_and_no_merged_PR_needs_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/canWriteActions_error_is_propagated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/hasMergedPR_error_is_propagated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/restricted_user_skips_permission_check_entirely",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestFilteredWorkflowCommitStatusForForkPullRequest",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_ReadAll",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_GithubScopes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_WriteAll",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_IndividualScopes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_Priority/granular-wins-over-contents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_Priority/contents-applied-first",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_Priority",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_EmptyNode",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_NilNode",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/read",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/none",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/#00",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/invalid",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow/job-read-only",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow/job-none-perms",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow/job-override",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPushEventUsesAfterCommitAndCurrentSchedules",
+          "Action": "pass",
+          "Elapsed": 0.91
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/no_failed_jobs_returns_empty",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/single_failed_job_with_no_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/failed_job_does_not_pull_in_downstream_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/multiple_failed_jobs_are_returned_directly",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/shared_downstream_dependent_is_not_included",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/successful_downstream_job_of_a_failed_job_is_not_included",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCloneRunJobForAttempt/preserves_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCloneRunJobForAttempt/defaults_to_false_when_template_has_it_unset",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCloneRunJobForAttempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunValidation/RerunWorkflowRunJobs_rejects_a_non-done_run",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunValidation/RerunWorkflowRunJobs_rejects_a_non-done_run_when_failed_jobs_exist",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunValidation",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunRejectsWorkflowCreatedBeforeGroupMove",
+          "Action": "pass",
+          "Elapsed": 0.09
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/empty_jobsToRerun_reruns_every_template_job,_no_ancestors",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/same-scope_downstream_BFS_pulls_in_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/rerun_a_deep_child_escalates_across_reusable_scopes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/rerun_a_top-level_caller_resets_only_itself_and_same-scope_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/rerun_a_nested_caller_escalates_one_level",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/selecting_one_same-name_job_leaves_the_other-scope_same-name_job_alone",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/a_caller_is_rerun_when_a_sibling_it_needs_is_selected",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/multiple_selections_converge",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/non-caller_in_reset_set_is_ignored",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/caller_in_reset_set_returns_transitive_descendants",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/multiple_reset_callers_union_their_descendants",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/nested-only_reset_returns_just_the_nested_subtree",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/no_needs_returns_false",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/dependency_in_rerun_set_returns_true",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/dependency_in_ancestor_set_returns_true",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/dependency_on_unrelated_sibling_returns_false",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/scope-bound:_same_JobID_in_another_scope_does_not_match",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle/DirectCycle",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle/IndirectCycle",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle/NoCycle",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_DepthLimit/ExactlyAtLimit",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_DepthLimit/OneOverLimit",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_DepthLimit",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/LocalForms",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/DirectoryAllowlist",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/ConfigurableWorkflowDirs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/LocalInstanceURL",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/InvalidSyntax",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/ForeignURL",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckRunJobLimit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestUndoExpansion",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/pull_request_target_pins_to_base_commit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/legacy_nested_caller_(with_head-sha)_pins_to_base_commit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/pull_request_target_keeps_stored_SHA_when_already_base",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/non_pull_request_target_keeps_stored_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/scoped_run_keeps_stored_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/cross-repo_caller_keeps_stored_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/caller_resolved_from_a_uses:_ref_keeps_its_own_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/instance_admin",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/instance_member_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/personal_owner",
+          "Action": "pass",
+          "Elapsed": 0.07
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/personal_other_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/organization_owner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/organization_developer_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/repository_owner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/repository_reader_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope",
+          "Action": "pass",
+          "Elapsed": 0.14
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenRejectsRevokedActor/admin_demoted",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenRejectsRevokedActor/delegating_admin_demoted",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenRejectsRevokedActor",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenInheritedOwner",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenAfterGroupMove",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestReplaceSchedulesRejectsStaleRepoSnapshot",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestNextScheduleTimeKeepsNextMinute",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_to_existing_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_to_null_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_to_empty_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_with_repository,_sender,_organization",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/keeps_payload_when_schedule_empty",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/keeps_payload_when_malformed_JSON",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestTryPickTaskThrottled",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestReleaseTaskForRunnerCleanup",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPickTaskDoesNotDiscloseNewOwnerSecretsToOldRun",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestTaskCredentialRejectsRevokedPrivateSourceRead",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunSourceReadUsesCurrentAttemptTriggerer",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestScopedTaskCredentialRejectsArchivedWorkflowSource",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreatedGroupWithInactiveUserFlagCanClaimActions",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCoerceDispatchInputTypes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Action": "pass",
+          "Elapsed": 3.306
+        }
+      ]
+    },
+    "pg-preserve-plan-red": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-preserve-plan-red.jsonl",
+      "SHA256": "dce22801583b88a38e10d5931c087d353f49bc827b7d32493961dd9ec4981ec1",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleReplacementPreservesOtherPlans",
+          "Action": "fail",
+          "Elapsed": 2.64
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "fail",
+          "Elapsed": 4.617
+        }
+      ]
+    },
+    "pg-preserve-plan-red-isolated": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-preserve-plan-red-isolated.jsonl",
+      "SHA256": "52e492f8bf405e27455da5142b28e61e1d43d1a5580842423b157240e833fd41",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleReplacementPreservesOtherPlans",
+          "Action": "fail",
+          "Elapsed": 12.99
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "fail",
+          "Elapsed": 15.325
+        }
+      ]
+    },
+    "pg-preserve-plan-final": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-preserve-plan-final.jsonl",
+      "SHA256": "50ff0a2925c83227a85879459abfa7c1c3350e960b855223229fcff5d885a626",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleConcurrency",
+          "Action": "pass",
+          "Elapsed": 8.63
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleBranchAuthorizationLock",
+          "Action": "pass",
+          "Elapsed": 0.69
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/Push",
+          "Action": "pass",
+          "Elapsed": 3.41
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/merge",
+          "Action": "pass",
+          "Elapsed": 5.65
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase",
+          "Action": "pass",
+          "Elapsed": 5.99
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase-merge",
+          "Action": "pass",
+          "Elapsed": 5.83
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/squash",
+          "Action": "pass",
+          "Elapsed": 5.69
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/fast-forward-only",
+          "Action": "pass",
+          "Elapsed": 6.89
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/manually-merged",
+          "Action": "pass",
+          "Elapsed": 5.41
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge",
+          "Action": "pass",
+          "Elapsed": 35.47
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/DisableAndEnableActionsUnit",
+          "Action": "pass",
+          "Elapsed": 2.53
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/ArchiveAndUnarchive",
+          "Action": "pass",
+          "Elapsed": 2.49
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/MirrorSync",
+          "Action": "pass",
+          "Elapsed": 3.98
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate",
+          "Action": "pass",
+          "Elapsed": 47.88
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "pass",
+          "Elapsed": 4.35
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceVersionCancelsOldRun",
+          "Action": "fail",
+          "Elapsed": 4.93
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleReplacementPreservesOtherPlans",
+          "Action": "pass",
+          "Elapsed": 9.97
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+          "Action": "pass",
+          "Elapsed": 6.41
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedSourceArchiveOrdersConcurrentRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGroupMoveOrdersConcurrentScheduleRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.44
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGovernanceOwnerIdentityRealDatabase",
+          "Action": "pass",
+          "Elapsed": 0.77
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "fail",
+          "Elapsed": 86.247
+        }
+      ]
+    },
+    "m11-pg-owner-integration": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/m11-pg-owner-integration.jsonl",
+      "SHA256": "cb340f2d37039eb4df48bd6344a2fa3ea945e4a516619e421ee4315fbabfb389",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGovernanceOwnerIdentityRealDatabase",
+          "Action": "pass",
+          "Elapsed": 1.18
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "pass",
+          "Elapsed": 3.237
+        }
+      ]
+    },
+    "m11-sqlite-owner-services": {
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/m11-sqlite-owner-services.jsonl",
+      "SHA256": "1495a473329e1181d3fcda7ef049c45136dc43235c85ccfaec976e2969c056cc",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/services/org",
+          "Test": "TestNativeBotCannotReplaceLastHumanOwner",
+          "Action": "pass",
+          "Elapsed": 0.1
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestLeaveGroupRejectsLastPermanentOwnerAndDisabledActor",
+          "Action": "pass",
+          "Elapsed": 0.11
+        },
+        {
+          "Package": "gitea.dev/services/org",
+          "Test": "TestDirectBotCannotSatisfyPermanentGroupOwner",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestPermanentOwnerRequiresActiveDirectOrInheritedSource",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/org",
+          "Action": "pass",
+          "Elapsed": 1.627
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceLastPermanentOwner/OWN-01_移除",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceLastPermanentOwner/OWN-01_降级",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceLastPermanentOwner/OWN-01_改为临时",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceLastPermanentOwner",
+          "Action": "pass",
+          "Elapsed": 0.08
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceExpiryBoundary/SRC-10_截止时刻偏移-1s",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceExpiryBoundary/SRC-10_截止时刻偏移0s",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceExpiryBoundary/SRC-10_截止时刻偏移1s",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestMemberAcceptanceExpiryBoundary",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Test": "TestUnifiedOwnerConcurrentDemotion",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/governance",
+          "Action": "pass",
+          "Elapsed": 1.804
+        }
+      ]
+    },
+    "pg-schedule-closure-final": {
+      "源码指纹": "1b485408ab940a5693a89dfd29581f6e5e73d355344ccf11a83a0f6702f9c547",
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/pg-schedule-closure-final.jsonl",
+      "SHA256": "e795eacd774b6fb0496445f66322936ea580138ab6d6884a9fc911dbf61ace14",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleConcurrency",
+          "Action": "pass",
+          "Elapsed": 9.75
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleBranchAuthorizationLock",
+          "Action": "pass",
+          "Elapsed": 0.7
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/Push",
+          "Action": "pass",
+          "Elapsed": 3.65
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/merge",
+          "Action": "pass",
+          "Elapsed": 5.83
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase",
+          "Action": "pass",
+          "Elapsed": 5.92
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/rebase-merge",
+          "Action": "pass",
+          "Elapsed": 5.88
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/squash",
+          "Action": "pass",
+          "Elapsed": 5.75
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/fast-forward-only",
+          "Action": "pass",
+          "Elapsed": 5.76
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge/manually-merged",
+          "Action": "pass",
+          "Elapsed": 5.55
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/PullMerge",
+          "Action": "pass",
+          "Elapsed": 34.69
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/DisableAndEnableActionsUnit",
+          "Action": "pass",
+          "Elapsed": 2.69
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/ArchiveAndUnarchive",
+          "Action": "pass",
+          "Elapsed": 2.72
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate/MirrorSync",
+          "Action": "pass",
+          "Elapsed": 4.41
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScheduleUpdate",
+          "Action": "pass",
+          "Elapsed": 48.16
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+          "Action": "pass",
+          "Elapsed": 4.71
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceVersionCancelsOldRun",
+          "Action": "pass",
+          "Elapsed": 5.6
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleReplacementPreservesOtherPlans",
+          "Action": "pass",
+          "Elapsed": 10.83
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+          "Action": "pass",
+          "Elapsed": 6.52
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestScopedSourceArchiveOrdersConcurrentRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.46
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGroupMoveOrdersConcurrentScheduleRunCreation",
+          "Action": "pass",
+          "Elapsed": 0.45
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Test": "TestGovernanceOwnerIdentityRealDatabase",
+          "Action": "pass",
+          "Elapsed": 0.75
+        },
+        {
+          "Package": "gitea.dev/tests/integration",
+          "Action": "pass",
+          "Elapsed": 89.717
+        }
+      ]
+    },
+    "unit-closure-final": {
+      "源码指纹": "1b485408ab940a5693a89dfd29581f6e5e73d355344ccf11a83a0f6702f9c547",
+      "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/unit-closure-final.jsonl",
+      "SHA256": "3761730031436fc510529412749b4f82c30cfa27c9d3d52bf31abc923071606b",
+      "结束状态": [
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestKeepLatestAttemptArtifacts",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/child_group",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/repo",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/parent_group",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/instance",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary/unrelated_group",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerTrustBoundary",
+          "Action": "pass",
+          "Elapsed": 0.07
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestRequiredScopedRunnerClaimAndCredential",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/matrix_group_sorted_naturally",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/non-adjacent_same_JobID_stays_in_input_order",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/groups_stay_in_input_order",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName/empty_and_singleton",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionJobList_SortMatrixGroupsByName",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatus",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_AddActionRunAttemptModel",
+          "Action": "pass",
+          "Elapsed": 0.15
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetPriorAttemptChildrenByParent/matrix_instances_and_non-matrix_sibling_are_indexed_by_(JobID,_Name)",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetPriorAttemptChildrenByParent/walkback_past_an_attempt_where_the_caller_had_no_children",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetPriorAttemptChildrenByParent",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestCancelJobs_NestedBlockedReusableCaller",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/done_job",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/done_job_on_a_legacy_run_without_attempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/no_job_at_all",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel/no_job_at_all_on_a_legacy_run_without_attempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestSettleRunAfterCancel",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetRunWorkflowIDs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetRepoRunWorkflowIDs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetStatusInfoList",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestFindRunOptions_WorkflowRepoID",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestFindRunOptions_IsScopedRun",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestUpdateRepoRunsNumbers",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionRun_Duration_NonNegative",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionRun_WorkflowLink",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetWorkflowLatestRun_RepoLevelOnly",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAncestorRunnerScopeAndNotification",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_AddBranchProtectionBypassAllowlist",
+          "Action": "pass",
+          "Elapsed": 0.07
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestVariablesPreferNearestNamespaceAndRepo",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/fresh,_skip_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/exactly_at_interval,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/stale,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline/zero_(never_seen),_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastOnline",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/fresh,_skip_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/exactly_at_interval,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/stale,_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive/zero_(never_seen),_write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestShouldPersistLastActive",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetLatestRunnerToken",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestNewRunnerToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestUpdateRunnerToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/regular",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/invalid",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/with_timezone",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse/timezone_irrelevant",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionScheduleSpec_Parse",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowSource_IsWorkflowRequired",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestIsWorkflowRequiredInSources",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestGetEffectiveScopedWorkflowSources",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddCancellingSupportToActionRunner",
+          "Action": "pass",
+          "Elapsed": 0.06
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_ExpandIssueAndCommentLongTextFieldsForMSSQL",
+          "Action": "skip",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowSourceValidLifecycle",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowAncestorSources",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowSourceCRUD",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_AddCreatedUnixToActionUserIsDeletedIndex",
+          "Action": "pass",
+          "Elapsed": 0.06
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "Test_FixLegacyMSSQLDateTimeColumns",
+          "Action": "skip",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScopedWorkflowRunDoesNotReviveAfterSourceReRegistration",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStatusAsResult",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStatusFromResult",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/all_success",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/one_failure_without_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/one_failure_with_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/only_continued-failure",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/continued-failure_plus_real_failure",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/all_skipped",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError/continued-failure_plus_skipped_counts_as_success",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAggregateJobStatusContinueOnError",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestActionTask_GetRunJobLink",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScheduledTaskCredentialValid",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddActionsScopeSafety",
+          "Action": "pass",
+          "Elapsed": 0.06
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestScheduledScopedRunSourceBound",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddTrustedScopedWorkflowRevisions",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCredentialUsesCurrentAttemptTriggerer",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/explicit_name",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/uses_step",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/single-line_run",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/multi-line_run_block_scalar",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/fallback_to_id",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/very_long_name_truncated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName/very_long_run_truncated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestMakeTaskStepDisplayName",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCancellingFinalizesToCancelled/runner_reports_success",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCancellingFinalizesToCancelled/runner_reports_failure",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskCancellingFinalizesToCancelled",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled/legacy_runner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddWebhookDeliverySnapshots",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled/missing_runner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled/silent_runner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingFallsBackToCancelled",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestStopTaskCancellingKeepsReportTime",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddProtectedActionsSecrets",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestReleaseTaskForRunner",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddGroupProtectedBranches",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestCreateTaskForRunnerPagination",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestAncestorRunnerClaimAndMoveRevocation",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Test": "TestAddWebhookEventID",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/models/migrations/v1_27",
+          "Action": "pass",
+          "Elapsed": 1.2610000000000001
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestClaimJobRejectsOwnerChangedAfterScan",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestEphemeralRunnerCannotClaimSecondCandidate",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestUpdateTaskByStateIsAtomic",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestTaskTokenAncestorDefaultAndAbsoluteMaximum",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestLogIndexes_ToDB/#00",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "TestLogIndexes_ToDB",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/unknown",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/running",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_zero_no_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_zero_uses_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_before_started_no_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration/done_stopped_before_started_uses_fallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Test": "Test_calculateDuration",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/actions",
+          "Action": "pass",
+          "Elapsed": 2.492
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestTaskSecretsPreferNearestNamespaceAndKeepForkBoundary",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestProtectedSecretsUseSelectedSourceAndCurrentRules",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/TopLevelJob_ReturnsBaseUnchanged",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerInherit_PassesParentScopeThrough",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerEmptySecrets_ExposesOnlyAutoTokens",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerMapping_OnlyMappedAliasesPlusTokens",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerMapping_CaseInsensitiveSource",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/CallerMapping_UnknownSourceDropsAlias",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_InheritThenInherit_FullScope",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_InheritThenMapping_InnerNarrows",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_MappingThenInherit_OuterNarrows",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob/Nested_MappingThenMapping_InnerSourceMustExistInOuterScope",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Test": "TestGetScopedSecretsForJob",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/models/secret",
+          "Action": "pass",
+          "Elapsed": 1.562
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestApproveRuns/approve_blocked_run",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestApproveRuns/re-approving_an_approved_run_is_a_no-op",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestApproveRuns",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateAuthorizationToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAuthorizationToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAuthorizationTokenNoAuthHeader",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestShouldBlockJobByConcurrency_CancellingJobBlocks",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestShouldBlockRunByConcurrency_CancellingJobBlocks",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestStopEndlessTasksSkipsCancelling",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCommitStatusDescription",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_Dedupe",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetCommitActionsStatusMap",
+          "Action": "pass",
+          "Elapsed": 0.04
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_DistinctWorkflowFilesSameName",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_LegacyHashRecovery",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_LegacyHashExternalNotAdopted",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_UnnamedWorkflowUsesFileName",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreateCommitStatus_ScopedSourcePrefix",
+          "Action": "pass",
+          "Elapsed": 0.03
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRedactScopedCommitStatusContexts",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestEvaluateRunConcurrency_RunIDFallback",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPrepareRunAndInsert_ExpressionsSeeRunID",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPrepareRunAndInsertOrganizationTriggerCannotQueue",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPrepareRunAndInsertRejectsChangedScopedSource",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/returns_empty_when_callee_declares_no_outputs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/unexpanded_(skipped)_caller_yields_empty_outputs_without_error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/literal_output_value_passes_through",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/output_expression_reads_child_task_outputs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/CallPayload_inputs_reachable_in_output_expression",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/nested_caller_outputs_propagate_to_outer",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs/matrix_children_with_same_JobID_prefer_non-empty_values",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestComputeReusableCallerOutputs",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestFindTaskNeeds",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGenerateGiteaContextPullRequestTarget",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGenerateGiteaContext_NilAttempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGenerateGiteaContextProtectedRefUsesCurrentRules",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestDispatchInputsForRunJobs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/pull_request_target_with_base_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/non_pull_request_target_trigger",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/missing_base_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA/invalid_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPullRequestTargetBaseSHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/NoToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/EnvToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/EnvFileToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken/InvalidToken",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestInitToken",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/no_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/single_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/multiple_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/chain_blocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/loop_need",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_not_empty_and_all_jobs_in_`needs`_completed_successfully",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_not_empty_and_not_all_jobs_in_`needs`_completed_successfully",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_empty_and_not_all_jobs_in_`needs`_completed_successfully",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_is_empty_and_a_failed_need_has_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve/`if`_compares_a_workflow_dispatch_boolean_input",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_jobStatusResolver_Resolve",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkRunConcurrency_NoDuplicateConcurrencyGroupCheck",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkJobsOfCurrentRunAttempt_RunLevelConcurrencyKeepsJobsBlocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkJobsOfCurrentRunAttempt_NeedApprovalKeepsJobsBlocked",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_checkRunConcurrency_HeldGroupDoesNotWake",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "Test_findConcurrencyWaiterToWake",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/not_a_fork_PR_never_needs_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/pull_request_target_never_needs_approval_even_when_fork",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/restricted_user_always_needs_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/fork_PR_with_write_permission_does_not_need_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/fork_PR_with_merged_PR_but_no_write_permission_does_not_need_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/fork_PR_with_no_write_and_no_merged_PR_needs_approval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/canWriteActions_error_is_propagated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/hasMergedPR_error_is_propagated",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval/restricted_user_skips_permission_check_entirely",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestIfNeedApproval",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestFilteredWorkflowCommitStatusForForkPullRequest",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_ReadAll",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_GithubScopes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_WriteAll",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_IndividualScopes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_Priority/granular-wins-over-contents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_Priority/contents-applied-first",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_Priority",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_EmptyNode",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseRawPermissions_NilNode",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/write",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/read",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/none",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/#00",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode/invalid",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestParseAccessMode",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow/job-read-only",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow/job-none-perms",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow/job-override",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestExtractJobPermissionsFromWorkflow",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPushEventUsesAfterCommitAndCurrentSchedules",
+          "Action": "pass",
+          "Elapsed": 0.97
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/no_failed_jobs_returns_empty",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/single_failed_job_with_no_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/failed_job_does_not_pull_in_downstream_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/multiple_failed_jobs_are_returned_directly",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/shared_downstream_dependent_is_not_included",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun/successful_downstream_job_of_a_failed_job_is_not_included",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestGetFailedJobsForRerun",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCloneRunJobForAttempt/preserves_continue-on-error",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCloneRunJobForAttempt/defaults_to_false_when_template_has_it_unset",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCloneRunJobForAttempt",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunValidation/RerunWorkflowRunJobs_rejects_a_non-done_run",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunValidation/RerunWorkflowRunJobs_rejects_a_non-done_run_when_failed_jobs_exist",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunValidation",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunRejectsWorkflowCreatedBeforeGroupMove",
+          "Action": "pass",
+          "Elapsed": 0.08
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/empty_jobsToRerun_reruns_every_template_job,_no_ancestors",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/same-scope_downstream_BFS_pulls_in_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/rerun_a_deep_child_escalates_across_reusable_scopes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/rerun_a_top-level_caller_resets_only_itself_and_same-scope_dependents",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/rerun_a_nested_caller_escalates_one_level",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/selecting_one_same-name_job_leaves_the_other-scope_same-name_job_alone",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/a_caller_is_rerun_when_a_sibling_it_needs_is_selected",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs/multiple_selections_converge",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/ExpandRerunJobIDs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/non-caller_in_reset_set_is_ignored",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/caller_in_reset_set_returns_transitive_descendants",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/multiple_reset_callers_union_their_descendants",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants/nested-only_reset_returns_just_the_nested_subtree",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/CollectResetCallerDescendants",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/no_needs_returns_false",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/dependency_in_rerun_set_returns_true",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/dependency_in_ancestor_set_returns_true",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/dependency_on_unrelated_sibling_returns_false",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency/scope-bound:_same_JobID_in_another_scope_does_not_match",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan/HasRerunDependency",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunPlan",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle/DirectCycle",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle/IndirectCycle",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle/NoCycle",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_Cycle",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_DepthLimit/ExactlyAtLimit",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_DepthLimit/OneOverLimit",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckCallerChain_DepthLimit",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/LocalForms",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/DirectoryAllowlist",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/ConfigurableWorkflowDirs",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/LocalInstanceURL",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/InvalidSyntax",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses/ForeignURL",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveUses",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCheckRunJobLimit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestUndoExpansion",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/pull_request_target_pins_to_base_commit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/legacy_nested_caller_(with_head-sha)_pins_to_base_commit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/pull_request_target_keeps_stored_SHA_when_already_base",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/non_pull_request_target_keeps_stored_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/scoped_run_keeps_stored_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/cross-repo_caller_keeps_stored_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit/caller_resolved_from_a_uses:_ref_keeps_its_own_SHA",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestResolveSameRepoWorkflowSourceCommit",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/instance_admin",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/instance_member_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/personal_owner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/personal_other_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/organization_owner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/organization_developer_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/repository_owner",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope/repository_reader_denied",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenManagementScope",
+          "Action": "pass",
+          "Elapsed": 0.08
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenRejectsRevokedActor/admin_demoted",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenRejectsRevokedActor/delegating_admin_demoted",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenRejectsRevokedActor",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenInheritedOwner",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRunnerRegistrationTokenAfterGroupMove",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestReplaceSchedulesRejectsStaleRepoSnapshot",
+          "Action": "pass",
+          "Elapsed": 0.05
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestNextScheduleTimeKeepsNextMinute",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_to_existing_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_to_null_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_to_empty_payload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/adds_schedule_with_repository,_sender,_organization",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/keeps_payload_when_schedule_empty",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload/keeps_payload_when_malformed_JSON",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestWithScheduleInEventPayload",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestTryPickTaskThrottled",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestReleaseTaskForRunnerCleanup",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestPickTaskDoesNotDiscloseNewOwnerSecretsToOldRun",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestTaskCredentialRejectsRevokedPrivateSourceRead",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestRerunSourceReadUsesCurrentAttemptTriggerer",
+          "Action": "pass",
+          "Elapsed": 0.01
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestScopedTaskCredentialRejectsArchivedWorkflowSource",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCreatedGroupWithInactiveUserFlagCanClaimActions",
+          "Action": "pass",
+          "Elapsed": 0.02
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Test": "TestCoerceDispatchInputTypes",
+          "Action": "pass",
+          "Elapsed": 0
+        },
+        {
+          "Package": "gitea.dev/services/actions",
+          "Action": "pass",
+          "Elapsed": 3.5060000000000002
+        }
+      ]
+    }
+  },
+  "lint": {
+    "结果": "0 issues.",
+    "命令": "golangci-lint run --new-from-rev=HEAD ./models/actions/... ./services/actions/... ./models/migrations/v1_27/...",
+    "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/lint-closure-final.log",
+    "SHA256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+  },
+  "中间候选": {
+    "说明": "选择性取消首次构建，PG20通过1失败（缺失计划的历史schedule未收敛）；未部署mac验收实例",
+    "源码指纹": "a35d1cb539597c3967786cc3d0acf05dce2819d0f2986674469fa937bcfa8031",
+    "macSHA256": "e08c83b35ffbcbf3c474072dbbdb746ac5887653bbb74b234a5cd1e12b8ae135"
+  },
+  "先前已实际部署候选": {
+    "源码指纹": "31dc3fa5cd5aca817385708155e5dcea427b2ae956d32558981a390da508c17e",
+    "候选SHA256": "9f77cd8313062b0cf34c9758d492db830041659719c8b9df2a18b78480ceac09",
+    "业务及测试文件SHA256": {
+      "models/actions/schedule.go": "8eb679beede2ef852371dcd21a1632736ca605b862c2c7837724af5d04a5766c",
+      "models/actions/schedule_spec_list.go": "c9ebc794e3b33a9f97eafbac53415ba58f527600b671507458da4160316a3aa3",
+      "models/actions/task.go": "391b46bb72491ca6ba4849fb309d070176e1ae792973a95ffacbbf8e3fbc2b99",
+      "models/actions/task_test.go": "4d1aa17c70e34cfa90ec02569de09a0c54d08b5cf633f7bfa90bfdf3367331b7",
+      "models/migrations/migrations.go": "368529af42c449b55a2d2754cced82787e87b464e280ad244bb98e0320ad43fa",
+      "models/migrations/v1_27/v349.go": "9e321a1ae22b7fdf1bb1d7022fbc179560e48ccb8b3c158d370c430420ea11b1",
+      "services/actions/notifier_helper.go": "e6d1be87b54a41db1d724e555291c8b0b7f71af3412df38c345c1ed7bcba422e",
+      "services/actions/run.go": "940854958f65149a2c7ca54f164c72dfd706740f705038c16a459537873f26a7",
+      "services/actions/schedule_tasks.go": "7f491766d911172fc037880ffc8696ad692da41f6191428c0492cc0213718143",
+      "services/actions/schedule_tasks_test.go": "559277de404f513d054c07a462b889915618b091964a4b69bdd6e66f59562a56",
+      "tests/integration/actions_scoped_schedule_test.go": "893aec1c304f2dd365175ea03642bf4127a691f6e2ff670348180a500ab68582"
+    }
+  },
+  "构建后测试补充": {
+    "说明": "只修改两份集成测试的断言风格、局部变量及新增Owner并发/到期验证；业务文件与71d构建清单逐项一致。原构建源码指纹和测试文件哈希不改写。新测试PG六项与integration lint复跑通过，原9条lint失败保留。",
+    "最终测试文件SHA256": {
+      "tests/integration/actions_scoped_schedule_test.go": "f96a1676ffc8ac1917bd53b7a3fdf8e37df9c55c0b42b10a2f4be2a658d6caf7",
+      "tests/integration/governance_last_permanent_owner_concurrency_test.go": "5758f8e79447ffa0c0d4b38cfa5b9701997b4b564b8011570fba3ea97695a356"
+    },
+    "日志": {
+      "owner-schedule-pg-lintfix-final-20260924.jsonl": {
+        "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/owner-schedule-pg-lintfix-final-20260924.jsonl",
+        "SHA256": "ffc0e65d17d4b0128b4c5573600a2b89bf068f3f064dc53e3017545c88603525",
+        "结束事件": [
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Test": "TestScopedScheduleWithoutConsumerWorkflow",
+            "Elapsed": 6.88
+          },
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Test": "TestScopedScheduleSourceVersionCancelsOldRun",
+            "Elapsed": 6.89
+          },
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Test": "TestScopedScheduleReplacementPreservesOtherPlans",
+            "Elapsed": 12.92
+          },
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Test": "TestScopedScheduleSourceFailureDoesNotBlockPush",
+            "Elapsed": 11.29
+          },
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Test": "TestLastPermanentGroupOwnerConcurrentLeave",
+            "Elapsed": 0.58
+          },
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Test": "TestExpiredTemporaryOwnerCannotReplaceLastPermanentOwner",
+            "Elapsed": 0.5
+          },
+          {
+            "Action": "pass",
+            "Package": "gitea.dev/tests/integration",
+            "Elapsed": 41.368
+          }
+        ]
+      },
+      "lint-owner-closure.log": {
+        "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/lint-owner-closure.log",
+        "SHA256": "0b8ce09ee7b725000456aadcf00c47e5d04158d90b4eea80a0196b94bbf0b7a1",
+        "输出": "tests/integration/actions_scoped_schedule_test.go:63:3: equal-values: use require.Equal (testifylint)\n\t\trequire.EqualValues(t, 1, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID}))\n\t\t^\ntests/integration/actions_scoped_schedule_test.go:75:5: redefines-builtin-id: redefinition of the built-in function copy (revive)\n\t\t\t\tcopy := *spec\n\t\t\t\t^\ntests/integration/actions_scoped_schedule_test.go:87:4: equal-values: use require.Equal (testifylint)\n\t\t\trequire.EqualValues(t, 2, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID}))\n\t\t\t^\ntests/integration/actions_scoped_schedule_test.go:99:3: equal-values: use require.Equal (testifylint)\n\t\trequire.EqualValues(t, beforeRevocation, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID}))\n\t\t^\ntests/integration/actions_scoped_schedule_test.go:113:3: equal-values: use require.Equal (testifylint)\n\t\trequire.EqualValues(t, beforeRevocation+1, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID}))\n\t\t^\ntests/integration/actions_scoped_schedule_test.go:319:3: equal-values: use require.Equal (testifylint)\n\t\trequire.EqualValues(t, before+1, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID, WorkflowID: \"push.yaml\"}))\n\t\t^\ntests/integration/governance_last_permanent_owner_concurrency_test.go:80:3: error-is-as: use require.ErrorIs (testifylint)\n\t\trequire.True(t, errors.Is(result.err, governance_model.ErrConflict), \"退出失败必须是最后 Owner 冲突：%v\", result.err)\n\t\t^\ntests/integration/governance_last_permanent_owner_concurrency_test.go:110:49: unusedwrite: unused write to field Name (govet)\n\ttemporary := governance_model.Actor{ID: 5, Name: \"user5\", Kind: \"user\", Transport: \"api\"}\n\t                                               ^\ntests/integration/governance_last_permanent_owner_concurrency_test.go:133:2: contains: use require.Contains (testifylint)\n\trequire.True(t, strings.Contains(err.Error(), \"Owner\"), \"失败原因必须指出最后 Owner：%v\", err)\n\t^\n9 issues:\n* govet: 1\n* revive: 1\n* testifylint: 7\n"
+      },
+      "lint-owner-closure-final-20260924.log": {
+        "日志位置": "/Users/archer/.cache/gitea-phase1-closure-20260924/lint-owner-closure-final-20260924.log",
+        "SHA256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47",
+        "输出": "0 issues.\n"
+      }
+    }
+  }
+}
