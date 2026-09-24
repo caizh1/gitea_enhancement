@@ -334,13 +334,36 @@ func (org *Organization) UnitPermission(ctx context.Context, doer *user_model.Us
 			return perm.AccessModeNone
 		}
 
-		if len(teams) > 0 {
-			return max(minimum, teams.UnitMaxAccess(unitType))
+		hasNativeTeams := len(teams) > 0
+		if hasNativeTeams {
+			minimum = max(minimum, teams.UnitMaxAccess(unitType))
+		}
+		var readAbility, writeAbility string
+		switch unitType {
+		case unit.TypeCode:
+			readAbility, writeAbility = governance_model.ReadCode, governance_model.PushCode
+		case unit.TypePackages:
+			readAbility, writeAbility = governance_model.ReadPackages, governance_model.WritePackages
+		}
+		if readAbility != "" {
+			abilities, err := GovernanceGroupAbilities(ctx, org.ID, doer.ID)
+			if err != nil {
+				log.Error("GovernanceGroupAbilities: %v", err)
+				return minimum
+			}
+			if abilities[writeAbility] {
+				minimum = max(minimum, perm.AccessModeWrite)
+			} else if abilities[readAbility] {
+				minimum = max(minimum, perm.AccessModeRead)
+			}
+		}
+		if hasNativeTeams {
+			return minimum
 		}
 	}
 
 	if ownerVisibilitySatisfiesDoer(org.AsUser(), doer) {
-		return perm.AccessModeRead
+		minimum = max(minimum, perm.AccessModeRead)
 	}
 	return minimum
 }

@@ -10,6 +10,7 @@ import (
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	secret_model "gitea.dev/models/secret"
+	governance_service "gitea.dev/services/governance"
 )
 
 func CreateOrUpdateSecret(ctx context.Context, ownerID, repoID int64, name, data, description string, protected ...*bool) (*secret_model.Secret, bool, error) {
@@ -17,74 +18,55 @@ func CreateOrUpdateSecret(ctx context.Context, ownerID, repoID int64, name, data
 		return nil, false, err
 	}
 
-	s, err := db.Find[secret_model.Secret](ctx, secret_model.FindSecretsOptions{
-		OwnerID: ownerID,
-		RepoID:  repoID,
-		Name:    name,
-	})
-	if err != nil {
-		return nil, false, err
-	}
-
-	if len(s) == 0 {
-		isProtected := len(protected) > 0 && protected[0] != nil && *protected[0]
-		s, err := secret_model.InsertEncryptedSecret(ctx, ownerID, repoID, name, data, description, isProtected)
+	var result *secret_model.Secret
+	created := false
+	err := governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), ownerID, repoID, func(ctx context.Context) error {
+		s, err := db.Find[secret_model.Secret](ctx, secret_model.FindSecretsOptions{OwnerID: ownerID, RepoID: repoID, Name: name})
 		if err != nil {
-			return nil, false, err
+			return err
 		}
-		return s, true, nil
-	}
+		if len(s) == 0 {
+			isProtected := len(protected) > 0 && protected[0] != nil && *protected[0]
+			result, err = secret_model.InsertEncryptedSecret(ctx, ownerID, repoID, name, data, description, isProtected)
+			created = err == nil
+			return err
+		}
+		if err := secret_model.UpdateSecret(ctx, s[0].ID, data, description, protected...); err != nil {
+			return err
+		}
+		if len(protected) > 0 && protected[0] != nil {
+			s[0].Protected = *protected[0]
+		}
+		result = s[0]
+		return nil
+	})
 
-	if err := secret_model.UpdateSecret(ctx, s[0].ID, data, description, protected...); err != nil {
-		return nil, false, err
-	}
-	if len(protected) > 0 && protected[0] != nil {
-		s[0].Protected = *protected[0]
-	}
-
-	return s[0], false, nil
+	return result, created, err
 }
 
 func DeleteSecretByID(ctx context.Context, ownerID, repoID, secretID int64) error {
-	s, err := db.Find[secret_model.Secret](ctx, secret_model.FindSecretsOptions{
-		OwnerID:  ownerID,
-		RepoID:   repoID,
-		SecretID: secretID,
-	})
-	if err != nil {
-		return err
-	}
-	if len(s) != 1 {
-		return secret_model.ErrSecretNotFound{}
-	}
-
-	return deleteSecret(ctx, s[0])
+	return deleteSecret(ctx, ownerID, repoID, secret_model.FindSecretsOptions{OwnerID: ownerID, RepoID: repoID, SecretID: secretID})
 }
 
 func DeleteSecretByName(ctx context.Context, ownerID, repoID int64, name string) error {
-	s, err := db.Find[secret_model.Secret](ctx, secret_model.FindSecretsOptions{
-		OwnerID: ownerID,
-		RepoID:  repoID,
-		Name:    name,
-	})
-	if err != nil {
-		return err
-	}
-	if len(s) != 1 {
-		return secret_model.ErrSecretNotFound{}
-	}
-
-	return deleteSecret(ctx, s[0])
+	return deleteSecret(ctx, ownerID, repoID, secret_model.FindSecretsOptions{OwnerID: ownerID, RepoID: repoID, Name: name})
 }
 
-func deleteSecret(ctx context.Context, s *secret_model.Secret) error {
-	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
-		fresh, has, err := db.GetByID[secret_model.Secret](ctx, s.ID)
+func deleteSecret(ctx context.Context, ownerID, repoID int64, options secret_model.FindSecretsOptions) error {
+	return governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), ownerID, repoID, func(ctx context.Context) error {
+		s, err := db.Find[secret_model.Secret](ctx, options)
+		if err != nil {
+			return err
+		}
+		if len(s) != 1 {
+			return secret_model.ErrSecretNotFound{}
+		}
+		fresh, has, err := db.GetByID[secret_model.Secret](ctx, s[0].ID)
 		if err != nil {
 			return err
 		}
 		if !has {
-			return secret_model.ErrSecretNotFound{Name: s.Name}
+			return secret_model.ErrSecretNotFound{Name: s[0].Name}
 		}
 		if count, err := db.DeleteByID[secret_model.Secret](ctx, fresh.ID); err != nil {
 			return err

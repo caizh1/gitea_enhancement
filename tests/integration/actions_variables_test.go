@@ -10,6 +10,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -23,6 +24,7 @@ func TestActionsVariables(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
 
 	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
 
 	require.NoError(t, db.DeleteAllRecords("action_variable"))
 

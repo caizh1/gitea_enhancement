@@ -1,6 +1,89 @@
 # 群组／子群组一期阶段验收记录
 
+## 必要能力一期最终收尾（2026-09-24）
+
+本节为最新结论；下方 F6、F2、v16 等内容保留历史证据，不再代表当前候选或当前交付门槛。用户最终范围是日常开发、普通管理员管理及群组化 CI/CD，不要求旧69项、复杂迁移或专项指标全部清零。
+
+当前分支 `codex/group-subgroup-phase1-alignment`，HEAD `7dbdfb23570c4e164061e48707837f5e719d0985` 加保留的未提交工作树；最终[源码清单](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/source-manifest.json)指纹 `56a9eb949588adf001580c6e60f7ab44c4b8fd0acf6350e99d363ecc9d49f728`。前端及三类嵌入资源已重建，构建期间源码未变；没有提交、推送或操作生产实例。
+
+**必要功能一期：完成；目标上线：待确认。** 本轮没有以单元测试数量替代实际日常主链。
+
+- 配置写入：固定“通过前置检查→正式撤权提交→旧请求保存”的红绿；当前事务内重新加载操作者、资源、生命周期和管理能力。默认/上限/白名单及变量/Secret新增编辑删除均覆盖；[授权证据](../outputs/group-subgroup-phase1-20260923/final-configuration-authorization-acceptance.md)。最终PG整合10个顶层用例、49个通过事件，无失败/跳过；Scoped两个子场景共7个通过事件，无失败/跳过（包含父级测试事件，不当作49/7个独立场景）。
+- 最终真实主链：普通父Owner76、纯继承Developer，父组91→子组92，源仓83→无本地YAML消费仓84。Developer真实提交 `112193d44a162aecebe14113a0ed2a019115122b`，PR1触发Run880/Job1031，父Runner16成功31秒。变量/Secret断言、固定兼容v4客户端上下行及ZIP内容SHA一致；[独立核对](../outputs/group-subgroup-phase1-20260923/final-main-chain-acceptance.md)、[原始脱敏结果](../outputs/group-subgroup-phase1-20260923/final-main-chain-run-results.json)。
+- CI成功但缺审批时，普通Owner正式合并请求403；原生UI审批后由纯父Owner合并成功。产物93经原生UI删除，刷新显示无产物、旧下载404；[UI证据](../outputs/group-subgroup-phase1-20260923/final-ui-evidence/pr-merged-ui.txt)、[删除刷新](../outputs/group-subgroup-phase1-20260923/final-ui-evidence/artifact-deleted-ui.txt)。结果脚本中的旧审批字段投影为null不作为审批证明；以正式403及真实UI结果为准。
+- 公共配置24项真实API检查全部通过，Owner合法修改持久化、无关用户拒绝，合成变量/Secret完成删除；父Owner在原生公共配置页面保存成功；[结果](../outputs/group-subgroup-phase1-20260923/final-config-runtime-results.json)、[UI](../outputs/group-subgroup-phase1-20260923/final-ui-evidence/general-config-saved-ui.txt)。
+- 最终mac候选正常备份、迁移、重启schema379并完成上面业务；[部署记录](../outputs/group-subgroup-phase1-20260923/final-mac-deployment-results.json)。最终Linux arm64/PostgreSQL候选原地升级，真实登录、HTTP Git提交、Generic PUT201/GET200及旧五个包摘要不变；[完整运行证据](../outputs/group-subgroup-phase1-20260923/linux-arm64-final-upgrade-acceptance.md)。Linux amd64没有目标实跑，不冒充通过。
+
+复跑入口均使用同源 `contrib/phase1-acceptance/`；主链命令和私有夹具参数见对应证据。实际凭据留在仓库外0600文件，公开证据没有密码、token、Secret明文。旧来源YAML夹具生成错误、旧SQLite集成仓库hook调用Linux二进制错误均保留首错并修复夹具，未当作产品P1；不删失败日志以获得全绿。
+
+### 最终候选主链实际命令与复跑边界
+
+本机实际使用已有隔离夹具 `daily-main-chain/fixture.json`，通过同源脚本的三个阶段执行。`trigger`进行了真实Git提交并创建PR；`observe`确认真实Runner及v4上下行；中间由浏览器完成审批/合并/产物删除后，`verify-ui`只核对持久化结果。以下是实际参数的可复跑形式，复跑时必须使用独立的新状态文件；不能对已经删除产物的旧结果重新执行observe并据此报产品失败。
+
+```sh
+export PHASE1_FIXTURE=/Users/archer/.cache/gitea-phase1-closure-20260924/daily-main-chain/fixture.json
+export PHASE1_RESULT=/Users/archer/.cache/gitea-phase1-closure-20260924/daily-main-chain/final-run.json
+export PHASE1_BINARY=/Users/archer/.cache/gitea-phase1-ui-iegohg9v/gitea-current
+# 本轮按 trigger、observe、浏览器审批/合并/删除、verify-ui 的顺序执行。
+python3 contrib/phase1-acceptance/daily_main_chain_run.py trigger \
+  --fixture "$PHASE1_FIXTURE" --state "$PHASE1_RESULT" --server-binary "$PHASE1_BINARY" \
+  --expected-server-sha256 ead882375f0f1da90e3b9d9d9c42d5c1b5631e0c5044fec4f881c02afe4ee475 \
+  --source-fingerprint 56a9eb949588adf001580c6e60f7ab44c4b8fd0acf6350e99d363ecc9d49f728
+# observe、verify-ui使用完全相同参数，仅替换阶段名；三个阶段本轮均退出0。
+```
+
+无需本机cache包装器的PG等价入口：按同源`contrib/phase1-acceptance/README.md`的PostgreSQL章节，在独立副本构建供Git hooks使用的匹配平台二进制，载入私有TEST_PGSQL_*与MinIO配置，设置`GITEA_TEST_DATABASE=pgsql`；执行：
+
+```sh
+go test -tags='bindata sqlite sqlite_unlock_notify' -count=1 -json \
+  -run '^Test(ActionsConfigurationWriteRejectsRevokedOwnerPostgres|ActionsWorkflowWriterAPIUsesCurrentConfiguration|ActionsVariables|APIRepoVariables|APIUserVariables|APIOrgVariablesWithCurrentOwner|APIRepoSecrets|APIUserSecrets|SecretRepositoryTransferUsesCurrentOwner|ActionsClaimAfterFormalLifecycleMutation)$' ./tests/integration
+go test -tags='bindata sqlite sqlite_unlock_notify' -count=1 -json \
+  -run '^TestActionsScopedWorkflows$/(Opt-out|Required_scoped_check_gates_the_PR_merge)' ./tests/integration
+```
+
+此前 DAILY-01/02 的Fork/原生入口，DAILY-03来源失效恢复Run667、祖先schedule、Webhook/标签、Runner暂停恢复及artifact越权/归档拒绝保留原版本的通过证据。本轮未修改相应消费者；当前PG受影响调用链再过，未假称全部旧场景在新二进制重跑。
+
 记录更新：2026-09-24。
+
+## 最新日常范围开发收尾（F6）
+
+本轮按用户新范围主动跟踪实际消费者，源码明确缺失时直接补开发；既有通过证据复用。HEAD仍为 `7dbdfb23570c4e164061e48707837f5e719d0985`，分支未切换，原工作树保留，未提交或推送。当前候选为F6：源码指纹 `b88651b76ff502c9445f6d51b34914b0bdf3640034b1d3440204b39c75ffde79`，macOS SHA256 `fca562abd1909954f84ebc29c87a551ca8617055ffc73a4bbfc33d3d93601c96`，schema379，正常备份/migrate/重启健康200。
+
+| 必要缺口/安全收尾 | 实现及真实证据 | 结论 |
+| --- | --- | --- |
+| DAILY-01 纯父授权的原生Code/Packages入口 | 单元权限合并已有治理能力，保留Team限制；父Owner看到下级Packages并打开Generic，无关用户原生404，实际文件摘要一致 | 已关闭；[UI与12项协议对照](../outputs/group-subgroup-phase1-20260923/daily-owner-entry-acceptance.md) |
+| DAILY-02 Fork按钮、目的地及路径显示 | 个人源仓详情按钮→选合法子组→真实Fork仓82→刷新及HTTP Git提交一致；F6目的地显示完整路径，普通Git导入和无权筛选同步验证 | 已关闭；[逐项结果](../outputs/group-subgroup-phase1-20260923/daily-owner-entry-results.json)；九种导入模板不等于九种协议全验 |
+| DAILY-03 失效祖先工作流的可操作反馈 | 归档来源→消费者暂停提示、无派发表单、只有有权Owner见设置链接；Reporter无私有来源名；恢复后普通Owner UI触发Run667成功 | 已关闭；[来源与真实执行](../outputs/group-subgroup-phase1-20260923/scoped-consumer-availability.md)；本次Runner15归属消费者子组88，祖先来源归属87，未混淆 |
+| S05-a/S06-a 归档恢复旧授权 | 旧队列所有事件取消；Running/Cancelling旧token在恢复后持续401；原Attempt取消与显式人类新Attempt成功区分；待删子仓未被恢复 | 已关闭；[F4 75项与五份UI](../outputs/group-subgroup-phase1-20260923/s06-f4-runner-results.json)，F6三个核心生命周期PG回归通过 |
+
+当前修改的最终定向验收为：Owner模型SQLite通过；真实PostgreSQL 8个顶层测试通过（Fork新旧、来源归档、派发/Required/旧注册、三个生命周期）；0失败、0跳过。独立副本`make fmt`本轮26文件无差异；增量lint 0 issues；[命令、首轮选择修正和摘要](../outputs/group-subgroup-phase1-20260923/f5-f6-final-regression.md)。全仓lint已知52基线问题另记，未宣称全仓通过。
+
+主动排查并复用的消费者：祖先Runner候选/最终领取/任务版本通知、Variables/Secrets优先级与下发、作业token API/Git/LFS/Packages实际授权、无本地YAML工作流/祖先schedule/合并门禁、Hook祖先事件扇出与重投、标签查询选择写入、制品读写与审计。它们的既有真实证据见下方索引，不因本轮未重复执行而重开，不以只存在代码视为验收。未发现这些链路中另一个本轮必须新增而尚未实现的日常缺口；这是本次检查结论，不是未知路径绝无缺陷的保证。
+
+目标Linux容量、MSSQL及真人80%测量继续保留未验证，按用户新范围不阻塞本轮日常收尾；改名/复杂迁移/高级功能也不要求穷举关闭。源仓“已有Fork”快捷列表仍只认直接组织成员（子组项目列表/直接访问可用），大规模选择器性能列非阻塞P2。审查结论与范围见[审查记录](group-subgroup-phase1-review.md)；不得将本轮完成等同于完整GitLab企业版、全部平台或专项指标通过。
+
+## F2阶段历史收口证据（原结论保留，不作为最新范围判定）
+
+本轮实际 HEAD 为 `7dbdfb23570c4e164061e48707837f5e719d0985`，分支为 `codex/group-subgroup-phase1-alignment`；初始跟踪工作树干净，现有未跟踪产物保留，本轮改动尚未提交或推送。下方 v16 及更早的条目保留为历史样本；[唯一台账](group-subgroup-phase1-matrix.md#一期剩余关闭台账唯一明细)是当前关闭状态的唯一来源。
+
+本轮首批 CI04-b、CI06-c、A03-a 已关闭；继续完成 Generic（用户已确认实际常用）、作业令牌跨仓／撤权、活动任务转移、Runner 停用／删除及注册轮换、Team 删除、审批与可信合并、审计投影和同名祖先标签。每个证据文件保存真实身份、Run／Job、请求结果、UI 原文与对应版本，不能将单一场景推成整个功能域通过。
+
+| 证据 | 实际链路与边界 |
+| --- | --- |
+| [兼容组合](../outputs/group-subgroup-phase1-20260923/ci04-runner-compatibility.md)、[v4 artifact](../outputs/group-subgroup-phase1-20260923/artifact-v4-closure-acceptance.md) | 固定 Runner／Action 提交；真实上传、下载摘要、原生 UI 删除及拒绝。保留官方 v4 客户端 GHES 首错和 Run48 预期失败；不声称 ref_protected 表达式已支持。 |
+| [Generic](../outputs/group-subgroup-phase1-20260923/generic-package-closure-acceptance.md)、[跨仓 token](../outputs/group-subgroup-phase1-20260923/job-token-boundary-acceptance.md) | 用户选定协议，真实客户端读写删除／撤权；同一个 Job 的 Git／包授权失效及跨仓 Actions 拒绝。 |
+| [转移](../outputs/group-subgroup-phase1-20260923/transfer-active-closure-acceptance.md)、[Runner 生命周期](../outputs/group-subgroup-phase1-20260923/runner-lifecycle-acceptance.md)、[注册](../outputs/group-subgroup-phase1-20260923/runner-registration-closure-acceptance.md) | 普通 Owner UI、真实 Runner 和正式授权变更；任务领取的所有固定交错仍按 S01/S02 独立验收。 |
+| [合并及 AGit](../outputs/group-subgroup-phase1-20260923/p02-p03-pr-gate-results.json)、[token 上限](../outputs/group-subgroup-phase1-20260923/token-limit-closure-results.json) | 同名伪状态、撤权及规则变更不放行；可信成功可以合并；AGit 真实 refs/for 推送及重新审批；三层 UI 保存／刷新。 |
+| [标签](../outputs/group-subgroup-phase1-20260923/label-sources-closure-acceptance.md)、[Team](../outputs/group-subgroup-phase1-20260923/team-delete-acceptance.md)、[审计](../outputs/group-subgroup-phase1-20260923/audit-projection-acceptance.md) | 独立同名 ID、当前关联与历史、受限转移；独立授权来源；范围过滤及敏感字段检查。 |
+| [共享与多来源](../outputs/group-subgroup-phase1-20260923/shared-source-closure-acceptance.md)、[原始断言及UI](../outputs/group-subgroup-phase1-20260923/shared-source-closure-results.json) | M10/M12/M13：群组与项目共享上限、真实到期、三种来源逐撤、同仓Release附件和物理祖先变量；F2共213断言，LDAP未配置不作实测。 |
+| [归档恢复](../outputs/group-subgroup-phase1-20260923/s05-s06-lifecycle-evidence.md)、[Linux arm64升级](../outputs/group-subgroup-phase1-20260923/linux-arm64-f2-upgrade-acceptance.md) | F2定时队列红例修复、待删子仓保留与显式重跑；14项真实PG定向回归，旧fixture首错保留。S05/S06其他在途组合仍依台账验收，不将子项视为整行完成。 |
+| [四库](../outputs/group-subgroup-phase1-20260923/db-compatibility-acceptance.md)、[最终定向回归](../outputs/group-subgroup-phase1-20260923/current-candidate-targeted-regression.json) | MySQL/MariaDB 正常空库、PG/SQLite 378→379；定向 38 顶层通过的数据库分别标注，不能全称 PostgreSQL。 |
+
+当前部署候选为 `2d64a75d8442565b31762279db142cd63fac50cbece5d762d1f558f074b511de`，schema379；完整构建及运行边界见[构建说明](group-subgroup-phase1-release-notes.md)。可复跑脚本已移至 [contrib/phase1-acceptance](../contrib/phase1-acceptance/README.md)，原始失败及脱敏摘要保留。OCI 多标签已通过 UI／协议删除，但自然 24 小时保护期后的物理回收仍待真实执行；不修改时钟或数据库时间戳制造通过。
+
+**一期正式交付仍未完成。** 目标容量、安装、最终整体回归及冻结十仓任务的真实人工 80% 指标均不能由上述定向通过替代。
+
+## 以下为累计历史验收记录
 
 ## 当前结论
 
@@ -241,3 +324,7 @@ go test -count=1 ./cmd ./services/repository ./routers/web/shared/actions ./rout
 最后有效人类 Owner 的真实 PG 并发退出与临时来源到期前后补测，以及普通 Owner UI 拒绝和刷新保留，记入既有[Owner 数据库证据](../outputs/group-subgroup-phase1-20260923/owner-identity-db-evidence.md)。这是追加验收；没有重写成员授权。M02-a／M03-a 的纯继承创建、资料与可见性修改、受限共享及越界拒绝也在同一既有Owner证据中记录，真实UI/API/Git闭环通过。构建后的新增测试文件与测试lint修正单列摘要，不混入旧二进制构建清单。
 
 Linux arm64 专用容器已有独立安装／替换启动证据；指定 Linux amd64 容量、其他数据库和最终候选发布门槛仍未通过。真实人工效率尚无样本，测量步骤及模板已备好，不能填写80%达标。此前 OAuth／屏蔽／审计及冲突修复的关闭子项保留，未将其重开。
+
+## 本轮追加：设置旧页与Team并发
+
+S20-a和T02-a在F2实际二进制上验收关闭。前者覆盖普通Owner撤权、来源所属组跨根移动后add/required/remove各404、原配置保持，以及合法UI保存刷新；后者覆盖两轮客户端同步DELETE、Git/Issue下一请求、独立direct来源保留，并补真实PG治理写锁等待边界。完整断言和原始UI分别见[设置证据](../outputs/group-subgroup-phase1-20260923/scoped-settings-revocation-acceptance.md)和[Team证据](../outputs/group-subgroup-phase1-20260923/team-concurrent-revocation-acceptance.md)。新增测试脚本不反写为F2构建输入。

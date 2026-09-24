@@ -50,6 +50,54 @@ jobs:
       - run: echo scoped-pr
 `
 
+func TestScopedWorkflowListTracksSourceArchive(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		session := loginUser(t, user.Name)
+		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
+		sourceAPI := createActionsTestRepo(t, token, "scoped-list-source", true)
+		source := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: sourceAPI.ID})
+		createRepoWorkflowFile(t, user, token, source, ".gitea/scoped_workflows/manual.yml", `name: Ancestor Manual
+on: workflow_dispatch
+jobs:
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ready
+`)
+		consumerAPI := createActionsTestRepo(t, token, "scoped-list-consumer", false)
+		consumer := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: consumerAPI.ID})
+		session.MakeRequest(t, NewRequestWithValues(t, "POST", "/user/settings/actions/scoped-workflows/add",
+			map[string]string{"repo_name": source.Name}), http.StatusOK)
+		link := fmt.Sprintf("/%s/%s/actions?workflow=manual.yml&scoped_workflow_source_repo_id=%d",
+			consumer.OwnerName, consumer.Name, source.ID)
+		before := session.MakeRequest(t, NewRequest(t, "GET", link), http.StatusOK).Body.String()
+		require.Contains(t, before, "Ancestor Manual")
+		require.Contains(t, before, "runWorkflowDispatchForm")
+
+		archive := "/api/v1/repos/" + source.OwnerName + "/" + source.Name
+		MakeRequest(t, NewRequestWithJSON(t, "PATCH", archive,
+			api.EditRepoOption{Archived: new(true)}).AddTokenAuth(token), http.StatusOK)
+		archived := session.MakeRequest(t, NewRequest(t, "GET", link), http.StatusOK).Body.String()
+		require.Contains(t, archived, `class="item scoped-workflow-group" open`)
+		require.Contains(t, archived, "This source is unavailable")
+		require.Contains(t, archived, `href="/user/settings/actions/scoped-workflows"`)
+		require.NotContains(t, archived, "Ancestor Manual")
+		require.NotContains(t, archived, "runWorkflowDispatchForm")
+		otherSession := loginUser(t, "user4")
+		otherView := otherSession.MakeRequest(t, NewRequest(t, "GET", link), http.StatusOK).Body.String()
+		require.Contains(t, otherView, "This source is unavailable")
+		require.NotContains(t, otherView, source.Name)
+		require.NotContains(t, otherView, `href="/user/settings/actions/scoped-workflows"`)
+
+		MakeRequest(t, NewRequestWithJSON(t, "PATCH", archive,
+			api.EditRepoOption{Archived: new(false)}).AddTokenAuth(token), http.StatusOK)
+		restored := session.MakeRequest(t, NewRequest(t, "GET", link), http.StatusOK).Body.String()
+		require.Contains(t, restored, "Ancestor Manual")
+		require.Contains(t, restored, "runWorkflowDispatchForm")
+	})
+}
+
 func TestActionsScopedWorkflows(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		user2 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})

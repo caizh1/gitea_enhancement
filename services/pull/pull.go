@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -651,18 +652,25 @@ func UpdatePullsRefs(ctx context.Context, repo *repo_model.Repository, update *r
 }
 
 // UpdateRef update refs/pull/id/head directly for agit flow pull request
-func UpdateRef(ctx context.Context, pr *issues_model.PullRequest) (err error) {
+func UpdateRef(ctx context.Context, pr *issues_model.PullRequest, pusher ...*user_model.User) error {
 	log.Trace("UpdateRef[%d]: upgate pull request ref in base repo '%s'", pr.ID, pr.GetGitHeadRefName())
 	if err := pr.LoadBaseRepo(ctx); err != nil {
 		log.Error("Unable to load base repository for PR[%d] Error: %v", pr.ID, err)
 		return err
 	}
 
-	if err := gitrepo.UpdateRef(ctx, pr.BaseRepo, pr.GetGitHeadRefName(), pr.HeadCommitID); err != nil {
-		log.Error("Unable to update ref in base repository for PR[%d] Error: %v", pr.ID, err)
+	command := gitcmd.NewCommand("update-ref").AddDynamicArguments(pr.GetGitHeadRefName(), pr.HeadCommitID)
+	if len(pusher) > 0 && pusher[0] != nil {
+		command = command.WithEnv(append(repo_module.InternalPushingEnvironment(pusher[0], pr.BaseRepo),
+			repo_module.EnvPRID+"="+strconv.FormatInt(pr.ID, 10),
+			repo_module.EnvPRIndex+"="+strconv.FormatInt(pr.Index, 10),
+			repo_module.EnvReferenceActor+"=agit"))
 	}
-
-	return err
+	if err := gitrepo.RunCmd(ctx, pr.BaseRepo, command); err != nil {
+		log.Error("Unable to update ref in base repository for PR[%d] Error: %v", pr.ID, err)
+		return err
+	}
+	return nil
 }
 
 // retargetBranchPulls change target branch for all pull requests whose base branch is the branch

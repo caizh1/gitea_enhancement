@@ -4,6 +4,7 @@
 package setting
 
 import (
+	stdcontext "context"
 	"errors"
 	"net/http"
 
@@ -15,6 +16,7 @@ import (
 	"gitea.dev/modules/util"
 	shared_actions "gitea.dev/routers/web/shared/actions"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -110,8 +112,7 @@ func AddCollaborativeOwner(ctx *context.Context) {
 	}
 	actionsCfg := actionsUnit.ActionsConfig()
 	actionsCfg.AddCollaborativeOwner(collUser.ID)
-	if err := repo_model.UpdateRepoUnitConfig(ctx, actionsUnit); err != nil {
-		ctx.ServerError("UpdateRepoUnitConfig", err)
+	if !saveActionsConfiguration(ctx, actionsUnit) {
 		return
 	}
 
@@ -133,8 +134,7 @@ func DeleteCollaborativeOwner(ctx *context.Context) {
 		return
 	}
 	actionsCfg.RemoveCollaborativeOwner(ownerID)
-	if err := repo_model.UpdateRepoUnitConfig(ctx, actionsUnit); err != nil {
-		ctx.ServerError("UpdateRepoUnitConfig", err)
+	if !saveActionsConfiguration(ctx, actionsUnit) {
 		return
 	}
 
@@ -181,11 +181,26 @@ func UpdateTokenPermissions(ctx *context.Context) {
 		}
 	}
 
-	if err := repo_model.UpdateRepoUnitConfig(ctx, actionsUnit); err != nil {
-		ctx.ServerError("UpdateRepoUnitConfig", err)
+	if !saveActionsConfiguration(ctx, actionsUnit) {
 		return
 	}
 
 	ctx.Flash.Success(ctx.Tr("repo.settings.update_settings_success"))
 	ctx.Redirect(redirectURL)
+}
+
+func saveActionsConfiguration(ctx *context.Context, actionsUnit *repo_model.RepoUnit) bool {
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	err := governance_service.WithConfigurationWrite(ctx, actor, 0, actionsUnit.RepoID, func(tx stdcontext.Context) error {
+		return repo_model.UpdateRepoUnitConfig(tx, actionsUnit)
+	})
+	if errors.Is(err, util.ErrPermissionDenied) {
+		ctx.HTTPError(http.StatusForbidden)
+		return false
+	}
+	if err != nil {
+		ctx.ServerError("UpdateRepoUnitConfig", err)
+		return false
+	}
+	return true
 }

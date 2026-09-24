@@ -101,7 +101,7 @@ func capturePullApprovalSnapshot(ctx context.Context, pr *issues_model.PullReque
 	if err != nil {
 		return nil, err
 	}
-	headID, err := headGit.GetBranchCommitID(pr.HeadBranch)
+	headID, err := headGit.GetRefCommitID(pullHeadRef(pr))
 	if err != nil {
 		return nil, err
 	}

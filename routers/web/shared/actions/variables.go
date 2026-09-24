@@ -14,6 +14,7 @@ import (
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
+	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	shared_user "gitea.dev/routers/web/shared/user"
 	actions_service "gitea.dev/services/actions"
@@ -214,6 +215,10 @@ func VariableCreate(ctx *context.Context) {
 
 	v, err := actions_service.CreateVariable(ctx, vCtx.OwnerID, vCtx.RepoID, form.Name, form.Data, form.Description)
 	if err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
 		log.Error("CreateVariable: %v", err)
 		ctx.JSONError(ctx.Tr("actions.variables.creation.failed"))
 		return
@@ -248,6 +253,10 @@ func VariableUpdate(ctx *context.Context) {
 	variable.Description = form.Description
 
 	if ok, err := actions_service.UpdateVariableNameData(ctx, variable); err != nil || !ok {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
 		log.Error("UpdateVariable: %v", err)
 		ctx.JSONError(ctx.Tr("actions.variables.update.failed"))
 		return
@@ -303,6 +312,10 @@ func VariableDelete(ctx *context.Context) {
 	}
 
 	if err := actions_service.DeleteVariableByID(ctx, variable.ID); err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
 		log.Error("Delete variable [%d] failed: %v", id, err)
 		ctx.JSONError(ctx.Tr("actions.variables.deletion.failed"))
 		return

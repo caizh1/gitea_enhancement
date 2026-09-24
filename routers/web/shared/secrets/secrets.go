@@ -6,6 +6,7 @@ package secrets
 import (
 	stdctx "context"
 	"errors"
+	"net/http"
 
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
@@ -105,6 +106,14 @@ func PerformSecretsPost(ctx *context.Context, ownerID, repoID int64, redirectURL
 
 	s, _, err := secret_service.CreateOrUpdateSecret(ctx, ownerID, repoID, form.Name, util.NormalizeStringEOL(form.Data), form.Description, &form.Protected)
 	if err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		}
 		log.Error("CreateOrUpdateSecret failed: %v", err)
 		ctx.JSONError(ctx.Tr("secrets.save_failed"))
 		return
@@ -119,6 +128,14 @@ func PerformSecretsDelete(ctx *context.Context, ownerID, repoID int64, redirectU
 
 	err := secret_service.DeleteSecretByID(ctx, ownerID, repoID, id)
 	if err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		}
 		log.Error("DeleteSecretByID(%d) failed: %v", id, err)
 		ctx.JSONError(ctx.Tr("secrets.deletion.failed"))
 		return

@@ -49,6 +49,12 @@
 				"UnitAccessMode" (index $.MaxTokenPermissions.UnitAccessModes ctx.Consts.RepoUnitTypePullRequests)
 			)}}
 			{{template "shared/actions/permissions_table_unit" (dict
+				"UnitType" ctx.Consts.RepoUnitTypePackages
+				"UnitDisplayName" (ctx.Locale.Tr "repo.packages")
+				"UnitDisplayDesc" (ctx.Locale.Tr "packages.desc")
+				"UnitAccessMode" (index $.MaxTokenPermissions.UnitAccessModes ctx.Consts.RepoUnitTypePackages)
+			)}}
+			{{template "shared/actions/permissions_table_unit" (dict
 				"UnitType" ctx.Consts.RepoUnitTypeWiki
 				"UnitDisplayName" (ctx.Locale.Tr "repo.wiki")
 				"UnitDisplayDesc" (ctx.Locale.Tr "repo.wiki.desc")

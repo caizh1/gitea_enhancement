@@ -638,6 +638,17 @@ func CancelPreviousJobs(ctx context.Context, repoID int64, ref, workflowID strin
 	return cancelledJobs, nil
 }
 
+// CancelPreviousJobsForRepositoryLifecycle permanently revokes credentials from tasks cancelled by archive or deletion.
+func CancelPreviousJobsForRepositoryLifecycle(ctx context.Context, repoID int64) error {
+	if _, err := CancelPreviousJobs(ctx, repoID, "", "", ""); err != nil {
+		return err
+	}
+	// Keep the runner's last-contact timestamp unchanged so cancellation timeout still applies.
+	_, err := db.GetEngine(ctx).Where("repo_id = ? AND status IN (?, ?)", repoID, StatusRunning, StatusCancelling).
+		Cols("token_salt").NoAutoTime().Update(&ActionTask{TokenSalt: ""})
+	return err
+}
+
 func CancelPreviousJobsByJobConcurrency(ctx context.Context, job *ActionRunJob) (jobsToCancel []*ActionRunJob, _ error) {
 	if job.RawConcurrency == "" {
 		return nil, nil

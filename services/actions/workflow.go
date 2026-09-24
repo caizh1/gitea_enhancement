@@ -4,10 +4,12 @@
 package actions
 
 import (
+	stdcontext "context"
 	"fmt"
 	"strconv"
 
 	actions_model "gitea.dev/models/actions"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -21,6 +23,7 @@ import (
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
+	governance_service "gitea.dev/services/governance"
 
 	"gitea.com/gitea/runner/act/model"
 )
@@ -30,17 +33,48 @@ func EnableOrDisableWorkflow(ctx *context.APIContext, workflowID string, isEnabl
 	if err != nil {
 		return err
 	}
+	return SetWorkflowEnabled(ctx, governance_model.AuditActor(ctx), ctx.Repo.Repository.ID, workflow.ID, 0, isEnable, false)
+}
 
-	cfgUnit := ctx.Repo.Repository.MustGetUnit(ctx, unit.TypeActions)
-	cfg := cfgUnit.ActionsConfig()
-
-	if isEnable {
-		cfg.EnableWorkflow(workflow.ID)
-	} else {
-		cfg.DisableWorkflow(workflow.ID)
+// SetWorkflowEnabled 仅修改事务内最新 Actions 配置中的工作流状态。
+func SetWorkflowEnabled(ctx stdcontext.Context, actor governance_model.Actor, repoID int64, workflowID string, scopedSourceRepoID int64, enable, requireAdmin bool) error {
+	write := governance_service.WithActionsWorkflowWrite
+	if requireAdmin {
+		write = func(ctx stdcontext.Context, actor governance_model.Actor, repoID int64, update func(stdcontext.Context) error) error {
+			return governance_service.WithConfigurationWrite(ctx, actor, 0, repoID, update)
+		}
 	}
-
-	return repo_model.UpdateRepoUnitConfig(ctx, cfgUnit)
+	return write(ctx, actor, repoID, func(tx stdcontext.Context) error {
+		repo, err := repo_model.GetRepositoryByID(tx, repoID)
+		if err != nil {
+			return err
+		}
+		cfgUnit, err := repo.GetUnit(tx, unit.TypeActions)
+		if err != nil {
+			return err
+		}
+		cfg := cfgUnit.ActionsConfig()
+		if scopedSourceRepoID > 0 {
+			if !enable {
+				// a required scoped workflow can never be opted out
+				required, err := actions_model.IsScopedWorkflowRequired(tx, repo.OwnerID, scopedSourceRepoID, workflowID)
+				if err != nil {
+					return err
+				}
+				if required {
+					return governance_model.ErrConflict
+				}
+				cfg.DisableScopedWorkflow(scopedSourceRepoID, workflowID)
+			} else {
+				cfg.EnableScopedWorkflow(scopedSourceRepoID, workflowID)
+			}
+		} else if enable {
+			cfg.EnableWorkflow(workflowID)
+		} else {
+			cfg.DisableWorkflow(workflowID)
+		}
+		return repo_model.UpdateRepoUnitConfig(tx, cfgUnit)
+	})
 }
 
 // DispatchActionWorkflow manually triggers a workflow_dispatch run.

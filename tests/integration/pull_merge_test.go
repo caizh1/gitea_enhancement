@@ -13,12 +13,14 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
 	pull_model "gitea.dev/models/pull"
@@ -782,8 +784,35 @@ func TestPullMergeIndexerNotifier(t *testing.T) {
 	})
 }
 
+func withAsyncAutoMergeQueue(t *testing.T) func() {
+	t.Helper()
+	original := automergequeue.AddToQueue
+	var pending sync.WaitGroup
+	// 测试 dummy queue 同步调用 handler；真实自动合并队列异步执行。
+	automergequeue.AddToQueue = func(pr *issues_model.PullRequest, sha string) {
+		pending.Go(func() {
+			original(pr, sha)
+		})
+	}
+	return func() {
+		done := make(chan struct{})
+		go func() {
+			pending.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("自动合并队列在测试服务关闭前未完成")
+		}
+		automergequeue.AddToQueue = original
+	}
+}
+
 func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
+		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+		defer withAsyncAutoMergeQueue(t)()
 		// create a pull request
 		session := loginUser(t, "user1") // FIXME: don't use admin user for testing
 		user1 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
@@ -865,6 +894,8 @@ func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 
 func TestPullAutoMergeAfterCommitStatusSucceedAndApproval(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
+		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+		defer withAsyncAutoMergeQueue(t)()
 		// create a pull request
 		baseUser := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 		baseSession := loginUser(t, "user2")
@@ -944,6 +975,8 @@ func TestPullAutoMergeAfterCommitStatusSucceedAndApproval(t *testing.T) {
 
 func TestPullAutoMergeAfterCommitStatusSucceedAndApprovalForAgitFlow(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
+		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+		defer withAsyncAutoMergeQueue(t)()
 		// create a pull request
 		baseAPITestContext := NewAPITestContext(t, "user2", "repo1", auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
 
@@ -1045,10 +1078,11 @@ func TestPullAutoMergeAfterCommitStatusSucceedAndApprovalForAgitFlow(t *testing.
 		testSubmitReview(t, approveSession, "user2", "repo1", strconv.Itoa(int(pr.Index)), sha, "approve", http.StatusOK)
 
 		// reload pr again
-		pr = unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
-		assert.True(t, pr.HasMerged)
+		assert.Eventually(t, func() bool {
+			pr = unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
+			return pr.HasMerged
+		}, 10*time.Second, 100*time.Millisecond)
 		assert.NotEmpty(t, pr.MergedCommitID)
-
 		unittest.AssertNotExistsBean(t, &pull_model.AutoMerge{PullID: pr.ID})
 	})
 }

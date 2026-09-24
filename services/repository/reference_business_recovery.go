@@ -80,7 +80,7 @@ func ApplyReferenceBusinessOperation(ctx context.Context, operationID string) er
 					if err := actions_model.DeleteScheduleTaskByRepo(ctx, repo.ID); err != nil {
 						return err
 					}
-					if err := actions_service.CancelPreviousJobs(ctx, repo.ID, operation.BusinessOldBranch, "", webhook_module.HookEventSchedule); err != nil {
+					if err := actions_service.CancelPreviousJobs(ctx, repo.ID, "", "", webhook_module.HookEventSchedule); err != nil {
 						return err
 					}
 				}

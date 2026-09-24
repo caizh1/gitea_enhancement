@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 
+	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	access_model "gitea.dev/models/perm/access"
@@ -366,7 +367,13 @@ func SetRepositoryArchived(ctx context.Context, actor governance_model.Actor, re
 		if err != nil {
 			return err
 		}
-		return repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, actor), fresh, archived)
+		if err := repo_model.SetArchiveRepoState(governance_model.WithAuditActor(ctx, actor), fresh, archived); err != nil {
+			return err
+		}
+		if archived {
+			err = actions_model.CancelPreviousJobsForRepositoryLifecycle(ctx, fresh.ID)
+		}
+		return err
 	})
 	if err == nil {
 		repo.IsArchived, repo.ArchivedUnix = fresh.IsArchived, fresh.ArchivedUnix

@@ -43,7 +43,9 @@ func runHookReferenceTransaction(ctx context.Context, c *cli.Command) error {
 			return errors.New("Git 引用事务输入不完整")
 		}
 		// Git 2.54 的 update-ref 可能发出 0→0 回调；HEAD 等符号引用也不属于逻辑分支或标签变化。
-		if oldID == newID || !ref.IsBranch() && !ref.IsTag() {
+		agitHead := os.Getenv(repo_module.EnvIsInternal) == "true" && os.Getenv(repo_module.EnvReferenceActor) == "agit" &&
+			string(ref) == git.PullPrefix+os.Getenv(repo_module.EnvPRIndex)+"/head" && os.Getenv(repo_module.EnvPRIndex) != ""
+		if oldID == newID || !ref.IsBranch() && !ref.IsTag() && !agitHead {
 			continue
 		}
 		if len(refFullNames) >= 10000 {

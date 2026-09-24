@@ -541,7 +541,7 @@ func RenameBranch(ctx context.Context, repo *repo_model.Repository, doer *user_m
 				if err := actions_service.CancelPreviousJobs(
 					ctx,
 					repo.ID,
-					from,
+					"",
 					"",
 					webhook_module.HookEventSchedule,
 				); err != nil {
@@ -841,7 +841,7 @@ func SetRepoDefaultBranch(ctx context.Context, repo *repo_model.Repository, newB
 		if err := actions_service.CancelPreviousJobs(
 			ctx,
 			repo.ID,
-			oldDefaultBranchName,
+			"",
 			"",
 			webhook_module.HookEventSchedule,
 		); err != nil {

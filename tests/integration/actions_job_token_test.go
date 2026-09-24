@@ -482,3 +482,39 @@ jobs:
 		MakeRequest(t, req, http.StatusUnauthorized)
 	})
 }
+
+func TestActionsTokenPackageMaxSettingsUI(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		session := loginUser(t, user.Name)
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		packageField := "max_unit_access_mode_" + strconv.Itoa(int(unit_model.TypePackages))
+
+		ownerPath := "/user/settings/actions/general"
+		response := session.MakeRequest(t, NewRequest(t, "GET", ownerPath), http.StatusOK)
+		require.Contains(t, response.Body.String(), `name="`+packageField+`"`)
+		session.MakeRequest(t, NewRequestWithValues(t, "POST", ownerPath, map[string]string{
+			"token_permission_mode": "permissive", "enable_max_permissions": "true", packageField: "read",
+		}), http.StatusOK)
+		ownerCfg, err := actions_model.GetOwnerActionsConfig(t.Context(), user.ID)
+		require.NoError(t, err)
+		require.Equal(t, perm.AccessModeRead, ownerCfg.GetMaxTokenPermissions().UnitAccessModes[unit_model.TypePackages])
+		response = session.MakeRequest(t, NewRequest(t, "GET", ownerPath), http.StatusOK)
+		require.Regexp(t, `name="`+packageField+`" value="read" checked`, response.Body.String())
+
+		repoPath := fmt.Sprintf("/%s/%s/settings/actions/general", user.Name, repo.Name)
+		response = session.MakeRequest(t, NewRequest(t, "GET", repoPath), http.StatusOK)
+		require.Contains(t, response.Body.String(), `name="`+packageField+`"`)
+		session.MakeRequest(t, NewRequestWithValues(t, "POST", repoPath+"/token_permissions", map[string]string{
+			"override_owner_config": "true", "token_permission_mode": "permissive",
+			"enable_max_permissions": "true", packageField: "write",
+		}), http.StatusSeeOther)
+		storedRepo, err := repo_model.GetRepositoryByID(t.Context(), repo.ID)
+		require.NoError(t, err)
+		actionsUnit, err := storedRepo.GetUnit(t.Context(), unit_model.TypeActions)
+		require.NoError(t, err)
+		require.Equal(t, perm.AccessModeWrite, actionsUnit.ActionsConfig().GetMaxTokenPermissions().UnitAccessModes[unit_model.TypePackages])
+		response = session.MakeRequest(t, NewRequest(t, "GET", repoPath), http.StatusOK)
+		require.Regexp(t, `name="`+packageField+`" value="write" checked`, response.Body.String())
+	})
+}

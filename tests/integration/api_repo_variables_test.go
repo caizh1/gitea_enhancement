@@ -9,15 +9,19 @@ import (
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/tests"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPIRepoVariables(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: repo.OwnerID})

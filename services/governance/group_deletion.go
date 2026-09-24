@@ -19,7 +19,6 @@ import (
 	repo_module "gitea.dev/modules/repository"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
-	webhook_module "gitea.dev/modules/webhook"
 )
 
 type GroupDeletionOption struct {
@@ -128,7 +127,7 @@ func ScheduleGroupDeletion(ctx context.Context, actor governance_model.Actor, id
 				if err := repo_model.SetArchiveRepoState(ctx, repo, true); err != nil {
 					return err
 				}
-				if _, err := actions_model.CancelPreviousJobs(ctx, repo.ID, repo.DefaultBranch, "", webhook_module.HookEventSchedule); err != nil {
+				if err := actions_model.CancelPreviousJobsForRepositoryLifecycle(ctx, repo.ID); err != nil {
 					return err
 				}
 			}

@@ -32,6 +32,12 @@
 								<span class="gt-ellipsis tw-min-w-0" data-tooltip-content="{{.SourceRepoName}}">{{if .FromInstance}}{{.SourceRepoName}}{{else}}{{.SourceRepoShortName}}{{end}}</span>
 								<span class="ui label">{{if .FromInstance}}{{ctx.Locale.Tr "actions.workflow.scope_global"}}{{else}}{{ctx.Locale.Tr "actions.workflow.scope_owner"}}{{end}}</span>
 							</summary>
+							{{if .Unavailable}}
+								<div class="ui warning message" data-test-id="scoped-source-unavailable">
+									{{if .NeedsReconfirmation}}{{ctx.Locale.Tr "actions.scoped_workflows.source.reconfirm"}}{{else}}{{ctx.Locale.Tr "actions.scoped_workflows.source.suspended"}}{{end}}
+									{{if .SettingsURL}}<a href="{{.SettingsURL}}">{{ctx.Locale.Tr "actions.scoped_workflows"}}</a>{{end}}
+								</div>
+							{{else}}
 							{{range .Workflows}}
 								<a class="item flex-text-block {{if and (eq .EntryName $.CurWorkflow) (eq .SourceRepoID $.CurWorkflowScopedRepoID)}}active{{end}}" href="?workflow={{.EntryName}}&scoped_workflow_source_repo_id={{.SourceRepoID}}&actor={{$.CurActor}}&status={{$.CurStatus}}&branch={{$.CurBranch}}">
 									<span class="gt-ellipsis tw-min-w-0" data-tooltip-content="{{.EntryName}}">{{.DisplayName}}</span>
@@ -41,6 +47,7 @@
 										<span class="ui red label">{{ctx.Locale.Tr "disabled"}}</span>
 									{{end}}
 								</a>
+							{{end}}
 							{{end}}
 						</details>
 					{{end}}

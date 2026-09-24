@@ -5,7 +5,6 @@
 package org
 
 import (
-	"errors"
 	"net/http"
 
 	"gitea.dev/models/db"
@@ -28,7 +27,7 @@ const (
 func Create(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("new_org")
 	if !ctx.Doer.CanCreateOrganization() {
-		ctx.ServerError("Not allowed", errors.New(ctx.Locale.TrString("org.form.create_org_not_allowed")))
+		ctx.NotFound(nil)
 		return
 	}
 
@@ -44,7 +43,7 @@ func CreatePost(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("new_org")
 
 	if !ctx.Doer.CanCreateOrganization() {
-		ctx.ServerError("Not allowed", errors.New(ctx.Locale.TrString("org.form.create_org_not_allowed")))
+		ctx.NotFound(nil)
 		return
 	}
 

@@ -10,6 +10,9 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+
+	"xorm.io/xorm"
+	"xorm.io/xorm/schemas"
 )
 
 type repositoryStableStorage struct {
@@ -18,6 +21,108 @@ type repositoryStableStorage struct {
 }
 
 func (*repositoryStableStorage) TableName() string { return "repository" }
+
+type namespacePathHashMigration struct {
+	ID            int64  `xorm:"pk"`
+	LowerPath     string `xorm:"VARCHAR(2048) NOT NULL"`
+	LowerPathHash string `xorm:"CHAR(64) NOT NULL DEFAULT ''"`
+}
+
+func (*namespacePathHashMigration) TableName() string { return "governance_namespace" }
+
+type resourcePathHashMigration struct {
+	Path     string `xorm:"VARCHAR(2048) NOT NULL"`
+	PathHash string `xorm:"CHAR(64) NOT NULL DEFAULT ''"`
+}
+
+func (*resourcePathHashMigration) TableName() string { return "governance_resource_path" }
+
+type namespacePathHashUnique struct {
+	LowerPathHash string `xorm:"CHAR(64) UNIQUE NOT NULL"`
+}
+
+func (*namespacePathHashUnique) TableName() string { return "governance_namespace" }
+
+type resourcePathHashUnique struct {
+	PathHash string `xorm:"CHAR(64) UNIQUE NOT NULL"`
+}
+
+func (*resourcePathHashUnique) TableName() string { return "governance_resource_path" }
+
+func ensurePathHashUnique(engine db.EngineMigration, tableName, column string, bean any) error {
+	tables, err := engine.DBMetas()
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
+		if table.Name != tableName {
+			continue
+		}
+		for _, index := range table.Indexes {
+			if index.Type == schemas.UniqueType && len(index.Cols) == 1 && strings.EqualFold(index.Cols[0], column) {
+				return nil
+			}
+		}
+		session := engine.NewSession()
+		defer session.Close()
+		return session.CreateUniques(bean)
+	}
+	return fmt.Errorf("治理路径表 %s 不存在", tableName)
+}
+
+func dropPostgresLegacyPathConstraint(engine db.EngineMigration) error {
+	if engine.Dialect().URI().DBType != schemas.POSTGRES {
+		return nil
+	}
+	rows, err := engine.Query(`SELECT c.conname FROM pg_constraint c
+		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+		WHERE c.conrelid = to_regclass(?) AND c.contype = 'u'
+		AND array_length(c.conkey, 1) = 1 AND a.attname = 'lower_path'`, engine.TableName(new(Namespace), true))
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		name := strings.ReplaceAll(string(row["conname"]), `"`, `""`)
+		if _, err := engine.Exec("ALTER TABLE " + engine.TableName(new(Namespace), true) + ` DROP CONSTRAINT "` + name + `"`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AddPathHashes 先回填完整路径摘要，再创建短唯一索引；旧约束只在新索引就绪后处理。
+func AddPathHashes(engine db.EngineMigration) error {
+	if _, err := engine.SyncWithOptions(xorm.SyncOptions{IgnoreIndices: true, IgnoreConstrains: true}, new(namespacePathHashMigration), new(resourcePathHashMigration)); err != nil {
+		return err
+	}
+	var namespaces []namespacePathHashMigration
+	if err := engine.Table("governance_namespace").Find(&namespaces); err != nil {
+		return err
+	}
+	for _, namespace := range namespaces {
+		if _, err := engine.Table("governance_namespace").Where("id = ?", namespace.ID).
+			Update(map[string]any{"lower_path_hash": pathHash(namespace.LowerPath)}); err != nil {
+			return err
+		}
+	}
+	var paths []resourcePathHashMigration
+	if err := engine.Table("governance_resource_path").Find(&paths); err != nil {
+		return err
+	}
+	for _, path := range paths {
+		if _, err := engine.Table("governance_resource_path").Where("path = ?", path.Path).
+			Update(map[string]any{"path_hash": pathHash(path.Path)}); err != nil {
+			return err
+		}
+	}
+	if err := ensurePathHashUnique(engine, "governance_namespace", "lower_path_hash", new(namespacePathHashUnique)); err != nil {
+		return err
+	}
+	if err := ensurePathHashUnique(engine, "governance_resource_path", "path_hash", new(resourcePathHashUnique)); err != nil {
+		return err
+	}
+	return dropPostgresLegacyPathConstraint(engine)
+}
 
 // CreateSchema 对应定制版迁移 343；后续上游移植必须显式处理迁移编号。
 func CreateSchema(engine db.EngineMigration) error {

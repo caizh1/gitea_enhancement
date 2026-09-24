@@ -1,5 +1,78 @@
 # 群组／子群组一期：阶段代码与真实执行复查
 
+## 必要能力一期最终收尾（2026-09-24）
+
+本节为最新结论；下方 F6、F2、v16 等内容保留历史证据，不再代表当前候选或当前交付门槛。用户最终范围是日常开发、普通管理员管理及群组化 CI/CD，不要求旧69项、复杂迁移或专项指标全部清零。
+
+当前分支 `codex/group-subgroup-phase1-alignment`，HEAD `7dbdfb23570c4e164061e48707837f5e719d0985` 加保留的未提交工作树；最终[源码清单](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/source-manifest.json)指纹 `56a9eb949588adf001580c6e60f7ab44c4b8fd0acf6350e99d363ecc9d49f728`。前端及三类嵌入资源已重建，构建期间源码未变；没有提交、推送或操作生产实例。
+
+**VERDICT: PASS**
+
+**P0/P1 BLOCKERS：无未解决项。** 主任务复核当前授权事务及工作流配置调用链，子代理交叉审查，最终定向PG/单测与真实日常链证据适用。结论限定本次必要范围和已验证组合。
+
+本轮成立并关闭：
+
+1. **AUTH-CFG-01，P1。** 位置：`routers/web/shared/actions/general.go`、仓库Actions三配置保存入口、Variables/Secrets写服务。旧前置管理检查后可撤权提交，后续治理写事务未重新检查当前管理权，旧请求仍可改变公共配置/凭据。反证确认“已有治理事务”只串行化写入，不自动等于操作权限复核。修复将当前有效操作者、资源、生命周期及管理能力检查与实际写入放到同一治理事务；正式撤权后的旧请求403/拒绝且值不变，合法操作保留。[固定红绿与实际对照](../outputs/group-subgroup-phase1-20260923/final-configuration-authorization-acceptance.md)。
+2. **AUTH-CFG-02，P1。** 位置：`services/actions/workflow.go`及原生Web启停。原Actions Writer API缓存整份ActionConfig；管理员收紧令牌上限后，Writer启停覆盖旧配置，导致权限上限回退。旧缺陷由当前调用链和写字段静态确定，不声称已运行旧版红例。反证检查确认Writer可合法到达，而权限上限本应只能管理员修改。修复在同一事务重载最新配置，仅更改工作流状态；保持Writer合法启停能力、撤权拒绝、Required限制。实际PG旧上下文/新上限对照通过。
+
+Required opt-out被当作额外绕过的推测经反证排除：运行时Required已有优先规则，不能仅因旧配置字段存在就新增P1。历史归档恢复旧授权问题已修并回归，未无理由重开。
+
+**UNVERIFIED RISKS：** 指定Linux amd64目标安装、生产拓扑、全部平台数据库客户端与专项容量未验证；这些不等于发现功能缺陷。目标上线仍需部署环境确认，不能以交叉编译代替。已下载副本或合法披露明文无法追溯撤回。
+
+**NON-BLOCKING FINDINGS：** 原全仓lint存量问题保留，本轮新问题已修且最终增量lint为`0 issues`；未写成全仓lint通过。此前Fork快捷列表/大群组查询P2、少数原生图标可访问名P3保留。改名、复杂迁移、全生命周期、群组管理事件Hook、制品聚合和专项指标按用户批准后置，不扩大当前交付。
+
+**判定：必要功能一期完成；在本次核查和验证范围内，无已发现的上线阻塞。上线准备待目标环境确认。**
+
+## 最新开发收尾审查：F6，2026-09-24
+
+**VERDICT: PASS**
+
+**P0/P1 BLOCKERS：无。** 本结论针对当前工作树本轮必要日常修复、此前生命周期修复及其受影响调用链；由gpt-6-sol high子代理实施、另一子代理独立审查，主任务复查代码并操作真实UI。不把全量GitLab能力、没有提供的平台或全部未知攻击写成通过。HEAD `7dbdfb23570c4e164061e48707837f5e719d0985`，F6冻结源码指纹 `b88651b76ff502c9445f6d51b34914b0bdf3640034b1d3440204b39c75ffde79`，macOS二进制 `fca562abd1909954f84ebc29c87a551ca8617055ffc73a4bbfc33d3d93601c96`。
+
+反证与结论：
+
+- `Organization.UnitPermission`只把既有治理Code/Packages能力与Team取并集。有原生Team时立即返回合并权限，不再落入公开可见性读取后备；Guest/Minimal没有被扩成Reporter，未扩Projects。实际包授权仍在原消费者核对，无权用户UI404/下载401。
+- Fork GET与创建入口复用合法目的组织，详情按钮补纯继承权限；POST与服务端仍复核创建能力、数量和来源。F5真实个人源仓79→子组Fork82可读Git，F6显示层只改FullPath/title，不改隐藏ID或API名称。模板自动转义、范围检查及禁同Owner/重复Fork语义保持。
+- 消费者失效来源只影响侧栏可运行列表与派发表单；服务端仍复核来源生命周期/注册版本。Required配置及最终合并门禁没有从无效来源列表删除。无来源读权者仅见编号及通用原因；管理链接只给有权Owner/admin。PG门禁/派发回归及真实Run667成功支持结论。
+- F2实际存在的归档恢复旧队列/旧task token重新授权P1已经在F4关闭，不继续误列当前阻塞：四个生命周期入口同一治理事务取消全部旧事件并清空Running/Cancelling token盐；缓存重读、JWT与后续资源认证均拒空盐，后续状态更新不会回填旧盐。正常用户取消仍保留合法收尾，新Attempt创建新任务与盐。F4真Runner+UI 75项通过；F6三项PG核心回归再过。
+
+完整[本轮UI/协议证据](../outputs/group-subgroup-phase1-20260923/daily-owner-entry-acceptance.md)、[来源失效/恢复/执行](../outputs/group-subgroup-phase1-20260923/scoped-consumer-availability.md)、[F6定向整合与静态检查](../outputs/group-subgroup-phase1-20260923/f5-f6-final-regression.md)和[生命周期首错及复验](../outputs/group-subgroup-phase1-20260923/s05-s06-lifecycle-evidence.md)均可追溯。原红例、构建版本和真实执行数据库没有被覆盖。
+
+**UNVERIFIED RISKS：** 指定Linux amd64主机、MSSQL、千仓容量、真人效率、复杂迁移/改名/故障全组合及九种连接器的全部协议尚未在本候选实测；保留原证据与限制，不影响本次已批准范围，也不视为对应支持已验证。
+
+**NON-BLOCKING FINDINGS：** P2：Fork能力判断在个人目的不可用时逐群组查权，现行目的地导航还逐仓查询；没有目标性能数据，不猜测升级P1。P2：来源仓的“已有Fork”快捷列表只纳入直接组织成员，继承Owner可从子组项目列表或实际仓库URL使用已创建Fork。P3：既有Hook重投图标缺可访问名。全仓lint原有52项未修；本轮增量为0 issues，不混称全仓绿。
+
+**交付判定：本轮识别的三项必要日常缺口与归档恢复安全问题已完成修复及闭环。** 现行计划不再要求原69项/专项清零；本结论不称完整GitLab企业版对齐或生产发布验收完成。
+
+## F2/F3阶段历史审查（以下失败已由F4/F6证据更新，保留原因果链）
+
+实际基线为 `codex/group-subgroup-phase1-alignment @ 7dbdfb23570c4e164061e48707837f5e719d0985` 加本轮未提交改动。未切换、覆盖用户改动或推送。下方原 `main @ 9a3f938` 及 v16 记录是历史审查；当前操作状态只以[唯一台账](group-subgroup-phase1-matrix.md#一期剩余关闭台账唯一明细)为准，不能从历史限制重复推导缺陷。
+
+**当前阶段判定：已部署F2为FAIL；工作树修复等待新候选实际复核，不沿用此前PASS。** 新反证确认旧workflow_dispatch在归档恢复后自动领取，且运行任务token可在恢复后重新授权；其具体因果和PG红绿见下述生命周期补充。历史通过证据仍保留，不因此重开无关条目。
+
+本轮实际修复及反证：
+
+- MySQL 的完整群组路径唯一索引超出上限，造成正常新建数据库失败；改为完整路径保留、短摘要唯一索引，并在查找时核对原文。核对创建、改名、移动、个人路径和历史别名的写入点，摘要冲突保持拒绝，未截断路径。正常迁移先回填并确认新唯一索引，再处理 PostgreSQL 旧约束；MySQL 未变值更新返回零行不再误报治理冲突。四库实际结果见[数据库证据](../outputs/group-subgroup-phase1-20260923/db-compatibility-acceptance.md)。
+- AGit 使用虚拟分支名读取审批快照，导致支持的 PR 流程不可合并；现在读取真实隐藏引用，内部更新携带准确 PR 和推送者，引用事务同步推进审批代次，并返回真实更新错误。反查外部隐藏引用写入、初次创建的事务重入、后续提交和目标分支改变。真实 Git、审批失效、重新审批及合并结果见[合并证据](../outputs/group-subgroup-phase1-20260923/p02-p03-pr-gate-results.json)。
+- 作业令牌设置页遗漏 Packages 字段，保存其他项会清除原配置；补齐既有权限表行，不改授权算法。三层原生 UI 和 Run282 的权限交集见[token 证据](../outputs/group-subgroup-phase1-20260923/token-limit-closure-results.json)。
+- Webhook PATCH 仅改名称时重置事件、分支过滤和授权头；现在区分省略与显式空值，非法 glob 仍拒绝。复核未改变 Hook 权限、签名、SSRF 或 TLS 规则，事件空数组保持既有默认 push 语义。首次失败、定向回归及真实投递分别保留，完整关闭以 H01–H03 各自断言为准。
+- 无创建权用户打开群组创建入口时，模板在空 Group 上读取能力造成半页500，原生入口还主动返回500；补齐空值短路并用既有404拒绝。新候选普通账号创建组74、刷新、治理／原生同步及无权拒绝通过，见[角色实测](../outputs/group-subgroup-phase1-20260923/top-level-group-roles-acceptance.md)。
+- 群组归档取消原生定时任务时用短分支匹配完整 ref，旧 Run287 在恢复后实际复活。六处应取消同仓全部定时任务的调用改为空 Ref，仍限定仓库、schedule 事件和非终态，不影响 push／PR 或别仓。F2 旧 Run322 归档时取消，普通 Owner 从 UI 恢复父组后仍取消；独立待删仓仍423，新 Run333 真实成功。独立反证及静态检查见[F2 审查](../outputs/group-subgroup-phase1-20260923/f2-static-review.md)。
+
+新增反证与修复（F2/F3尚不含最终修复）：
+
+- 运行时Run368在父组恢复后由合法新Run403唤醒扫描，旧Attempt1仍自动执行，说明只取消schedule不足。四个归档/待删入口现在取消该仓所有非终态事件；默认分支改名/变更仍只清理schedule，不扩大到其他事件。
+- 更深反证：支持取消的Runner使旧Task进入Cancelling；归档时认证拒绝，但恢复后旧Task的token和缓存查询再次合法。真实PG红例固定archive→restore并证明这一授权ABA，不依赖猜测。工作树最小修复在同一治理事务取消后清空运行/取消中Task的TokenSalt，并让凭据检查拒绝空Salt；cache仍重读DB、JWT产物按TaskID重读，四处生命周期入口共享该处理。普通用户取消不清空，保留既有收尾能力；人工重跑创建新Task及新Salt。没有新数据库迁移。
+- 达到P1的理由是被生命周期明确撤销的旧执行授权能在恢复后重新执行/写入；不是将已经披露数据可追回作为要求。反证已排除新Attempt显式授权、原生取消收尾例外及仅静态疑虑。三项真实PG生命周期回归通过，真实Runner/UI新候选仍待执行。因此不得把旧F2/F3当作可发布通过版本。
+
+当前 F2 候选的 macOS 二进制 SHA-256 为 `2d64a75d8442565b31762279db142cd63fac50cbece5d762d1f558f074b511de`，源码指纹为 `2fd0a1e11ea46698f8ac6bb7d348dcff9cfddc71e20bb01e30ed547ee2b4e9cb`；[构建清单](../outputs/group-subgroup-phase1-20260923/candidate-lifecycle-fixed-20260924/source-manifest.json)保存 HEAD、工作树差异、文件摘要、命令及构建结果。构建后的测试、脚本和证据补充不反写为该二进制的输入。前一 F 候选相关定向测试 38 个顶层通过，其中集成入口 25 个使用 PostgreSQL，其余包级 13 个使用原生 SQLite TestMain；此前把环境变量误当作引擎选择的标注已纠正，见[逐测试记录](../outputs/group-subgroup-phase1-20260923/current-candidate-targeted-regression.json)。F2 的新增／受影响测试及运行另记专项证据，不能把这38项全改标为F2重新执行。F2 独立副本 `make fmt` 退出0、35个本轮 Go 文件无格式差异；增量 `golangci-lint ./...` 0 issues。
+
+**UNVERIFIED RISKS：** 一期仍未关闭的真实运行／角色／并发／恢复断言、MSSQL 原生目标兼容、Linux amd64 安装与指定容量、最终候选整体回归及真人效率。迁移大数据耗时未测；不能由四库小样本证明容量。它们不作为缺少因果证据的 P1，也不算正式发布通过。
+
+**NON-BLOCKING FINDINGS：** 原生 Hook 历史重投图标缺少可访问名称（P3）；已删除 Runner 的运行按既有超时机制失败，诊断可进一步直达原因（P3）。全仓 lint 仍有基线问题，已改源码和新增测试的增量检查单列记录；不以删除断言或隐藏日志消除首错。
+
+## 历史审查记录（保留原基线）
+
 日期：2026-09-24。基线为 `main @ 9a3f93813847f53b4762e28863b09b9266f75943`；结论覆盖本期已经实施、审查并有下列证据的改动及其实际调用链，不是完整一期发布批准。源码仍在用户工作树，未提交、切分支或推送。协议验收只向本机一次性测试仓库推送。
 
 ## VERDICT: PASS

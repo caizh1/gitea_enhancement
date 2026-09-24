@@ -6,6 +6,8 @@ package repository
 import (
 	"context"
 
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
@@ -36,6 +38,22 @@ func CanUserForkRepo(ctx context.Context, user *user_model.User, repo *repo_mode
 	}
 	for _, org := range ownedOrgs {
 		if repo.OwnerID != org.ID && !repo_model.HasForkedRepo(ctx, org.ID, repo.ID) {
+			return true, nil
+		}
+	}
+	var groups []*governance_model.Namespace
+	if err := db.GetEngine(ctx).Where("kind = ? AND archived = ? AND delete_after = 0", "group", false).Find(&groups); err != nil {
+		return false, err
+	}
+	for _, group := range groups {
+		if repo.OwnerID == group.ID || repo_model.HasForkedRepo(ctx, group.ID, repo.ID) {
+			continue
+		}
+		allowed, err := organization.CanCreateOrgRepo(ctx, group.ID, user.ID)
+		if err != nil {
+			return false, err
+		}
+		if allowed {
 			return true, nil
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
@@ -18,6 +19,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
+	governance_service "gitea.dev/services/governance"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -634,4 +636,63 @@ func TestOrAnyRepoUnitPermission(t *testing.T) {
 	org := organization.Organization{Visibility: structs.VisibleTypeLimited}
 	assert.Equal(t, perm.AccessModeNone, org.UnitPermission(t.Context(), nil, unit.TypeWiki))
 	assert.Equal(t, perm.AccessModeRead, org.UnitPermission(t.Context(), &user_model.User{}, unit.TypeWiki))
+}
+
+func TestInheritedGovernanceOrgUnitPermission(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	owner := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}
+	child, err := governance_service.CreateGroup(ctx, owner, governance_service.GroupOption{Path: "unit-child", ParentID: 3, Visibility: 2})
+	require.NoError(t, err)
+	childOrg := unittest.AssertExistsAndLoadBean(t, &organization.Organization{ID: child.ID})
+	rootOrg := unittest.AssertExistsAndLoadBean(t, &organization.Organization{ID: 3})
+	inherited := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	native := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	restricted := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 15})
+	require.Equal(t, perm.AccessModeNone, rootOrg.UnitPermission(ctx, restricted, unit.TypeProjects))
+	require.Equal(t, perm.AccessModeNone, rootOrg.UnitPermission(ctx, restricted, unit.TypePackages))
+
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypeCode))
+	root, err := governance_model.GetNamespace(ctx, 3)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.SetGroupMember(ctx, owner, 3,
+		governance_service.GroupMemberOption{UserID: inherited.ID, Role: governance_model.Reporter, Revision: root.Revision}, false))
+	require.Equal(t, perm.AccessModeRead, childOrg.UnitPermission(ctx, inherited, unit.TypeCode))
+	require.Equal(t, perm.AccessModeRead, childOrg.UnitPermission(ctx, inherited, unit.TypePackages))
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypeProjects))
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypeWiki))
+	member, err := childOrg.IsOrgMember(ctx, inherited.ID)
+	require.NoError(t, err)
+	require.True(t, member)
+
+	root, err = governance_model.GetNamespace(ctx, 3)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.SetGroupMember(ctx, owner, 3,
+		governance_service.GroupMemberOption{UserID: inherited.ID, Role: governance_model.Owner, Revision: root.Revision}, false))
+	require.Equal(t, perm.AccessModeWrite, childOrg.UnitPermission(ctx, inherited, unit.TypeCode))
+	require.Equal(t, perm.AccessModeWrite, childOrg.UnitPermission(ctx, inherited, unit.TypePackages))
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypeProjects))
+	owned, err := childOrg.IsOwnedBy(ctx, inherited.ID)
+	require.NoError(t, err)
+	require.True(t, owned)
+
+	require.Equal(t, perm.AccessModeWrite, rootOrg.UnitPermission(ctx, native, unit.TypeCode))
+	require.Equal(t, perm.AccessModeNone, rootOrg.UnitPermission(ctx, native, unit.TypePackages))
+	require.Equal(t, perm.AccessModeWrite, rootOrg.UnitPermission(ctx, native, unit.TypeProjects))
+	root, err = governance_model.GetNamespace(ctx, 3)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.SetGroupMember(ctx, owner, 3,
+		governance_service.GroupMemberOption{UserID: native.ID, Role: governance_model.Reporter, Revision: root.Revision}, false))
+	require.Equal(t, perm.AccessModeWrite, rootOrg.UnitPermission(ctx, native, unit.TypeCode))
+	require.Equal(t, perm.AccessModeRead, rootOrg.UnitPermission(ctx, native, unit.TypePackages))
+	require.Equal(t, perm.AccessModeWrite, rootOrg.UnitPermission(ctx, native, unit.TypeProjects))
+
+	root, err = governance_model.GetNamespace(ctx, 3)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.SetGroupMember(ctx, owner, 3,
+		governance_service.GroupMemberOption{UserID: inherited.ID, Revision: root.Revision}, true))
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypeCode))
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypePackages))
+	require.Equal(t, perm.AccessModeNone, childOrg.UnitPermission(ctx, inherited, unit.TypeProjects))
 }

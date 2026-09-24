@@ -4,17 +4,21 @@
 package actions
 
 import (
+	stdcontext "context"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
 
 	actions_model "gitea.dev/models/actions"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 )
 
 const (
@@ -150,7 +154,14 @@ func UpdateGeneralSettings(ctx *context.Context) {
 		}
 	}
 
-	if err := actions_model.SetOwnerActionsConfig(ctx, rCtx.OwnerID, actionsCfg); err != nil {
+	err = governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), rCtx.OwnerID, 0, func(tx stdcontext.Context) error {
+		return actions_model.SetOwnerActionsConfig(tx, rCtx.OwnerID, actionsCfg)
+	})
+	if errors.Is(err, util.ErrPermissionDenied) {
+		ctx.HTTPError(http.StatusForbidden)
+		return
+	}
+	if err != nil {
 		ctx.ServerError("SetOwnerActionsConfig", err)
 		return
 	}

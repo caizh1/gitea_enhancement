@@ -7,7 +7,10 @@ import (
 	"context"
 
 	actions_model "gitea.dev/models/actions"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/util"
+	governance_service "gitea.dev/services/governance"
 	secret_service "gitea.dev/services/secrets"
 )
 
@@ -16,12 +19,13 @@ func CreateVariable(ctx context.Context, ownerID, repoID int64, name, data, desc
 		return nil, err
 	}
 
-	v, err := actions_model.InsertVariable(ctx, ownerID, repoID, name, util.NormalizeStringEOL(data), description)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+	var variable *actions_model.ActionVariable
+	err := governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), ownerID, repoID, func(tx context.Context) error {
+		var err error
+		variable, err = actions_model.InsertVariable(tx, ownerID, repoID, name, util.NormalizeStringEOL(data), description)
+		return err
+	})
+	return variable, err
 }
 
 func UpdateVariableNameData(ctx context.Context, variable *actions_model.ActionVariable) (bool, error) {
@@ -31,11 +35,39 @@ func UpdateVariableNameData(ctx context.Context, variable *actions_model.ActionV
 
 	variable.Data = util.NormalizeStringEOL(variable.Data)
 
-	return actions_model.UpdateVariableCols(ctx, variable, "name", "data", "description")
+	var updated bool
+	err := governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), variable.OwnerID, variable.RepoID, func(tx context.Context) error {
+		fresh, has, err := db.GetByID[actions_model.ActionVariable](tx, variable.ID)
+		if err != nil {
+			return err
+		}
+		if !has || fresh.OwnerID != variable.OwnerID || fresh.RepoID != variable.RepoID {
+			return util.ErrPermissionDenied
+		}
+		updated, err = actions_model.UpdateVariableCols(tx, variable, "name", "data", "description")
+		return err
+	})
+	return updated, err
 }
 
 func DeleteVariableByID(ctx context.Context, variableID int64) error {
-	return actions_model.DeleteVariable(ctx, variableID)
+	variable, has, err := db.GetByID[actions_model.ActionVariable](ctx, variableID)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return util.NewNotExistErrorf("variable not found")
+	}
+	return governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), variable.OwnerID, variable.RepoID, func(tx context.Context) error {
+		fresh, has, err := db.GetByID[actions_model.ActionVariable](tx, variableID)
+		if err != nil {
+			return err
+		}
+		if !has || fresh.OwnerID != variable.OwnerID || fresh.RepoID != variable.RepoID {
+			return util.ErrPermissionDenied
+		}
+		return actions_model.DeleteVariable(tx, variableID)
+	})
 }
 
 func DeleteVariableByName(ctx context.Context, ownerID, repoID int64, name string) error {
@@ -48,7 +80,16 @@ func DeleteVariableByName(ctx context.Context, ownerID, repoID int64, name strin
 		return err
 	}
 
-	return actions_model.DeleteVariable(ctx, v.ID)
+	return governance_service.WithConfigurationWrite(ctx, governance_model.AuditActor(ctx), ownerID, repoID, func(tx context.Context) error {
+		fresh, err := GetVariable(tx, actions_model.FindVariablesOpts{OwnerID: ownerID, RepoID: repoID, Name: name})
+		if err != nil {
+			return err
+		}
+		if fresh.ID != v.ID {
+			return util.ErrPermissionDenied
+		}
+		return actions_model.DeleteVariable(tx, fresh.ID)
+	})
 }
 
 func GetVariable(ctx context.Context, opts actions_model.FindVariablesOpts) (*actions_model.ActionVariable, error) {

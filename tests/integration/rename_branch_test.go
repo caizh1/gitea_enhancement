@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRenameBranch(t *testing.T) {
@@ -22,6 +24,7 @@ func TestRenameBranch(t *testing.T) {
 
 func testRenameBranch(t *testing.T, u *url.URL) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	unittest.AssertExistsAndLoadBean(t, &git_model.Branch{RepoID: 1, Name: "master"})
 

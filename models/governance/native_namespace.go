@@ -101,7 +101,10 @@ type nativeNamespaceRepo struct {
 func (*nativeNamespaceRepo) TableName() string { return "repository" }
 
 func AddNativeNamespacePaths(engine db.EngineMigration) error {
-	if err := engine.Sync(new(Namespace), new(nativeNamespaceUser), new(nativeNamespaceRepo)); err != nil {
+	if err := AddPathHashes(engine); err != nil {
+		return err
+	}
+	if err := engine.Sync(new(nativeNamespaceUser), new(nativeNamespaceRepo)); err != nil {
 		return err
 	}
 	var owners []struct {
@@ -197,7 +200,7 @@ func PrepareNativeRepositoryPath(ctx context.Context, id, ownerID int64, name st
 		if err := reservePath(ctx, path, "repository", id); err != nil {
 			return err
 		}
-		_, err = db.GetEngine(ctx).ID(path).Cols("alias").Update(&ResourcePath{Alias: true})
+		_, err = db.GetEngine(ctx).Where("path_hash = ? AND path = ?", pathHash(path), path).Cols("alias").Update(&ResourcePath{Alias: true})
 		return err
 	})
 }
@@ -282,7 +285,7 @@ func RenameNativePersonalNamespace(ctx context.Context, id int64, name string, a
 		}
 		return WithWrite(ctx, resources, func(ctx context.Context) error {
 			for _, path := range paths {
-				if _, err := db.GetEngine(ctx).ID(path.Path).Cols("alias").Update(&ResourcePath{Alias: true}); err != nil {
+				if _, err := db.GetEngine(ctx).Where("path_hash = ? AND path = ?", pathHash(path.Path), path.Path).Cols("alias").Update(&ResourcePath{Alias: true}); err != nil {
 					return err
 				}
 			}
@@ -292,7 +295,8 @@ func RenameNativePersonalNamespace(ctx context.Context, id int64, name string, a
 				}
 			}
 			n.Slug, n.FullPath, n.LowerSlug, n.LowerPath, n.Revision = name, name, strings.ToLower(name), strings.ToLower(name), n.Revision+1
-			if _, err := db.GetEngine(ctx).ID(id).Cols("slug", "full_path", "lower_slug", "lower_path", "revision").Update(n); err != nil {
+			n.LowerPathHash = pathHash(n.LowerPath)
+			if _, err := db.GetEngine(ctx).ID(id).Cols("slug", "full_path", "lower_slug", "lower_path", "lower_path_hash", "revision").Update(n); err != nil {
 				return err
 			}
 			if err := SyncNativeNamespacePath(ctx, n); err != nil {
@@ -313,7 +317,8 @@ func ReserveNativeAlias(ctx context.Context, path, kind string, id int64) error 
 		if err := reservePath(ctx, path, kind, id); err != nil {
 			return err
 		}
-		_, err := db.GetEngine(ctx).ID(strings.ToLower(path)).Cols("alias").Update(&ResourcePath{Alias: true})
+		canonical := strings.ToLower(path)
+		_, err := db.GetEngine(ctx).Where("path_hash = ? AND path = ?", pathHash(canonical), canonical).Cols("alias").Update(&ResourcePath{Alias: true})
 		return err
 	})
 }

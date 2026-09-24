@@ -8,12 +8,16 @@ import (
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/tests"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPIUserSecrets(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	session := loginUser(t, "user1")
 	token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteUser)

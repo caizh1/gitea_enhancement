@@ -9,6 +9,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
@@ -52,7 +53,11 @@ func CreateOrUpdateSecret(ctx *context.APIContext) {
 
 	_, created, err := secret_service.CreateOrUpdateSecret(ctx, ctx.Doer.ID, 0, ctx.PathParam("secretname"), opt.Data, opt.Description, opt.Protected)
 	if err != nil {
-		if errors.Is(err, util.ErrInvalidArgument) {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
+		} else if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
 		} else if errors.Is(err, util.ErrNotExist) {
 			ctx.APIError(http.StatusNotFound, err.Error())
@@ -94,7 +99,11 @@ func DeleteSecret(ctx *context.APIContext) {
 
 	err := secret_service.DeleteSecretByName(ctx, ctx.Doer.ID, 0, ctx.PathParam("secretname"))
 	if err != nil {
-		if errors.Is(err, util.ErrInvalidArgument) {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
+		} else if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
 		} else if errors.Is(err, util.ErrNotExist) {
 			ctx.APIError(http.StatusNotFound, err.Error())
@@ -153,7 +162,9 @@ func CreateVariable(ctx *context.APIContext) {
 	}
 
 	if _, err := actions_service.CreateVariable(ctx, ownerID, 0, variableName, opt.Value, opt.Description); err != nil {
-		if errors.Is(err, util.ErrInvalidArgument) {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
 		} else {
 			ctx.APIErrorInternal(err)
@@ -217,7 +228,9 @@ func UpdateVariable(ctx *context.APIContext) {
 	v.Description = opt.Description
 
 	if _, err := actions_service.UpdateVariableNameData(ctx, v); err != nil {
-		if errors.Is(err, util.ErrInvalidArgument) {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
 		} else {
 			ctx.APIErrorInternal(err)
@@ -252,7 +265,9 @@ func DeleteVariable(ctx *context.APIContext) {
 	//     "$ref": "#/responses/notFound"
 
 	if err := actions_service.DeleteVariableByName(ctx, ctx.Doer.ID, 0, ctx.PathParam("variablename")); err != nil {
-		if errors.Is(err, util.ErrInvalidArgument) {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
 		} else if errors.Is(err, util.ErrNotExist) {
 			ctx.APIError(http.StatusNotFound, err.Error())

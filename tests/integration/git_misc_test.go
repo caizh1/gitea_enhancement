@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -18,9 +20,11 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/gitrepo"
+	governance_service "gitea.dev/services/governance"
 	files_service "gitea.dev/services/repository/files"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDataAsyncDoubleRead_Issue29101(t *testing.T) {
@@ -142,6 +146,9 @@ func TestAgitPullPush(t *testing.T) {
 
 func TestAgitReviewStaleness(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
+		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+		governedRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		require.NoError(t, gitrepo.InstallReferenceTransactionHook(t.Context(), governedRepo))
 		baseAPITestContext := NewAPITestContext(t, "user2", "repo1", auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
 
 		u.Path = baseAPITestContext.GitPath()
@@ -173,9 +180,23 @@ func TestAgitReviewStaleness(t *testing.T) {
 			HeadBranch: "user2/test-agit-review",
 		})
 		assert.NoError(t, pr.LoadIssue(t.Context()))
+		require.Error(t, gitcmd.NewCommand("push", "origin", "HEAD:refs/pull/999/head").WithDir(dstPath).Run(t.Context()), "普通 Git 推送不能伪造隐藏 PR 引用")
+		refRepo, err := gitrepo.OpenRepository(t.Context(), governedRepo)
+		require.NoError(t, err)
+		_, err = refRepo.GetRefCommitID("refs/pull/999/head")
+		refRepo.Close()
+		require.True(t, git.IsErrNotExist(err), "被拒绝的隐藏引用不能写入")
+		snapshot, err := governance_service.CaptureInitialPullApprovalSnapshot(t.Context(), pr)
+		require.NoError(t, err)
+		require.NotNil(t, snapshot)
+		require.NoError(t, governance_service.ApplyPullApprovalSnapshot(t.Context(), snapshot))
+		initialVersion, has, err := db.GetByID[governance_model.PullVersion](t.Context(), pr.ID)
+		require.NoError(t, err)
+		require.True(t, has)
+		require.NotEmpty(t, initialVersion.Head)
 
 		// Get initial commit ID for the review
-		initialCommitID := pr.HeadCommitID
+		initialCommitID := initialVersion.Head
 		t.Logf("Initial commit ID: %s", initialCommitID)
 
 		// Create a review on the PR (as user1 reviewing user2's PR)
@@ -226,6 +247,11 @@ func TestAgitReviewStaleness(t *testing.T) {
 		updatedCommitID, err := baseGitRepo.GetRefCommitID(pr.GetGitHeadRefName())
 		assert.NoError(t, err)
 		t.Logf("Updated commit ID: %s", updatedCommitID)
+		updatedVersion, has, err := db.GetByID[governance_model.PullVersion](t.Context(), pr.ID)
+		require.NoError(t, err)
+		require.True(t, has)
+		require.Equal(t, updatedCommitID, updatedVersion.Head)
+		require.Equal(t, initialVersion.Generation+1, updatedVersion.Generation, "AGit 隐藏引用更新必须推进治理审批代次")
 
 		// Verify the PR was updated with new commit
 		assert.NotEqual(t, initialCommitID, updatedCommitID, "PR should have new commit ID after update")

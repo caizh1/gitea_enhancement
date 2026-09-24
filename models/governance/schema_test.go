@@ -6,6 +6,7 @@ package governance
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,60 @@ type legacyTestTeamUser struct {
 	UID    int64
 }
 
+type legacyNamespacePathForHashTest struct {
+	ID                     int64  `xorm:"pk"`
+	ParentID               int64  `xorm:"INDEX UNIQUE(parent_slug) NOT NULL DEFAULT 0"`
+	Slug                   string `xorm:"VARCHAR(100) NOT NULL"`
+	LowerSlug              string `xorm:"VARCHAR(100) UNIQUE(parent_slug) NOT NULL"`
+	FullPath               string `xorm:"VARCHAR(2048) NOT NULL"`
+	LowerPath              string `xorm:"VARCHAR(2048) UNIQUE NOT NULL"`
+	Kind                   string `xorm:"VARCHAR(16) NOT NULL"`
+	Visibility             int    `xorm:"NOT NULL DEFAULT 2"`
+	Archived               bool   `xorm:"NOT NULL DEFAULT false"`
+	DeleteAfter            int64  `xorm:"INDEX NOT NULL DEFAULT 0"`
+	DeleteActorID          int64
+	Revision               int64 `xorm:"NOT NULL DEFAULT 1"`
+	NativeOwnerTeamID      int64 `xorm:"NOT NULL DEFAULT 0"`
+	RestrictExternalShares bool  `xorm:"NOT NULL DEFAULT false"`
+}
+
+func (*legacyNamespacePathForHashTest) TableName() string { return "governance_namespace" }
+
+type legacyResourcePathForHashTest struct {
+	Path       string `xorm:"VARCHAR(2048) pk"`
+	Kind       string `xorm:"VARCHAR(16) INDEX(resource) NOT NULL"`
+	ResourceID int64  `xorm:"INDEX(resource) NOT NULL"`
+	Alias      bool   `xorm:"NOT NULL DEFAULT false"`
+}
+
+func (*legacyResourcePathForHashTest) TableName() string { return "governance_resource_path" }
+
+func TestPathHashBackfillResolvesOldData(t *testing.T) {
+	driver, connection, err := db.ConnStr(db.ConnOptions{
+		Type: setting.DatabaseTypeSQLite3, SQLitePath: filepath.Join(t.TempDir(), "old-path-test.db"), SQLiteBusyTimeout: 5000,
+	})
+	require.NoError(t, err)
+	engine, err := xorm.NewEngine(driver, connection)
+	require.NoError(t, err)
+	t.Cleanup(db.UnsetDefaultEngine)
+	engine.SetMapper(names.GonicMapper{})
+	db.SetDefaultEngine(t.Context(), engine)
+	require.NoError(t, engine.Sync(new(legacyNamespacePathForHashTest), new(legacyResourcePathForHashTest)))
+	path := "owner/" + strings.Repeat("a", 90)
+	_, err = engine.Insert(&legacyNamespacePathForHashTest{ID: 1, Slug: "old", LowerSlug: "old", FullPath: path, LowerPath: path, Kind: "group", Visibility: 2, Revision: 1})
+	require.NoError(t, err)
+	_, err = engine.Insert(&legacyResourcePathForHashTest{Path: path, Kind: "group", ResourceID: 1})
+	require.NoError(t, err)
+	require.NoError(t, AddPathHashes(engine))
+	result, err := ResolvePath(t.Context(), path)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, result.ResourceID)
+	require.NoError(t, reservePath(t.Context(), path+"/repo", "repository", 2))
+	result, err = ResolvePath(t.Context(), path+"/repo")
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, result.ResourceID)
+}
+
 func (*legacyTestTeamUser) TableName() string { return "team_user" }
 
 func TestNativeNamespacePathsPreserveInternalNames(t *testing.T) {
@@ -142,4 +197,31 @@ func TestNativeOwnerInheritanceUsesCurrentTeamMembership(t *testing.T) {
 	require.Len(t, grants, 1)
 	assert.True(t, EffectiveAbilities(grants)[ReadCode])
 	assert.False(t, EffectiveAbilities(grants)[ManageGroup], "移出原生 Owner 团队后，继承权限立即消失，但保留子组直接授权")
+}
+
+func TestPersonalNamespaceRenameBackRestoresCurrentPath(t *testing.T) {
+	ctx := testDatabase(t)
+	require.NoError(t, db.GetEngine(ctx).Sync(new(legacyTestUser), new(legacyTestRepo)))
+	require.NoError(t, db.Insert(ctx, &legacyTestUser{ID: 1, Name: "alice", Type: 0, Visibility: 2}, &legacyTestRepo{ID: 2, OwnerID: 1, Name: "firmware"}))
+	require.NoError(t, RegisterNativeNamespace(ctx, &Namespace{ID: 1, Slug: "alice", Kind: "user", Visibility: 2}))
+	_, err := RegisterNativeRepository(ctx, 2, 1, "firmware")
+	require.NoError(t, err)
+	require.NoError(t, RenameNativePersonalNamespace(ctx, 1, "alice2", testAudit().Actor))
+	old, err := ResolvePath(ctx, "alice/firmware")
+	require.NoError(t, err)
+	assert.True(t, old.Alias)
+	current, err := ResolvePath(ctx, "alice2/firmware")
+	require.NoError(t, err)
+	assert.False(t, current.Alias)
+	require.NoError(t, RenameNativePersonalNamespace(ctx, 1, "alice", testAudit().Actor))
+	current, err = ResolvePath(ctx, "alice/firmware")
+	require.NoError(t, err)
+	assert.False(t, current.Alias)
+	old, err = ResolvePath(ctx, "alice2/firmware")
+	require.NoError(t, err)
+	assert.True(t, old.Alias)
+	var native legacyTestUser
+	_, err = db.GetEngine(ctx).ID(1).Get(&native)
+	require.NoError(t, err)
+	assert.Equal(t, "alice", native.NamespacePath)
 }

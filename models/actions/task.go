@@ -180,7 +180,7 @@ func GetTaskByID(ctx context.Context, id int64) (*ActionTask, error) {
 // TaskCredentialValid rejects credentials from workflows whose repository
 // scope or lifecycle has changed since the task was issued.
 func TaskCredentialValid(ctx context.Context, task *ActionTask) (bool, error) {
-	if !task.Status.In(StatusRunning, StatusCancelling) {
+	if !task.Status.In(StatusRunning, StatusCancelling) || task.TokenSalt == "" {
 		return false, nil
 	}
 	repo, err := repo_model.GetRepositoryByID(ctx, task.RepoID)

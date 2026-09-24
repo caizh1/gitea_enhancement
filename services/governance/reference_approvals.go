@@ -106,8 +106,7 @@ func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_m
 		if err != nil {
 			return err
 		}
-		read := func(repo *repo_model.Repository, branch string) (string, string, error) {
-			ref := "refs/heads/" + branch
+		read := func(repo *repo_model.Repository, ref string) (string, string, error) {
 			if change, exists := changes[ref]; exists && repo.ID == operation.RepoID {
 				return change.Old, change.New, nil
 			}
@@ -122,11 +121,11 @@ func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_m
 			}
 			return value, value, err
 		}
-		baseBefore, baseAfter, err := read(base, pr.BaseBranch)
+		baseBefore, baseAfter, err := read(base, "refs/heads/"+pr.BaseBranch)
 		if err != nil {
 			return err
 		}
-		headBefore, headAfter, err := read(head, pr.HeadBranch)
+		headBefore, headAfter, err := read(head, pullHeadRef(pr))
 		if err != nil {
 			return err
 		}
@@ -303,13 +302,20 @@ func referenceAffectedPulls(ctx context.Context, repoID int64, changes map[strin
 	}
 	result := pulls[:0]
 	for _, pr := range pulls {
-		_, headChanged := changes["refs/heads/"+pr.HeadBranch]
+		_, headChanged := changes[pullHeadRef(pr)]
 		_, baseChanged := changes["refs/heads/"+pr.BaseBranch]
 		if headChanged && pr.HeadRepoID == repoID || baseChanged && pr.BaseRepoID == repoID {
 			result = append(result, pr)
 		}
 	}
 	return result, nil
+}
+
+func pullHeadRef(pr *issues_model.PullRequest) string {
+	if pr.Flow == issues_model.PullRequestFlowAGit {
+		return pr.GetGitHeadRefName()
+	}
+	return "refs/heads/" + pr.HeadBranch
 }
 
 // validateReferencePullSnapshot 只依赖相关引用与 PR 身份，无关治理写入不使快照过期。

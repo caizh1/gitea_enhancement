@@ -1451,33 +1451,24 @@ func disableOrEnableWorkflowFile(ctx *context_module.Context, isEnable bool) {
 		return
 	}
 
-	cfgUnit := ctx.Repo.Repository.MustGetUnit(ctx, unit.TypeActions)
-	cfg := cfgUnit.ActionsConfig()
-
 	scopedRepoID := ctx.FormInt64("scoped_workflow_source_repo_id")
-	if scopedRepoID > 0 {
-		if !isEnable {
-			// a required scoped workflow can never be opted out
-			required, err := actions_model.IsScopedWorkflowRequired(ctx, ctx.Repo.Repository.OwnerID, scopedRepoID, workflow)
-			if err != nil {
-				ctx.ServerError("IsScopedWorkflowRequired", err)
-				return
-			}
-			if required {
+	err := actions_service.SetWorkflowEnabled(ctx, governance_model.AuditActor(ctx), ctx.Repo.Repository.ID, workflow, scopedRepoID, isEnable, true)
+	if errors.Is(err, util.ErrPermissionDenied) {
+		ctx.HTTPError(http.StatusForbidden)
+		return
+	}
+	if errors.Is(err, governance_model.ErrConflict) {
+		if scopedRepoID > 0 && !isEnable {
+			required, checkErr := actions_model.IsScopedWorkflowRequired(ctx, ctx.Repo.Repository.OwnerID, scopedRepoID, workflow)
+			if checkErr == nil && required {
 				ctx.JSONError(ctx.Locale.Tr("actions.workflow.scoped_required_cannot_disable"))
 				return
 			}
-			cfg.DisableScopedWorkflow(scopedRepoID, workflow)
-		} else {
-			cfg.EnableScopedWorkflow(scopedRepoID, workflow)
 		}
-	} else if isEnable {
-		cfg.EnableWorkflow(workflow)
-	} else {
-		cfg.DisableWorkflow(workflow)
+		ctx.HTTPError(http.StatusConflict)
+		return
 	}
-
-	if err := repo_model.UpdateRepoUnitConfig(ctx, cfgUnit); err != nil {
+	if err != nil {
 		ctx.ServerError("UpdateRepoUnit", err)
 		return
 	}

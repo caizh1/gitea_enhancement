@@ -188,17 +188,34 @@ func TestWebhookSnapshotPauseAndDelete(t *testing.T) {
 	require.True(t, pending.IsDelivered)
 	require.Contains(t, pending.ResponseContent, "webhook disabled")
 	require.Contains(t, pending.ResponseInfo.Body, "webhook disabled")
+	require.Empty(t, handler(pendingID))
+	require.EqualValues(t, 1, oldCalls.Load(), "停用前入队的任务不得发送 HTTP")
+	require.Zero(t, newCalls.Load())
 	_, authorized, err = authorizeHookDelivery(t.Context(), pending)
 	require.NoError(t, err)
 	require.False(t, authorized)
 	hook.IsActive = true
 	require.NoError(t, webhook_model.UpdateWebhook(t.Context(), hook))
+	var deletionPendingID int64
+	require.NoError(t, governance_model.WithWrite(t.Context(), nil, func(ctx context.Context) error {
+		var err error
+		deletionPendingID, err = createScopedHookTask(ctx, hook, scope, webhook_module.HookEventPush, payload, string(data), false)
+		return err
+	}))
 	require.NoError(t, webhook_model.DeleteWebhookByID(t.Context(), hook.ID))
+	require.Empty(t, handler(deletionPendingID))
+	require.EqualValues(t, 1, oldCalls.Load(), "删除前入队的任务不得发送 HTTP")
+	require.Zero(t, newCalls.Load())
 	pending, err = webhook_model.GetHookTaskByID(t.Context(), pendingID)
 	require.NoError(t, err)
 	require.Empty(t, pending.PayloadContent)
 	require.Empty(t, pending.HookSnapshotEncrypted)
 	require.Contains(t, pending.ResponseContent, "redacted")
+	deletionPending, err := webhook_model.GetHookTaskByID(t.Context(), deletionPendingID)
+	require.NoError(t, err)
+	require.True(t, deletionPending.IsDelivered)
+	require.Empty(t, deletionPending.PayloadContent)
+	require.Empty(t, deletionPending.HookSnapshotEncrypted)
 }
 
 func TestAncestorWebhookDeletedEventRepository(t *testing.T) {

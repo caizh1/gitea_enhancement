@@ -82,6 +82,34 @@ func TestNamespaceDepthAndCollision(t *testing.T) {
 	assert.EqualValues(t, 1, chain[19].ID)
 }
 
+func TestLongNamespacePathsKeepFullIdentity(t *testing.T) {
+	ctx := testDatabase(t)
+	parentID := int64(0)
+	for id := int64(1); id <= 9; id++ {
+		testGroup(ctx, t, id, parentID, strings.Repeat("a", 90))
+		parentID = id
+	}
+	for _, item := range []struct {
+		id   int64
+		slug string
+	}{{10, "lower"}, {11, "LOWER2"}} {
+		testGroup(ctx, t, item.id, parentID, item.slug)
+	}
+	left, err := GetNamespace(ctx, 10)
+	require.NoError(t, err)
+	right, err := GetNamespace(ctx, 11)
+	require.NoError(t, err)
+	require.Greater(t, len(left.LowerPath), 768)
+	require.Equal(t, left.LowerPath[:768], right.LowerPath[:768])
+	require.NotEqual(t, left.LowerPathHash, right.LowerPathHash)
+	for _, namespace := range []*Namespace{left, right} {
+		path, err := ResolvePath(ctx, namespace.FullPath)
+		require.NoError(t, err)
+		assert.Equal(t, namespace.ID, path.ResourceID)
+	}
+	assert.ErrorIs(t, InsertNamespace(ctx, &Namespace{ID: 12, ParentID: parentID, Slug: "LOWER", Kind: "group", Visibility: 2}), ErrConflict)
+}
+
 func TestPermissionSourcesAndSharing(t *testing.T) {
 	ctx := testDatabase(t)
 	testGroup(ctx, t, 1, 0, "acme")
@@ -173,6 +201,13 @@ func TestNamespaceMoveIsAtomicAndKeepsAliases(t *testing.T) {
 	namespace, err = GetNamespace(ctx, 3)
 	require.NoError(t, err)
 	assert.Equal(t, "destination/research/storage", namespace.FullPath, "目标冲突必须回滚整个子树")
+	require.NoError(t, MoveNamespace(ctx, 2, 1, 2, "rd_core", testAudit().Actor, authorize))
+	current, err = ResolvePath(ctx, "acme/rd_core/storage/firmware")
+	require.NoError(t, err)
+	assert.False(t, current.Alias, "移回原路径应恢复规范地址")
+	old, err = ResolvePath(ctx, "destination/research/storage/firmware")
+	require.NoError(t, err)
+	assert.True(t, old.Alias, "移动后的旧地址仍受同一资源占用")
 }
 
 func testAudit() *AuditEvent {

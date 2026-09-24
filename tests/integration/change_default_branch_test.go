@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -16,6 +17,7 @@ import (
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestChangeDefaultBranch(t *testing.T) {
@@ -80,6 +82,7 @@ func checkDivergence(t *testing.T, session *TestSession, branchesURL, expectedDe
 
 func TestChangeDefaultBranchDivergence(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 16})
 	owner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: repo.OwnerID})
 

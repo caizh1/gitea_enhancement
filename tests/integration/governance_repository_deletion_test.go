@@ -64,7 +64,9 @@ func TestGovernanceRepositoryDeletionRealGit(t *testing.T) {
 		option := repo_service.DeletionOption{ConfirmationPath: state.FullPath, DueUnix: state.Pending.DueUnix}
 		MakeRequest(t, NewRequestWithJSON(t, "POST", endpoint+"/restore", option).AddTokenAuth(token), http.StatusOK)
 		doGitPushTestRepository(local, "origin", created.DefaultBranch)(t)
-		// 恢复后普通改名仍使用同一正文，后续转移再由原生流程移动到新所有者目录。
+		afterPush, err := git.GetFullCommitID(ctx, local, "HEAD")
+		require.NoError(t, err)
+		// 恢复、改名和转移保持首次物理存储路径，公开仓库路径另行更新。
 		MakeRequest(t, NewRequestWithJSON(t, "PATCH", "/api/v1/repos/user2/repository-deletion-real", api.EditRepoOption{Name: new("repository-deletion-renamed")}).AddTokenAuth(token), http.StatusOK)
 		fresh, err = repo_model.GetRepositoryByID(ctx, repo.ID)
 		require.NoError(t, err)
@@ -77,10 +79,16 @@ func TestGovernanceRepositoryDeletionRealGit(t *testing.T) {
 		fresh, err = repo_model.GetRepositoryByID(ctx, repo.ID)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, fresh.OwnerID)
-		require.Empty(t, fresh.GovernanceStorageName)
+		require.Equal(t, "user2", fresh.GovernanceStorageOwner)
+		require.Equal(t, "repository-deletion-real", fresh.GovernanceStorageName)
+		require.Equal(t, originalPath, fresh.RepoPath(), "转移后继续使用首次路径下的真实正文")
 		renamedURL.User = url.UserPassword("user1", "password")
 		renamedURL.Path = "/user1/repository-deletion-renamed.git"
-		doGitClone(filepath.Join(t.TempDir(), "转移后读取"), &renamedURL)(t)
+		transferredClone := filepath.Join(t.TempDir(), "转移后读取")
+		doGitClone(transferredClone, &renamedURL)(t)
+		transferredHead, err := git.GetFullCommitID(ctx, transferredClone, "HEAD")
+		require.NoError(t, err)
+		require.Equal(t, afterPush, transferredHead, "转移后的新公开路径必须读取同一已写入正文")
 		token = adminToken
 		response = MakeRequest(t, NewRequestWithJSON(t, "POST", endpoint+"/deletion", repo_service.DeletionOption{ConfirmationPath: fresh.FullPath()}).AddTokenAuth(token), http.StatusOK)
 		state = DecodeJSON(t, response, &repo_service.DeletionState{})
@@ -90,6 +98,7 @@ func TestGovernanceRepositoryDeletionRealGit(t *testing.T) {
 		exists, err := gitrepo.IsRepositoryExist(ctx, fresh)
 		require.NoError(t, err)
 		require.False(t, exists)
+		require.NoDirExists(t, originalPath, "永久删除后不能留下仍可被误认领的物理正文")
 	})
 }
 

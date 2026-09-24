@@ -81,15 +81,15 @@ func Ancestors(ctx context.Context, id int64) ([]*Namespace, error) {
 func reservePath(ctx context.Context, path, kind string, id int64) error {
 	var old ResourcePath
 	path = strings.ToLower(path)
-	has, err := db.GetEngine(ctx).ID(path).Get(&old)
+	has, err := db.GetEngine(ctx).Where("path_hash = ?", pathHash(path)).Get(&old)
 	if err != nil {
 		return err
 	}
 	if has {
-		if old.Kind != kind || old.ResourceID != id {
+		if old.Path != path || old.Kind != kind || old.ResourceID != id {
 			return fmt.Errorf("%w：路径或历史别名已被占用", ErrConflict)
 		}
-		_, err = db.GetEngine(ctx).ID(path).Cols("alias").Update(&ResourcePath{Alias: false})
+		_, err = db.GetEngine(ctx).Where("path_hash = ? AND path = ?", pathHash(path), path).Cols("alias").Update(&ResourcePath{Alias: false})
 		return err
 	}
 	return db.Insert(ctx, &ResourcePath{Path: path, Kind: kind, ResourceID: id})
@@ -134,11 +134,12 @@ func ResolvePath(ctx context.Context, path string) (*ResourcePath, error) {
 		return nil, ErrInvalid
 	}
 	var result ResourcePath
-	has, err := db.GetEngine(ctx).ID(strings.ToLower(path)).Get(&result)
+	canonical := strings.ToLower(path)
+	has, err := db.GetEngine(ctx).Where("path_hash = ?", pathHash(canonical)).Get(&result)
 	if err != nil {
 		return nil, err
 	}
-	if !has {
+	if !has || result.Path != canonical {
 		return nil, ErrNotFound
 	}
 	return &result, nil
@@ -216,16 +217,17 @@ func moveNamespace(ctx context.Context, id, parentID, revision int64, slug strin
 					return fmt.Errorf("%w：移动后超出二十层限制", ErrInvalid)
 				}
 				child.FullPath, child.LowerPath = path, strings.ToLower(path)
+				child.LowerPathHash = pathHash(child.LowerPath)
 				child.Revision++
 				if child.ID == id {
 					child.ParentID, child.Slug, child.LowerSlug = parentID, slug, strings.ToLower(slug)
 				}
-				if _, err := db.GetEngine(ctx).ID(child.ID).Cols("parent_id", "slug", "lower_slug", "full_path", "lower_path", "revision").Update(child); err != nil {
+				if _, err := db.GetEngine(ctx).ID(child.ID).Cols("parent_id", "slug", "lower_slug", "full_path", "lower_path", "lower_path_hash", "revision").Update(child); err != nil {
 					return err
 				}
 			}
 			for _, path := range paths {
-				if _, err := db.GetEngine(ctx).ID(path.Path).Cols("alias").Update(&ResourcePath{Alias: true}); err != nil {
+				if _, err := db.GetEngine(ctx).Where("path_hash = ? AND path = ?", pathHash(path.Path), path.Path).Cols("alias").Update(&ResourcePath{Alias: true}); err != nil {
 					return err
 				}
 			}

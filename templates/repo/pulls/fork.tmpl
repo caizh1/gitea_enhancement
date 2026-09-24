@@ -11,9 +11,9 @@
 					<label>{{ctx.Locale.Tr "repo.owner"}}</label>
 					<div class="ui selection owner dropdown ellipsis-text-items">
 						<input type="hidden" id="uid" name="uid" value="{{.ContextUser.ID}}" required>
-						<span class="text" title="{{.ContextUser.Name}}">
+						<span class="text" title="{{.ContextUser.FullPath}}">
 							{{ctx.AvatarUtils.Avatar .ContextUser 28 "mini"}}
-							{{.ContextUser.ShortName 40}}
+							{{.ContextUser.FullPath}}
 						</span>
 						{{svg "octicon-triangle-down" 14 "dropdown icon"}}
 						<div class="menu">
@@ -24,9 +24,9 @@
 								</div>
 							{{end}}
 							{{range .Orgs}}
-								<div class="item" data-value="{{.ID}}" title="{{.Name}}">
+								<div class="item" data-value="{{.ID}}" title="{{.FullPath}}">
 									{{ctx.AvatarUtils.Avatar . 28 "mini"}}
-									{{.ShortName 40}}
+									{{.FullPath}}
 								</div>
 							{{end}}
 						</div>

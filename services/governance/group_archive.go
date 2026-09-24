@@ -13,7 +13,6 @@ import (
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
-	webhook_module "gitea.dev/modules/webhook"
 )
 
 type GroupArchiveOption struct {
@@ -148,8 +147,8 @@ func SetGroupArchiveState(ctx context.Context, actor governance_model.Actor, id 
 					return err
 				}
 				if option.Archived {
-					// 保留定时定义，恢复后由原生调度器继续；终止已发出的定时任务。
-					if _, err := actions_model.CancelPreviousJobs(ctx, repo.ID, repo.DefaultBranch, "", webhook_module.HookEventSchedule); err != nil {
+					// 恢复后重新触发；归档前的未完成任务不能再次领取。
+					if err := actions_model.CancelPreviousJobsForRepositoryLifecycle(ctx, repo.ID); err != nil {
 						return err
 					}
 				}

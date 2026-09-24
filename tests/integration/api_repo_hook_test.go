@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/models/webhook"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/tests"
 
@@ -20,6 +22,7 @@ import (
 
 func TestAPICreateHook(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 37})
 	owner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: repo.OwnerID})
@@ -32,7 +35,10 @@ func TestAPICreateHook(t *testing.T) {
 		Config: api.CreateHookOptionConfig{
 			"content_type": "json",
 			"url":          "http://example.com/",
+			"secret":       "isolated-signing-key",
 		},
+		Events:              []string{"push", "issues"},
+		BranchFilter:        "release/*",
 		AuthorizationHeader: "Bearer s3cr3t",
 		Name:                "  CI notifications  ",
 	}).AddTokenAuth(token)
@@ -43,6 +49,12 @@ func TestAPICreateHook(t *testing.T) {
 	// the stored authorization header is a secret and must never be returned by the API
 	assert.Empty(t, apiHook.AuthorizationHeader)
 	assert.Equal(t, "CI notifications", apiHook.Name)
+	assert.Contains(t, apiHook.Events, "push")
+	assert.Contains(t, apiHook.Events, "issues")
+	stored := unittest.AssertExistsAndLoadBean(t, &webhook.Webhook{ID: apiHook.ID})
+	initialHeader := stored.HeaderAuthorizationEncrypted
+	assert.NotEmpty(t, initialHeader)
+	assert.Equal(t, "isolated-signing-key", stored.Secret)
 
 	// a read-scoped token must not be able to read back the authorization header
 	readToken := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeReadRepository)
@@ -58,6 +70,47 @@ func TestAPICreateHook(t *testing.T) {
 	patchResp := MakeRequest(t, patchReq, http.StatusOK)
 	patched := DecodeJSON(t, patchResp, &api.Hook{})
 	assert.Equal(t, newName, patched.Name)
+	assert.ElementsMatch(t, apiHook.Events, patched.Events)
+	assert.Equal(t, "release/*", patched.BranchFilter)
+	stored = unittest.AssertExistsAndLoadBean(t, &webhook.Webhook{ID: apiHook.ID})
+	assert.Equal(t, initialHeader, stored.HeaderAuthorizationEncrypted)
+	assert.Equal(t, "isolated-signing-key", stored.Secret)
+	assert.Equal(t, "http://example.com/", stored.URL)
+	assert.Equal(t, webhook.ContentTypeJSON, stored.ContentType)
+	invalidReq := NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/%s/%s/hooks/%d", owner.Name, repo.Name, apiHook.ID), api.EditHookOption{
+		BranchFilter: new("[a-"),
+	}).AddTokenAuth(token)
+	MakeRequest(t, invalidReq, http.StatusUnprocessableEntity)
+	stored = unittest.AssertExistsAndLoadBean(t, &webhook.Webhook{ID: apiHook.ID})
+	assert.Equal(t, "release/*", stored.BranchFilter)
+	assert.Equal(t, initialHeader, stored.HeaderAuthorizationEncrypted)
+	changeReq := NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/%s/%s/hooks/%d", owner.Name, repo.Name, apiHook.ID), api.EditHookOption{
+		Events:              []string{"pull_request"},
+		BranchFilter:        new("feature/*"),
+		AuthorizationHeader: new("Bearer replacement"),
+	}).AddTokenAuth(token)
+	changed := DecodeJSON(t, MakeRequest(t, changeReq, http.StatusOK), &api.Hook{})
+	assert.Contains(t, changed.Events, "pull_request")
+	assert.NotContains(t, changed.Events, "push")
+	assert.Equal(t, "feature/*", changed.BranchFilter)
+	stored = unittest.AssertExistsAndLoadBean(t, &webhook.Webhook{ID: apiHook.ID})
+	value, err := stored.HeaderAuthorization()
+	assert.NoError(t, err)
+	assert.Equal(t, "Bearer replacement", value)
+	clearOptionsReq := NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/%s/%s/hooks/%d", owner.Name, repo.Name, apiHook.ID), api.EditHookOption{
+		Config:              map[string]string{},
+		Events:              []string{},
+		BranchFilter:        new(""),
+		AuthorizationHeader: new(""),
+	}).AddTokenAuth(token)
+	clearedFields := DecodeJSON(t, MakeRequest(t, clearOptionsReq, http.StatusOK), &api.Hook{})
+	assert.Equal(t, []string{"push"}, clearedFields.Events)
+	assert.Empty(t, clearedFields.BranchFilter)
+	stored = unittest.AssertExistsAndLoadBean(t, &webhook.Webhook{ID: apiHook.ID})
+	assert.Empty(t, stored.HeaderAuthorizationEncrypted)
+	assert.Equal(t, "isolated-signing-key", stored.Secret)
+	assert.Equal(t, "http://example.com/", stored.URL)
+	assert.Equal(t, webhook.ContentTypeJSON, stored.ContentType)
 
 	hooksURL := fmt.Sprintf("/api/v1/repos/%s/%s/hooks", owner.Name, repo.Name)
 

@@ -22,6 +22,7 @@ import (
 	"gitea.dev/modules/web"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -53,9 +54,9 @@ func getForkRepository(ctx *context.Context) *repo_model.Repository {
 
 	ctx.Data["ForkRepo"] = forkRepo
 
-	ownedOrgs, err := organization.GetOrgsCanCreateRepoByUserID(ctx, ctx.Doer.ID)
+	ownedOrgs, err := governance_service.NavigationOrganizations(ctx, ctx.Doer.ID, true)
 	if err != nil {
-		ctx.ServerError("GetOrgsCanCreateRepoByUserID", err)
+		ctx.ServerError("NavigationOrganizations", err)
 		return nil
 	}
 	var orgs []*organization.Organization

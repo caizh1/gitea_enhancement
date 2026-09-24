@@ -5,7 +5,9 @@
 package governance
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"time"
 
 	"gitea.dev/models/db"
@@ -26,7 +28,8 @@ type Namespace struct {
 	Slug                   string `xorm:"VARCHAR(100) NOT NULL" json:"path"`
 	LowerSlug              string `xorm:"VARCHAR(100) UNIQUE(parent_slug) NOT NULL" json:"-"`
 	FullPath               string `xorm:"VARCHAR(2048) NOT NULL" json:"full_path"`
-	LowerPath              string `xorm:"VARCHAR(2048) UNIQUE NOT NULL" json:"-"`
+	LowerPath              string `xorm:"VARCHAR(2048) NOT NULL" json:"-"`
+	LowerPathHash          string `xorm:"CHAR(64) UNIQUE NOT NULL" json:"-"`
 	Kind                   string `xorm:"VARCHAR(16) NOT NULL" json:"kind"`
 	Visibility             int    `xorm:"NOT NULL DEFAULT 2" json:"visibility"`
 	Archived               bool   `xorm:"NOT NULL DEFAULT false" json:"archived"`
@@ -39,15 +42,22 @@ type Namespace struct {
 
 func (*Namespace) TableName() string { return "governance_namespace" }
 
+func (n *Namespace) BeforeInsert() { n.LowerPathHash = pathHash(n.LowerPath) }
+
 // ResourcePath 同时占用群组和仓库地址，旧地址不能被重新注册。
 type ResourcePath struct {
-	Path       string `xorm:"VARCHAR(2048) pk" json:"path"`
+	Path       string `xorm:"VARCHAR(2048) NOT NULL" json:"path"`
+	PathHash   string `xorm:"CHAR(64) UNIQUE NOT NULL" json:"-"`
 	Kind       string `xorm:"VARCHAR(16) INDEX(resource) NOT NULL" json:"kind"`
 	ResourceID int64  `xorm:"INDEX(resource) NOT NULL" json:"resource_id"`
 	Alias      bool   `xorm:"NOT NULL DEFAULT false" json:"alias"`
 }
 
 func (*ResourcePath) TableName() string { return "governance_resource_path" }
+
+func (p *ResourcePath) BeforeInsert() { p.PathHash = pathHash(p.Path) }
+
+func pathHash(path string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(path))) }
 
 type Membership struct {
 	ID           int64  `xorm:"pk autoincr" json:"id"`
@@ -175,6 +185,7 @@ func (d AuditDetails) MarshalJSON() ([]byte, error) {
 	}
 	return json.Value(d).MarshalJSON()
 }
+
 func (d *AuditDetails) UnmarshalJSON(raw []byte) error {
 	var value json.Value
 	if err := value.UnmarshalJSON(raw); err != nil {

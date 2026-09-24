@@ -15,9 +15,11 @@ import (
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/actions"
 	"gitea.dev/modules/actions/jobparser"
 	"gitea.dev/modules/container"
@@ -115,7 +117,7 @@ func List(ctx *context.Context) {
 		return
 	}
 
-	prepareWorkflowList(ctx, workflows, otherWorkflows, len(scopedNames) > 0)
+	prepareWorkflowList(ctx, workflows, otherWorkflows, ctx.Data["HasScopedWorkflowGroups"] == true)
 	if ctx.Written() {
 		return
 	}
@@ -269,8 +271,38 @@ type ScopedWorkflowSourceGroup struct {
 	SourceRepoName      string // owner/name of the source repo; shown for instance-level sources and used as the tooltip
 	SourceRepoShortName string // name only; shown for owner-level sources, where the owner is always the current owner
 	FromInstance        bool   // registered at instance level (owner_id == 0) rather than by the owner
-	IsActive            bool   // the currently-selected workflow belongs to this source; render the group expanded
+	IsActive            bool   // expand the selected source or an unavailable source with its explanation
+	Unavailable         bool
+	NeedsReconfirmation bool
+	SettingsURL         string
 	Workflows           []ScopedWorkflowInfo
+}
+
+func scopedWorkflowSettingsURL(ctx *context.Context, ownerID int64) string {
+	if ctx.Doer == nil {
+		return ""
+	}
+	if ownerID == 0 {
+		if ctx.Doer.IsAdmin {
+			return setting.AppSubURL + "/-/admin/actions/scoped-workflows"
+		}
+		return ""
+	}
+	if ownerID == ctx.Doer.ID {
+		return setting.AppSubURL + "/user/settings/actions/scoped-workflows"
+	}
+	owner, err := user_model.GetUserByID(ctx, ownerID)
+	if err != nil || !owner.IsOrganization() {
+		return ""
+	}
+	allowed := ctx.Doer.IsAdmin
+	if !allowed {
+		allowed, err = organization.IsOrganizationOwner(ctx, ownerID, ctx.Doer.ID)
+	}
+	if err == nil && allowed {
+		return owner.OrganisationLink() + "/settings/actions/scoped-workflows"
+	}
+	return ""
 }
 
 // prepareScopedWorkflows lists the scoped workflows effective for the repo's owner (and instance) for the All-Workflows sidebar.
@@ -300,12 +332,33 @@ func prepareScopedWorkflows(ctx *context.Context, curWorkflowID string, curWorkf
 		sourceRepo, err := repo_model.GetRepositoryByID(ctx, source.SourceRepoID)
 		if err != nil {
 			log.Error("scoped workflows list: load source repo %d: %v", source.SourceRepoID, err)
+		}
+		sourceName := fmt.Sprintf("#%d", source.SourceRepoID)
+		sourceShortName := sourceName
+		if sourceRepo != nil {
+			if perm, err := access_model.GetDoerRepoPermission(ctx, sourceRepo, ctx.Doer); err == nil && perm.CanRead(unit.TypeCode) {
+				sourceName = sourceRepo.FullName()
+				sourceShortName = sourceRepo.Name
+			}
+		}
+		group := ScopedWorkflowSourceGroup{
+			SourceRepoID:        source.SourceRepoID,
+			SourceRepoName:      sourceName,
+			SourceRepoShortName: sourceShortName,
+			FromInstance:        source.OwnerID == 0,
+		}
+		valid, validErr := actions_model.ScopedWorkflowSourceValid(ctx, repo.OwnerID, source.SourceRepoID)
+		if validErr != nil {
+			log.Error("scoped workflows list: validate source %d: %v", source.SourceRepoID, validErr)
+		}
+		if sourceRepo == nil || !valid || validErr != nil {
+			group.Unavailable = true
+			group.NeedsReconfirmation = sourceRepo == nil || source.SourceScopeRevision != sourceRepo.ActionsScopeRevision || source.OwnerID != 0 && source.OwnerID != sourceRepo.OwnerID
+			group.SettingsURL = scopedWorkflowSettingsURL(ctx, source.OwnerID)
+			group.IsActive = true
+			groups = append(groups, group)
 			continue
 		}
-		if sourceRepo.IsEmpty {
-			continue
-		}
-
 		_, entries, err := actions_service.LoadParsedScopedWorkflows(ctx, sourceRepo)
 		if err != nil {
 			log.Error("scoped workflows list: parse %s: %v", sourceRepo.FullName(), err)
@@ -313,19 +366,6 @@ func prepareScopedWorkflows(ctx *context.Context, curWorkflowID string, curWorkf
 		}
 		if len(entries) == 0 {
 			continue
-		}
-
-		sourceName := fmt.Sprintf("#%d", sourceRepo.ID)
-		sourceShortName := sourceName
-		if perm, err := access_model.GetDoerRepoPermission(ctx, sourceRepo, ctx.Doer); err == nil && perm.CanRead(unit.TypeCode) {
-			sourceName = sourceRepo.FullName()
-			sourceShortName = sourceRepo.Name
-		}
-		group := ScopedWorkflowSourceGroup{
-			SourceRepoID:        sourceRepo.ID,
-			SourceRepoName:      sourceName,
-			SourceRepoShortName: sourceShortName,
-			FromInstance:        source.OwnerID == 0,
 		}
 		for _, e := range entries {
 			scopedNames.Add(e.EntryName)
@@ -350,14 +390,15 @@ func prepareScopedWorkflows(ctx *context.Context, curWorkflowID string, curWorkf
 	}
 
 	ctx.Data["ScopedWorkflowGroups"] = groups
+	ctx.Data["HasScopedWorkflowGroups"] = len(groups) > 0
 	return scopedNames
 }
 
 // loadScopedWorkflowModel reads and parses a scoped workflow's content from its source repo's default branch.
 func loadScopedWorkflowModel(ctx *context.Context, repo *repo_model.Repository, sourceRepoID int64, workflowID string) *act_model.Workflow {
-	effective, err := actions_model.IsScopedWorkflowSourceEffective(ctx, repo.OwnerID, sourceRepoID)
+	effective, err := actions_model.ScopedWorkflowSourceValid(ctx, repo.OwnerID, sourceRepoID)
 	if err != nil {
-		log.Error("scoped dispatch: IsScopedWorkflowSourceEffective: %v", err)
+		log.Error("scoped dispatch: ScopedWorkflowSourceValid: %v", err)
 		return nil
 	}
 	if !effective {

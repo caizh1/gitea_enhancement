@@ -19,7 +19,6 @@ import (
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
-	webhook_module "gitea.dev/modules/webhook"
 )
 
 type DeletionOption struct {
@@ -100,7 +99,7 @@ func ScheduleRepositoryDeletion(ctx context.Context, actor governance_model.Acto
 		if err := repo_model.SetArchiveRepoState(ctx, repo, true); err != nil {
 			return err
 		}
-		if _, err := actions_model.CancelPreviousJobs(ctx, id, repo.DefaultBranch, "", webhook_module.HookEventSchedule); err != nil {
+		if err := actions_model.CancelPreviousJobsForRepositoryLifecycle(ctx, id); err != nil {
 			return err
 		}
 		suffix := fmt.Sprintf("-deletion-%d-%d", id, time.Now().UnixNano())

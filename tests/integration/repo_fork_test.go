@@ -10,15 +10,20 @@ import (
 	"strconv"
 	"testing"
 
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	repo_module "gitea.dev/modules/repository"
 	"gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
+	governance_service "gitea.dev/services/governance"
 	org_service "gitea.dev/services/org"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testRepoFork(t *testing.T, session *TestSession, ownerName, repoName, forkOwnerName, forkRepoName, forkBranch string) *httptest.ResponseRecorder {
@@ -68,6 +73,7 @@ func TestRepoFork(t *testing.T) {
 
 func TestRepoForkToOrg(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 	session := loginUser(t, "user2")
 	testRepoFork(t, session, "user2", "repo1", "org3", "repo1", "")
 
@@ -78,6 +84,54 @@ func TestRepoForkToOrg(t *testing.T) {
 	htmlDoc := NewHTMLParser(t, resp.Body)
 	_, exists := htmlDoc.doc.Find(`a.ui.button[href*="/fork"]`).Attr("href")
 	assert.False(t, exists, "Forking should not be allowed anymore")
+}
+
+func TestRepoForkAndCreateOfferInheritedGroupOwner(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	owner := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}
+	child, err := governance_service.CreateGroup(ctx, owner, governance_service.GroupOption{Path: "fork-inherited-owner", ParentID: 3, Visibility: 2})
+	require.NoError(t, err)
+	root, err := governance_model.GetNamespace(ctx, 3)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.SetGroupMember(ctx, owner, 3,
+		governance_service.GroupMemberOption{UserID: 5, Role: governance_model.Owner, Revision: root.Revision}, false))
+	member, err := org_model.IsOrganizationMember(ctx, child.ID, 5)
+	require.NoError(t, err)
+	require.True(t, member)
+	teams, err := org_model.GetUserOrgTeams(ctx, child.ID, 5)
+	require.NoError(t, err)
+	require.Empty(t, teams)
+	personalOwner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 21})
+	personalRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 34})
+	allowed, err := repo_module.CanUserForkRepo(ctx, personalOwner, personalRepo)
+	require.NoError(t, err)
+	require.False(t, allowed)
+	root, err = governance_model.GetNamespace(ctx, 3)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.SetGroupMember(ctx, owner, 3,
+		governance_service.GroupMemberOption{UserID: personalOwner.ID, Role: governance_model.Owner, Revision: root.Revision}, false))
+	allowed, err = repo_module.CanUserForkRepo(ctx, personalOwner, personalRepo)
+	require.NoError(t, err)
+	require.True(t, allowed)
+
+	session := loginUser(t, "user5")
+	for _, path := range []string{"/repo/create", "/user2/repo1/fork", fmt.Sprintf("/repo/migrate?service_type=%d", structs.PlainGitService)} {
+		response := session.MakeRequest(t, NewRequest(t, "GET", path), http.StatusOK)
+		document := NewHTMLParser(t, response.Body)
+		selector := fmt.Sprintf(".owner.dropdown .item[data-value=\"%d\"]", child.ID)
+		if path == "/repo/create" {
+			selector = fmt.Sprintf("#repo_owner_dropdown .item[data-value=\"%d\"]", child.ID)
+		}
+		item := document.doc.Find(selector)
+		require.Equal(t, 1, item.Length(), path)
+		title, exists := item.Attr("title")
+		require.True(t, exists, path)
+		require.Equal(t, child.FullPath, title, path)
+		require.Contains(t, item.Text(), child.FullPath, path)
+		require.Equal(t, 0, document.doc.Find(fmt.Sprintf(".item[data-value=\"%d\"]", 35)).Length(), path)
+	}
 }
 
 func TestForkListLimitedAndPrivateRepos(t *testing.T) {

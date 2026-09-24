@@ -11,6 +11,7 @@ import (
 
 	"gitea.dev/models/db"
 	"gitea.dev/modules/json"
+	"gitea.dev/modules/setting"
 
 	"github.com/google/uuid"
 )
@@ -168,6 +169,17 @@ func appendMergeAudit(ctx context.Context, operation *MergeAuthorization, eventT
 // WithStableRead 与治理变更互斥读取数据库快照，但不推进修订号；回调只允许数据库查询。
 func WithStableRead(ctx context.Context, f func(context.Context) error) error {
 	return db.WithTx(ctx, func(ctx context.Context) error {
+		if setting.Database.Type.IsMySQL() {
+			var lock WriteLock
+			has, err := db.GetEngine(ctx).ID(1).ForUpdate().Get(&lock)
+			if err != nil {
+				return err
+			}
+			if !has {
+				return ErrConflict
+			}
+			return f(ctx)
+		}
 		affected, err := db.GetEngine(ctx).ID(1).Incr("revision", 0).Update(new(WriteLock))
 		if err != nil {
 			return err

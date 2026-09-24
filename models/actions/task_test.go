@@ -302,6 +302,24 @@ func TestTaskCancellingFinalizesToCancelled(t *testing.T) {
 	})
 }
 
+func TestCancellingTaskKeepsCredentialWithoutLifecycleRevocation(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	require.NoError(t, db.Insert(t.Context(), &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	task, _ := newRunningTaskForCancelling(t, "normal-cancelling-credential", true)
+	task.GenerateAndFillToken()
+	_, err := db.GetEngine(t.Context()).ID(task.ID).Cols("token_salt", "token_hash", "token_last_eight").Update(task)
+	require.NoError(t, err)
+	_, err = GetRunningTaskByToken(t.Context(), task.Token)
+	require.NoError(t, err)
+	require.NoError(t, StopTask(t.Context(), task.ID, StatusCancelling))
+	current := unittest.AssertExistsAndLoadBean(t, &ActionTask{ID: task.ID})
+	require.Equal(t, StatusCancelling, current.Status)
+	require.NotEmpty(t, current.TokenSalt)
+	_, err = GetRunningTaskByToken(t.Context(), task.Token)
+	require.NoError(t, err)
+}
+
 // TestStopTaskCancellingFallsBackToCancelled covers the cases where the cancelling handshake can
 // never complete, so StopTask must cancel right away instead of waiting for the zombie task cleanup.
 func TestStopTaskCancellingFallsBackToCancelled(t *testing.T) {

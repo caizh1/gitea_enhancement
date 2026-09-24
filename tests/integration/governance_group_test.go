@@ -88,6 +88,21 @@ func TestGovernanceGroupHTTP(t *testing.T) {
 	})
 }
 
+func TestTopLevelGroupCreationDeniedWeb(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		admin := getUserToken(t, "user1", auth_model.AccessTokenScopeAll)
+		allowed := false
+		MakeRequest(t, NewRequestWithJSON(t, "PATCH", "/api/v1/admin/users/user4", api.EditUserOption{AllowCreateOrganization: &allowed}).AddTokenAuth(admin), http.StatusOK)
+		user := loginUser(t, "user4")
+		page := user.MakeRequest(t, NewRequest(t, "GET", "/governance/groups?create=1"), http.StatusOK)
+		assert.NotContains(t, page.Body.String(), "500 Internal Server Error")
+		assert.NotContains(t, page.Body.String(), "创建顶级群组</summary>")
+		user.MakeRequest(t, NewRequest(t, "GET", "/org/create"), http.StatusNotFound)
+		user.MakeRequest(t, NewRequestWithValues(t, "POST", "/org/create", map[string]string{"org_name": "m01-denied-native"}), http.StatusNotFound)
+		user.MakeRequest(t, NewRequestWithValues(t, "POST", "/governance/groups", map[string]string{"name": "拒绝创建", "path": "m01-denied-group", "visibility": "2"}), http.StatusNotFound)
+	})
+}
+
 func TestGovernanceGroupShareHTTP(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, baseURL *url.URL) {
 		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
@@ -177,13 +192,17 @@ func TestGovernanceRepositorySharingHTTP(t *testing.T) {
 		ownerSession := loginUser(t, "user2")
 		webShares := "/governance/repositories/" + strconv.FormatInt(repo.ID, 10) + "/shares"
 		collaboration := "/org3/shared-native/settings/collaboration"
+		collaborators := "/org3/shared-native/collaborators"
 		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", webShares), http.StatusSeeOther)
 		assert.Equal(t, collaboration, resp.Header().Get("Location"))
-		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaboration), http.StatusOK)
+		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaboration), http.StatusSeeOther)
+		assert.Equal(t, collaborators, resp.Header().Get("Location"))
+		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaborators), http.StatusOK)
 		assert.Contains(t, resp.Body.String(), "shared-audience/child")
 		assert.Contains(t, resp.Body.String(), "邀请群组")
 		assert.NotContains(t, resp.Body.String(), "Render failed")
-		assert.Contains(t, resp.Body.String(), "repo-collab-form")
+		assert.Contains(t, resp.Body.String(), `data-kind="share"`)
+		assert.Contains(t, resp.Body.String(), `action="/org3/shared-native/collaborators/change"`)
 		assert.NotContains(t, resp.Body.String(), ">项目共享</a>")
 		csrf := NewHTMLParser(t, resp.Body).GetInputValueByName("_csrf")
 		search := ownerSession.MakeRequest(t, NewRequest(t, "GET", webShares+"/groups?q=shared-audience"), http.StatusOK)
@@ -191,7 +210,7 @@ func TestGovernanceRepositorySharingHTTP(t *testing.T) {
 		loginUser(t, "user5").MakeRequest(t, NewRequest(t, "GET", webShares+"/groups?q=shared-audience"), http.StatusNotFound)
 		form := map[string]string{"_csrf": csrf, "revision": strconv.FormatInt(state.Revision+1, 10), "group_path": child.FullPath, "role": "30", "expires": "2099-12-31"}
 		ownerSession.MakeRequest(t, NewRequestWithValues(t, "POST", webShares, form), http.StatusSeeOther)
-		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaboration), http.StatusOK)
+		resp = ownerSession.MakeRequest(t, NewRequest(t, "GET", collaborators), http.StatusOK)
 		assert.Contains(t, resp.Body.String(), `data-modal-share-expiry="2099-12-31"`)
 		assert.Contains(t, resp.Body.String(), `data-modal-share-role.value="30"`)
 		form["revision"] = strconv.FormatInt(state.Revision+2, 10)

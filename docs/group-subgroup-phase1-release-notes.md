@@ -1,10 +1,72 @@
 # 群组／子群组一期阶段构建说明
 
-## 当前状态
+## 必要能力一期最终收尾（2026-09-24）
+
+本节为最新结论；下方 F6、F2、v16 等内容保留历史证据，不再代表当前候选或当前交付门槛。用户最终范围是日常开发、普通管理员管理及群组化 CI/CD，不要求旧69项、复杂迁移或专项指标全部清零。
+
+当前分支 `codex/group-subgroup-phase1-alignment`，HEAD `7dbdfb23570c4e164061e48707837f5e719d0985` 加保留的未提交工作树；最终[源码清单](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/source-manifest.json)指纹 `56a9eb949588adf001580c6e60f7ab44c4b8fd0acf6350e99d363ecc9d49f728`。前端及三类嵌入资源已重建，构建期间源码未变；没有提交、推送或操作生产实例。
+
+**必要功能一期完成。上线准备：待目标环境确认。** 最终候选完成已授权隔离部署及日常主链，未操作生产实例。当前没有成立的未解决P0/P1或明确日常功能阻断。
+
+| 最终构建 | SHA-256 | 真实验证边界 |
+| --- | --- | --- |
+| [macOS arm64包](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/phase1-darwin-arm64.tar.gz) | 二进制 `ead882375f0f1da90e3b9d9d9c42d5c1b5631e0c5044fec4f881c02afe4ee475` | SQLite正常迁移/重启；纯父授权Git/PR、Run880父Runner、审批/合并、v4上下行/UI删除 |
+| [Linux arm64包](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/phase1-linux-arm64.tar.gz) | 二进制 `12d7064ad5928991c2a06e2d26d1afdd146281e8e68573048789538c047c1a1c` | PostgreSQL专用实例升级；真实登录/HTTP Git/Generic/旧数据完整性 |
+| [Linux amd64包](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/phase1-linux-amd64.tar.gz) | 二进制 `83504407befdf05bdfdedb3edde338741e0962cad659dbd3f59fbb8864f15a28` | 已构建；附固定Runner；目标主机未提供，未运行 |
+
+[包摘要清单](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/delivery-manifest.json)、[完整源码快照](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/phase1-source.tar.gz)、[待提交文件清单](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/pending-files.txt)、[中文安装/启动/初始配置/冒烟/恢复说明](../outputs/group-subgroup-phase1-20260923/candidate-phase1-release-20260924/INSTALL.md)。快照包含未跟踪源码；单独Git diff不包含这些新文件，不能用历史HEAD或差异文件代替完整候选。构建摘要及前端嵌入SHA见source-manifest。大型包保存在outputs，未加入暂存区。
+
+支持Runner `v1.0.8 @ c749e52bb712bf8029bc8d9193297e32740305c6`；mac实跑SHA `77f81455bc76ac39fd5f29c1e7aae3b72b7bec83d7bad003bace710a88bfbf3c`，amd64附包SHA `c0eec0f69e6a3c4bbd12639aa166557d12f4dea2b25120cd2a82ef1a506248fa`。artifact上传固定 `ChristopherHX/gitea-upload-artifact@81f940d004763f986ba3582c007fd842dd5cb0d7`，下载固定 `ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7`。可重复的兼容方案已完成上下行、摘要核对和必要管理；不承诺所有官方v4客户端及`ref_protected`表达式。服务端Secrets保护、fork限制、Run48预期失败和跨仓Actions拒绝保持。
+
+本轮修复AUTH-CFG-01事务内当前配置管理权及AUTH-CFG-02工作流启停旧快照覆盖权限上限；见[最终审查](group-subgroup-phase1-review.md)。既有必要入口、schedule、Webhook、标签、成员/Owner/共享及生命周期安全修复继续交付，适用证据不重置。
+
+目标环境尚需地址/架构、授权的部署路径及数据库配置。就绪后按INSTALL在该环境完成备份/正常迁移、普通账号主链冒烟；当前Linux arm64两核四GiB功能结果不替代目标容量或amd64结果。非必要后置事项仍未验证且不标通过：复杂迁移/改名、全生命周期、群组事件Webhook、跨子群组制品聚合、高级产品能力、全组合兼容、千仓容量、80%真人效率和专项窄屏。本次必要一期在此收尾。
+
+## 2026-09-24 当前日常范围候选 F6
+
+本轮接续现有工作树完成必要功能开发，未切分支、提交或推送。日常范围与非阻塞项按[最新计划](group-subgroup-phase1-plan.md)，不再以旧69项及专项全清零作为当前门槛。新增内容：纯祖先授权的原生Code/Packages入口、Fork目的地/按钮及完整路径、祖先工作流失效反馈；同时包含F4已经真实修复的归档恢复旧任务授权失效。具体结果见[验收](group-subgroup-phase1-acceptance.md)及[审查PASS](group-subgroup-phase1-review.md)。
+
+HEAD `7dbdfb23570c4e164061e48707837f5e719d0985` 加未提交工作树；[F6源码清单](../outputs/group-subgroup-phase1-20260923/candidate-daily-paths-20260924/source-manifest.json)指纹 `b88651b76ff502c9445f6d51b34914b0bdf3640034b1d3440204b39c75ffde79`。构建输入期间未变化，前端与三类嵌入资源均重建。
+
+| 当前产物 | SHA-256 | 真实验证范围 |
+| --- | --- | --- |
+| [macOS arm64](../outputs/group-subgroup-phase1-20260923/candidate-daily-paths-20260924/gitea-darwin-arm64) | `fca562abd1909954f84ebc29c87a551ca8617055ffc73a4bbfc33d3d93601c96` | 正常停服/备份/迁移/重启，schema379；普通Owner/无关用户UI、HTTP Git/Generic、Run667真实执行 |
+| [Linux amd64](../outputs/group-subgroup-phase1-20260923/candidate-daily-paths-20260924/gitea-linux-amd64) | `a4115da1f899e24585a594ac4eb34dbb03477a62a8d4b3d4de3494a5be8bbc1d` | 交叉构建通过；没有指定主机运行证明 |
+| [Linux arm64](../outputs/group-subgroup-phase1-20260923/candidate-daily-paths-20260924/gitea-linux-arm64) | `4555b58469938cd63a6dd8aec6877a63607c7780dfd9a9f7f906b1faee1e940a` | 交叉构建通过；历史F2容器升级证据保留，不冒称F6实测 |
+
+复跑构建：`python3 contrib/phase1-acceptance/build_candidate.py --output <新目录> --go <Go1.26.4路径> --targets darwin/arm64 linux/amd64 linux/arm64 --reuse-installed`。按正常流程备份数据库/配置/仓库，运行候选`migrate`再启动；不要将旧程序直接用于已迁移数据降级。源码清单、原始构建命令和返回码位于候选目录；没有敏感测试数据库加入包或Git。
+
+支持组合仍为Runner v1.0.8固定提交、Gitea兼容artifact v4客户端，详见下方原精确提交与限制。`ref_protected`表达式未支持，服务端Secrets保护仍有效；官方artifact v4 GHES检查失败未被冒充修复。当前没有生产发布操作。目标Linux、MSSQL及真人80%专项未验证，按新范围列独立后续验证，不能声称达标。
+
+## F2阶段历史候选（保留二进制、命令与原结果）
+
+已生成可验证候选包，**尚未批准一期正式发布**。基线为 `codex/group-subgroup-phase1-alignment @ 7dbdfb23570c4e164061e48707837f5e719d0985` 加当前工作树；未提交或推送。当前隔离 macOS 实例已正常备份、迁移到 schema379、启动并健康检查 200。以下 SHA 与[构建清单](../outputs/group-subgroup-phase1-20260923/candidate-lifecycle-fixed-20260924/source-manifest.json)绑定，历史 v16／N／Q 证据不改写成当前候选实测。
+
+| 产物 | SHA-256 | 实际状态 |
+| --- | --- | --- |
+| macOS arm64 Gitea | `2d64a75d8442565b31762279db142cd63fac50cbece5d762d1f558f074b511de` | 本机隔离部署，创建角色及归档恢复／真实 Runner 复验；Hook 的先前 F 候选证据按自身版本保留 |
+| Linux arm64 Gitea | `ed2b2115f0acd98cdf25aeafb4d0a9c81729b88b6f2d49605e4b1c8be54a084a` | 原隔离容器原地备份升级378→379；健康、登录、静态资源及五个包文件路径/摘要不变，非目标容量通过 |
+| Linux amd64 Gitea | `1403c5749b502642a32152cefe38f8c566498a13406ad97ca4b297e957ec6035` | 交叉构建，未冒称目标环境安装通过 |
+| Linux amd64 Runner v1.0.8 源码构建 | `c0eec0f69e6a3c4bbd12639aa166557d12f4dea2b25120cd2a82ef1a506248fa` | 固定模块提交的配套候选，未在指定目标机器运行 |
+| [Linux 候选压缩包](../outputs/group-subgroup-phase1-20260923/candidate-lifecycle-fixed-20260924/phase1-candidate-linux-amd64.tar.gz) | `3ac45e4347a28952b6a0ba27fc4202291aba72805e6556fe6716ea4ebd07ab5b` | 包含二进制、中文安装说明和源码／包清单，无测试数据库或凭据 |
+
+候选源码指纹为 `2fd0a1e11ea46698f8ac6bb7d348dcff9cfddc71e20bb01e30ed547ee2b4e9cb`。构建执行 Vite 前端、三类 bindata 和 Go 编译；精确命令、锁文件复用检查及首次 pnpm 缓存路径失败见[可复跑入口](../contrib/phase1-acceptance/README.md)。没有删除用户 node_modules，也没有放宽应用安全配置以完成验收。
+
+新增正常迁移 378 使数据库版本升至379，修复完整路径索引的数据库兼容；先在隔离副本备份并运行包内 `gitea migrate`，再创建专用测试管理员、启动和验证。迁移后不支持直接用旧二进制降级数据库；需要回退时使用经过验证的完整备份恢复流程。本包仅供隔离验收，不提供生产发布批准。
+
+Linux arm64 升级的[完整命令及备份/结果](../outputs/group-subgroup-phase1-20260923/linux-arm64-f2-upgrade-acceptance.md)已保存。它采用与 F2 一致的业务源码及 bindata；构建后测试/验收脚本变化单列，不将当前整个工作树冒称冻结指纹。
+
+Runner 兼容基线固定为 `gitea.com/gitea/runner v1.0.8 @ c749e52bb712bf8029bc8d9193297e32740305c6`；服务端受保护 Secret 生效，但此 Runner 不支持 `github.ref_protected`／`gitea.ref_protected` 表达式。artifact v4 使用固定的 Gitea 兼容客户端：上传 `ChristopherHX/gitea-upload-artifact@81f940d004763f986ba3582c007fd842dd5cb0d7`，下载 `ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7`。没有宣称官方 `actions/upload-artifact@v4.6.2` 的 GHES 检查兼容，也没有放宽服务端授权。[真实组合及失败保留](../outputs/group-subgroup-phase1-20260923/artifact-v4-closure-acceptance.md)。
+
+目标 Linux amd64 8 vCPU／16 GiB／SSD／PostgreSQL 未提供；容量脚本、指标采集和 amd64 包已准备，目标运行仍未验证。MSSQL 原生 x86-64 主机亦未提供；已运行的四库兼容和 Linux arm64 功能环境分别保留。真人十仓效率、最终候选整体回归及所有必选剩余编号须满足[唯一台账](group-subgroup-phase1-matrix.md)后才可正式交付。
+
+## 下方为历史构建记录（保留原证据）
+
+## 祖先定时收口时的状态
 
 **尚未形成一期候选发布。** 当前隔离实例运行祖先定时收口构建 `71d19b0d1687…`，基于 HEAD `a488feb7a4ac2df8a7c17c01c536374b10f33098` 加工作树改动。祖先 schedule 已完成真实调度、Runner 和 UI 闭环；具体版本及证据见[定时验收](../outputs/group-subgroup-phase1-20260923/ancestor-schedule-acceptance.md)。下述历史版本证据继续保留，不等于[一期操作矩阵](group-subgroup-phase1-matrix.md)全部通过。发布判定仍以冻结的操作、容量、安全和人工效率门槛为准。
 
-## 当前构建与运行边界
+## 祖先定时收口构建与运行边界
 
 - 当前 macOS arm64 SHA-256：`71d19b0d1687ac1e71ccbd5aaec8f79e7c3e5481d8ea749d15377afd360c5ed0`，构建时源码指纹 `1b485408ab940a5693a89dfd29581f6e5e73d355344ccf11a83a0f6702f9c547`。固定执行入口为 `/Users/archer/.cache/gitea-phase1-ui-iegohg9v/gitea-current`；Git hooks 依赖该路径。旧构建和升级前备份保留，仓库根目录原有 Linux `gitea` 未替换。后补 M11 仅增加测试，不改变此业务二进制；测试文件摘要另记，不回写旧构建清单。
 - 本轮新增正常数据库迁移 378，持久化祖先工作流来源和计划授权版本。安装或验证时使用对应源码构建及正常迁移入口；本轮未交付降级工具。未修改 Runner 协议或要求无理由升级 Runner。测试 cron 已经通过正式 Git/API 清除，历史 Run 留作验收证据。

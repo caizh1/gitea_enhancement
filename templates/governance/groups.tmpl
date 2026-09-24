@@ -84,7 +84,7 @@
 
   {{end}}
   {{if not .Group}}<div class="ui segment"><div class="governance-navigation-panel"></div></div>{{if .SignedUser.CanCreateOrganization}}<a class="ui primary button" href="?create=1">创建顶级群组</a>{{end}}{{end}}
-  {{if .ShowCreate}}{{if or (and (not .Group) .SignedUser.CanCreateOrganization) (and (not .Group.Archived) (index .Group.Abilities "create_group"))}}
+  {{if .ShowCreate}}{{if or (and (not .Group) .SignedUser.CanCreateOrganization) (and .Group (not .Group.Archived) (index .Group.Abilities "create_group"))}}
    {{if .CreateError}}<p class="ui negative message" role="alert">{{.CreateError}}</p>{{end}}<details open class="ui segment"><summary>{{if .Group}}创建子群组{{else}}创建顶级群组{{end}}</summary>
     <form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups">
      {{.CsrfTokenHtml}}<input type="hidden" name="parent_id" value="{{if .Group}}{{.Group.ID}}{{else}}0{{end}}">
