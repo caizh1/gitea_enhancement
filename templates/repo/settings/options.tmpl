@@ -836,7 +836,13 @@
 									<div class="header">转移影响预览：{{.OldPath}} → {{.NewPath}}</div>
 									<p>移除继承路径：{{range .RemovedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}；新增继承路径：{{range .AddedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}。</p>
 									<p>成员来源 −{{.RemovedMembershipSources}} / +{{.AddedMembershipSources}}，共享来源 −{{.RemovedShareSources}} / +{{.AddedShareSources}}，审批规则 −{{.RemovedApprovalRules}} / +{{.AddedApprovalRules}}，审批设置 −{{.RemovedApprovalSettings}} / +{{.AddedApprovalSettings}}，审计外送 −{{.RemovedAuditStreams}} / +{{.AddedAuditStreams}}。</p>
+									{{range .RemovedLifecycleSources}}<p>离开来源：{{if .Restricted}}受限来源 #{{.SourceID}}（详情不可见）{{else}}{{.SourcePath}} · Runner {{.Runners}}、变量 {{.Variables}}、Secret {{.Secrets}}、Hook {{.Hooks}}、标签 {{.Labels}}、基础分支规则 {{.BranchProtections}}、统一工作流来源 {{.WorkflowSources}}（强制 {{.RequiredWorkflows}}）{{end}}</p>{{end}}
+									{{range .AddedLifecycleSources}}<p>进入来源：{{if .Restricted}}受限来源 #{{.SourceID}}（详情不可见）{{else}}{{.SourcePath}} · Runner {{.Runners}}、变量 {{.Variables}}、Secret {{.Secrets}}、Hook {{.Hooks}}、标签 {{.Labels}}、基础分支规则 {{.BranchProtections}}、统一工作流来源 {{.WorkflowSources}}（强制 {{.RequiredWorkflows}}）{{end}}</p>{{end}}
+									<p>当前待取消的排队任务 {{.Runtime.QueuedJobs}} 个，待失效的仓库 Runner 注册令牌 {{.Runtime.RunnerTokens}} 个、定时计划 {{.Runtime.Schedules}} 个。确认转移会使旧运行失去原范围凭据信任，需在新归属重新触发与授权。</p>
+									{{range .Runtime.BlockingReasons}}<p class="ui negative message">当前限制：{{.}}</p>{{end}}
 									<p>项目直接共享 {{.DirectSharesRetained}} 条、直接审批规则 {{.DirectApprovalRules}} 条会保留；旧地址将保留受权限控制的兼容别名。</p>
+									<p>转移会取消等待中的 Actions 任务，使旧运行、定时计划和仓库 Runner 注册令牌失效。请在新归属下重新触发工作流、检测定时计划并获取注册令牌；若此仓库是统一工作流来源，其旧注册也需要重新确认。</p>
+									<p>运行中或取消中的任务、仓库专属 Runner、部署密钥会阻止转移，请先结束任务并移除旧执行环境。无法安全保留的来源组织标签关联或历史也会阻止转移，不会静默删除。</p>
 									<form class="ui form form-fetch-action" action="{{$.Link}}" method="post">
 										<input type="hidden" name="action" value="transfer">
 										<input type="hidden" name="repo_name" value="{{$.Repository.Name}}">

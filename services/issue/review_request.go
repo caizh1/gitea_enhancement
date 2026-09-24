@@ -346,6 +346,20 @@ func CanDoerChangeReviewRequests(ctx context.Context, doer *user_model.User, rep
 		return true
 	}
 
+	canWritePulls, err := access_model.HasGovernanceAbility(ctx, repo, doer, governance_model.WritePulls)
+	if err != nil {
+		log.Error("HasGovernanceAbility: %v", err)
+		return false
+	}
+	if canWritePulls {
+		canWrite, err := access_model.HasAccessUnit(ctx, doer, repo, unit.TypePullRequests, perm.AccessModeWrite)
+		if err != nil {
+			log.Error("HasAccessUnit: %v", err)
+			return false
+		}
+		return canWrite
+	}
+
 	// If the repo's owner is an organization, members of teams with read permission on pull requests can change reviewers
 	if repo.Owner.IsOrganization() {
 		teams, err := organization.GetTeamsWithAccessToAnyRepoUnit(ctx, repo.OwnerID, repo.ID, perm.AccessModeRead, unit.TypePullRequests)

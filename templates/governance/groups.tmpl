@@ -10,7 +10,6 @@
    <div class="tw-flex tw-gap-2 tw-flex-wrap">
     <a class="ui button" href="{{AppSubUrl}}/{{.FullPath|PathEscapeSegments}}">查看项目</a>
     {{if index .Abilities "manage_group"}}<a class="ui button" href="{{AppSubUrl}}/org/{{.FullPath|PathEscapeSegments}}/settings">原生群组设置</a>{{end}}
-    <a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ID}}/access-requests">访问申请</a>
     {{if index .Abilities "manage_group_members"}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ID}}/invitations">成员邀请</a>{{end}}
     {{if $.MoveParentPath}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.ParentID}}">父群组</a>{{end}}
     {{if index .Abilities "read_audit"}}<a class="ui button" href="{{AppSubUrl}}/governance/audit?scope_type=group&scope_id={{.ID}}">操作审计</a>{{end}}
@@ -29,7 +28,7 @@
    {{if not .DeleteAfter}}{{with $.ArchiveImpact}}<details class="ui segment"><summary>{{if $.Group.Archived}}恢复归档{{else}}归档群组{{end}}</summary>
     <p>影响 {{.Groups}} 个群组（含本组）、{{.Repositories}} 个项目；其中当前已归档 {{.PreviouslyArchivedRepositories}} 个项目。</p>
     {{if .AncestorArchivedID}}<p>父级群组已归档，需要先<a href="{{AppSubUrl}}/governance/groups/{{.AncestorArchivedID}}">恢复父级群组</a>。</p>
-    {{else}}<p>归档后内容只读。按 GitLab 19.3.2，恢复父组会统一恢复后代，包括原本单独归档的项目；不恢复原来的独立归档标记。</p>
+    {{else}}<p>归档后内容只读。恢复本组会统一恢复后代，包括原本单独归档的项目；不会保留原来的独立归档状态。请确认影响范围后操作。</p>
      <form method="post" action="{{AppSubUrl}}/governance/groups/{{.GroupID}}/archive">{{$.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="archived" value="{{if $.Group.Archived}}false{{else}}true{{end}}"><button class="ui button" type="submit">{{if $.Group.Archived}}恢复本组及后代{{else}}归档本组及后代{{end}}</button></form>
     {{end}}
    </details>{{end}}{{end}}
@@ -37,6 +36,18 @@
     {{range .Grants}}<p>{{index $.SourceNames .Source}} · {{index $.RoleNames .Role}}{{if .NativeTeamID}} · 原生 Owners 团队{{end}}{{if .ExpiresUnix}} · 到期时间：{{DateUtils.FullTime .ExpiresUnix}}{{end}}</p>{{else}}<p>公开访问或实例管理员权限。</p>{{end}}
    </details>
    {{if and (index .Abilities "manage_group") (not .Archived) (not .DeleteAfter)}}
+    {{if eq .ParentID 0}}<details class="ui segment"><summary>基础分支保护</summary>
+	     <p>这些规则实时作用于本群组及后代群组拥有的项目。仓库中只能查看继承来源，不能在仓库修改此处规则。“允许推送并合并”也允许通过合并请求合并，但仍需当前仓库的合并能力。多个群组规则与仓库本级规则在推送、合并、强推权限上取较宽松的允许结果；仓库高级检查和强制审批仍独立生效。仓库的“未保护文件”例外不突破群组推送拒绝。名称区分大小写，星号可以匹配斜杠。</p>
+     {{range $.GroupBranchProtections}}<form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/branch-protection">{{$.CsrfTokenHtml}}
+      <input type="hidden" name="rule_id" value="{{.ID}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}">
+	      <div class="three fields"><div class="field"><label>分支名称或模式<input name="rule_name" value="{{.RuleName}}" maxlength="255" required></label></div><div class="field"><label for="group-branch-push-{{.ID}}">允许推送并合并</label><select id="group-branch-push-{{.ID}}" name="push_role"><option value="0" {{if eq .PushRole 0}}selected{{end}}>无人</option><option value="30" {{if eq .PushRole 30}}selected{{end}}>开发者及以上</option><option value="40" {{if eq .PushRole 40}}selected{{end}}>维护者及以上</option></select></div><div class="field"><label for="group-branch-merge-{{.ID}}">允许合并</label><select id="group-branch-merge-{{.ID}}" name="merge_role"><option value="0" {{if eq .MergeRole 0}}selected{{end}}>无人</option><option value="30" {{if eq .MergeRole 30}}selected{{end}}>开发者及以上</option><option value="40" {{if eq .MergeRole 40}}selected{{end}}>维护者及以上</option></select></div></div>
+      <div class="tw-flex tw-gap-3 tw-items-center tw-flex-wrap"><label class="tw-inline-flex tw-items-center tw-gap-2"><input type="checkbox" name="allow_force_push" value="true" {{if .AllowForcePush}}checked{{end}}>允许有推送权者强推</label><button class="ui button" type="submit">保存</button><button class="ui red basic button" name="action" value="delete" type="submit">删除</button></div>
+     </form>{{else}}<p>尚无群组基础保护规则。</p>{{end}}
+     <form class="ui form tw-mt-3" method="post" action="{{AppSubUrl}}/governance/groups/{{.ID}}/branch-protection">{{$.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Revision}}">
+	      <div class="three fields"><div class="field"><label>分支名称或模式<input name="rule_name" list="group-branch-patterns" placeholder="main 或 release/*" maxlength="255" required></label><datalist id="group-branch-patterns"><option value="main"></option><option value="master"></option><option value="develop"></option><option value="release/*"></option></datalist></div><div class="field"><label for="group-branch-push-new">允许推送并合并</label><select id="group-branch-push-new" name="push_role"><option value="0">无人</option><option value="30">开发者及以上</option><option value="40">维护者及以上</option></select></div><div class="field"><label for="group-branch-merge-new">允许合并</label><select id="group-branch-merge-new" name="merge_role"><option value="0">无人</option><option value="30">开发者及以上</option><option value="40">维护者及以上</option></select></div></div>
+      <div class="tw-flex tw-gap-3 tw-items-center tw-flex-wrap"><label class="tw-inline-flex tw-items-center tw-gap-2"><input type="checkbox" name="allow_force_push" value="true">允许有推送权者强推</label><button class="ui primary button" type="submit">新增规则</button></div>
+     </form>
+    </details>{{end}}
     {{if eq .ParentID 0}}<details class="ui segment"><summary>跨顶级群组共享限制</summary>
      <p>开启后，本群组的子组和项目只能新建指向同一顶级群组内的共享。已有跨层级共享保留，可单独修改或撤销。</p>
      <form method="post" action="{{AppSubUrl}}/governance/groups/{{.ID}}/share-restriction">{{$.CsrfTokenHtml}}<input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="enabled" value="{{if .RestrictExternalShares}}false{{else}}true{{end}}"><button class="ui button" type="submit">{{if .RestrictExternalShares}}允许新建跨顶级共享{{else}}限制新建跨顶级共享{{end}}</button></form>
@@ -53,14 +64,23 @@
       <p><strong>移除的父级范围：</strong>{{range .RemovedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}</p>
       <p><strong>新增的父级范围：</strong>{{range .AddedAncestorPaths}}<span class="ui label tw-break-all">{{.}}</span>{{else}}无{{end}}</p>
       <p>离开范围包含：{{.RemovedMembershipSources}} 条成员来源、{{.RemovedShareSources}} 条共享、{{.RemovedApprovalPolicies}} 条强制审批规则、{{.RemovedApprovalSettings}} 组审批设置、{{.RemovedAuditStreams}} 个启用的审计外送。</p>
-      <p>进入范围包含：{{.AddedMembershipSources}} 条成员来源、{{.AddedShareSources}} 条共享、{{.AddedApprovalPolicies}} 条强制审批规则、{{.AddedApprovalSettings}} 组审批设置、{{.AddedAuditStreams}} 个启用的审计外送。群组自身及后代直接配置保持不变。</p>
+      <p>进入范围包含：{{.AddedMembershipSources}} 条成员来源、{{.AddedShareSources}} 条共享、{{.AddedApprovalPolicies}} 条强制审批规则、{{.AddedApprovalSettings}} 组审批设置、{{.AddedAuditStreams}} 个启用的审计外送。</p>
+      {{range .RemovedLifecycleSources}}<p>离开来源：{{if .Restricted}}受限来源 #{{.SourceID}}（详情不可见）{{else}}{{.SourcePath}} · Runner {{.Runners}}、变量 {{.Variables}}、Secret {{.Secrets}}、Hook {{.Hooks}}、标签 {{.Labels}}、基础分支规则 {{.BranchProtections}}、统一工作流来源 {{.WorkflowSources}}（强制 {{.RequiredWorkflows}}）{{end}}</p>{{end}}
+      {{range .AddedLifecycleSources}}<p>进入来源：{{if .Restricted}}受限来源 #{{.SourceID}}（详情不可见）{{else}}{{.SourcePath}} · Runner {{.Runners}}、变量 {{.Variables}}、Secret {{.Secrets}}、Hook {{.Hooks}}、标签 {{.Labels}}、基础分支规则 {{.BranchProtections}}、统一工作流来源 {{.WorkflowSources}}（强制 {{.RequiredWorkflows}}）{{end}}</p>{{end}}
+      {{if or .RemovedAncestorPaths .AddedAncestorPaths}}<p>当前待取消的排队任务 {{.Runtime.QueuedJobs}} 个，待失效的 Runner 注册令牌 {{.Runtime.RunnerTokens}} 个、定时计划 {{.Runtime.Schedules}} 个。旧运行不会因移回原路径恢复凭据信任，移动后应重新触发工作流并重新授权执行环境。</p>{{range .Runtime.BlockingReasons}}<p class="ui negative message">当前限制：{{.}}</p>{{end}}{{end}}
+      {{if or .RemovedAncestorPaths .AddedAncestorPaths}}<p><strong>Actions 与凭据：</strong>改变父级会取消子树内排队的任务，使旧运行不能重跑，并清除定时计划及旧 Runner 注册令牌。移动后需重新检测工作流和注册 Runner。有专属 Runner、部署密钥或正在执行的任务时，服务端会拒绝移动；请先移除这些执行凭据并等待或取消任务。</p>{{end}}
       {{if or .CustomRoleMembershipsRemapped .CustomRoleInvitationsRemapped}}<p><strong>跨顶级群组自定义角色处理：</strong>{{.CustomRoleMembershipsRemapped}} 条成员授权和 {{.CustomRoleInvitationsRemapped}} 条待接受邀请会映射到目标根的等价角色，显式角色及附加能力保持不变。</p>{{end}}
       <p>预览不授予操作权限；确认时会在同一事务内重新核对来源、目标权限和修订号。</p>
-      <form method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/move">{{$.CsrfTokenHtml}}<input type="hidden" name="action" value="move"><input type="hidden" name="parent_id" value="{{$.MoveOption.ParentID}}"><input type="hidden" name="path" value="{{$.MoveOption.Path}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><button class="ui primary button" type="submit">确认改名或转移</button></form>
+      <form class="form-fetch-action" method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/move">{{$.CsrfTokenHtml}}<input type="hidden" name="action" value="move"><input type="hidden" name="parent_id" value="{{$.MoveOption.ParentID}}"><input type="hidden" name="path" value="{{$.MoveOption.Path}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><input type="hidden" name="impact_fingerprint" value="{{.ImpactFingerprint}}"><button class="ui primary button" type="submit">确认改名或转移</button></form>
      </div>{{end}}
     </details>
-   {{end}}
-  {{end}}
+	   {{end}}
+	   {{if and (eq .ParentID 0) (not (index .Abilities "manage_group"))}}
+	    <details class="ui segment"><summary>基础分支保护（只读）</summary>
+	     {{range $.GroupBranchProtections}}<p><strong>{{.RuleName}}</strong> · 推送并合并：{{if eq .PushRole 0}}无人{{else if eq .PushRole 30}}开发者及以上{{else}}维护者及以上{{end}} · 合并：{{if eq .MergeRole 0}}无人{{else if eq .MergeRole 30}}开发者及以上{{else}}维护者及以上{{end}} · {{if .AllowForcePush}}允许强推{{else}}禁止强推{{end}}</p>{{else}}<p>尚无群组基础保护规则。</p>{{end}}
+	    </details>
+	   {{end}}
+	  {{end}}
 
   {{end}}
   {{if not .Group}}<div class="ui segment"><div class="governance-navigation-panel"></div></div>{{if .SignedUser.CanCreateOrganization}}<a class="ui primary button" href="?create=1">创建顶级群组</a>{{end}}{{end}}

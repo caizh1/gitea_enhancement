@@ -11,6 +11,7 @@ type CleanupObject struct {
 	Kind      string `json:"kind"`
 	Path      string `json:"path"`
 	InStorage bool   `json:"in_storage,omitempty"`
+	Revision  int64  `json:"revision,omitempty"`
 }
 
 // ResourceCleanup 与业务删除共用事务，只有提交后后台任务才能看到它。

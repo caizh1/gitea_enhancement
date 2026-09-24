@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	issues_model "gitea.dev/models/issues"
-	repo_model "gitea.dev/models/repo"
+	access_model "gitea.dev/models/perm/access"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/util"
 	shared_mention "gitea.dev/routers/web/shared/mention"
@@ -42,7 +42,7 @@ func GetMentionsInRepo(ctx *context.Context) {
 	}
 
 	// Get repo assignees
-	assignees, err := repo_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
+	assignees, err := access_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
 	if err != nil {
 		ctx.ServerError("GetRepoAssignees", err)
 		return

@@ -6,6 +6,7 @@ package repo
 
 import (
 	stdCtx "context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -17,11 +18,13 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
 	asymkey_service "gitea.dev/services/asymkey"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
+	governance_service "gitea.dev/services/governance"
 )
 
 // appendPrivateInformation appends the owner and key type information to api.PublicKey
@@ -186,6 +189,8 @@ func HandleCheckKeyStringError(ctx *context.APIContext, err error) {
 // HandleAddKeyError handle add key error
 func HandleAddKeyError(ctx *context.APIContext, err error) {
 	switch {
+	case errors.Is(err, util.ErrPermissionDenied):
+		ctx.APIError(http.StatusForbidden, "You do not have access to this repository")
 	case asymkey_model.IsErrDeployKeyAlreadyExist(err):
 		ctx.APIError(http.StatusUnprocessableEntity, "This key has already been added to this repository")
 	case asymkey_model.IsErrKeyAlreadyExist(err):
@@ -238,7 +243,8 @@ func CreateDeployKey(ctx *context.APIContext) {
 		return
 	}
 
-	key, err := asymkey_service.AddDeployKey(ctx, ctx.Repo.Repository.ID, form.Title, content, form.ReadOnly)
+	actor := governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())
+	key, err := asymkey_service.AddDeployKeyForActor(ctx, actor, ctx.Repo.Repository.ID, form.Title, content, form.ReadOnly)
 	if err != nil {
 		HandleAddKeyError(ctx, err)
 		return
@@ -279,8 +285,9 @@ func DeleteDeploykey(ctx *context.APIContext) {
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	if err := asymkey_service.DeleteDeployKey(ctx, ctx.Repo.Repository, ctx.PathParamInt64("id")); err != nil {
-		if asymkey_model.IsErrKeyAccessDenied(err) {
+	actor := governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())
+	if err := asymkey_service.DeleteDeployKeyForActor(ctx, actor, ctx.Repo.Repository.ID, ctx.PathParamInt64("id")); err != nil {
+		if asymkey_model.IsErrKeyAccessDenied(err) || errors.Is(err, util.ErrPermissionDenied) {
 			ctx.APIError(http.StatusForbidden, "You do not have access to this key")
 		} else {
 			ctx.APIErrorInternal(err)

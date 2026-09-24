@@ -6,6 +6,7 @@ package user
 import (
 	"errors"
 
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
@@ -50,11 +51,7 @@ func blockedUsersPost(ctx *context.Context, form *forms.BlockUserForm, blocker *
 		}
 		return err
 	case "note":
-		block, err := user_model.GetBlocking(ctx, blocker.ID, blockee.ID)
-		if err != nil {
-			return err
-		}
-		return user_model.UpdateBlockingNote(ctx, block.ID, form.Note)
+		return user_service.UpdateBlockingNote(ctx, ctx.Doer, blocker, blockee, form.Note)
 	}
 	setting.PanicInDevOrTesting("Unknown action: %q", form.Action)
 	return errors.New("unknown action")
@@ -70,6 +67,12 @@ func BlockedUsersPost(ctx *context.Context, blocker *user_model.User, redirect s
 	err := blockedUsersPost(ctx, form, blocker)
 	if err == nil {
 		ctx.JSONRedirect(redirect)
+	} else if errors.Is(err, governance_model.ErrConflict) {
+		if form.Action == "unblock" {
+			ctx.JSONError(ctx.Locale.Tr("user.block.unblock.restricted"))
+		} else {
+			ctx.JSONError(err.Error())
+		}
 	} else if errTr := util.ErrorAsTranslatable(err); errTr != nil {
 		ctx.JSONError(errTr.Translate(ctx.Locale))
 	} else if errors.Is(err, util.ErrNotExist) {

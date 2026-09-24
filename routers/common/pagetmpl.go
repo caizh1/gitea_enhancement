@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	activities_model "gitea.dev/models/activities"
-	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/modules/log"
 	"gitea.dev/services/context"
@@ -52,7 +51,7 @@ func notificationUnreadCount(ctx *context.Context) int64 {
 	if ctx.Doer == nil {
 		return 0
 	}
-	count, err := db.Count[activities_model.Notification](ctx, activities_model.FindNotificationOptions{
+	count, err := activities_model.CountVisibleNotifications(ctx, ctx.Doer, activities_model.FindNotificationOptions{
 		UserID: ctx.Doer.ID,
 		Status: []activities_model.NotificationStatus{activities_model.NotificationStatusUnread},
 	})

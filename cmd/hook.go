@@ -359,8 +359,11 @@ Gitea or set your environment appropriately.`, "")
 	pusherID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPusherID), 10, 64)
 	prID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPRID), 10, 64)
 	pusherName := os.Getenv(repo_module.EnvPusherName)
+	repoID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvRepoID), 10, 64)
 
 	hookOptions := private.HookOptions{
+		RepositoryID:                    repoID,
+		MergeAuthorizationID:            os.Getenv(repo_module.EnvMergeAuthorizationID),
 		PusherRemoteAddr:                os.Getenv(repo_module.EnvPusherRemoteAddr),
 		PusherTransport:                 os.Getenv(repo_module.EnvPusherTransport),
 		UserName:                        pusherName,

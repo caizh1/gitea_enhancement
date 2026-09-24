@@ -88,7 +88,7 @@ func TestAuthorizePullMergeBlocksRequiredRulesWhenHooksMissing(t *testing.T) {
 			snapshot, err := CaptureInitialPullApprovalSnapshot(ctx, pr)
 			require.NoError(t, err)
 			require.NotNil(t, snapshot)
-			authorization, err := AuthorizePullMerge(ctx, actor, pr, snapshot.Version.Head, snapshot.BaseHead, "new", func(context.Context, *issues_model.PullRequest) error { return nil })
+			authorization, err := AuthorizePullMerge(ctx, actor, pr, snapshot.Version.Head, snapshot.BaseHead, "new", func(context.Context, *issues_model.PullRequest) ([]string, error) { return nil, nil })
 			if tc.mustBlock {
 				require.ErrorIs(t, err, governance_model.ErrForbidden)
 				require.Nil(t, authorization, "拒绝时不得返回或持久化最终合并授权")

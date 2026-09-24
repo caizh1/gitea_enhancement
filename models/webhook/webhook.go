@@ -137,6 +137,7 @@ type Webhook struct {
 	Type                      webhook_module.HookType   `xorm:"VARCHAR(16) 'type'"`
 	Meta                      string                    `xorm:"TEXT"` // store hook-specific attributes
 	LastStatus                webhook_module.HookStatus // Last delivery status
+	ConfigRevision            int64                     `xorm:"NOT NULL DEFAULT 1"`
 
 	// HeaderAuthorizationEncrypted should be accessed using HeaderAuthorization() and SetHeaderAuthorization()
 	HeaderAuthorizationEncrypted string `xorm:"TEXT"`
@@ -252,10 +253,14 @@ func governanceCreateWebhooks(ctx context.Context, hooks []*Webhook) error {
 	candidates := make([]Webhook, len(hooks))
 	for i, hook := range hooks {
 		candidates[i] = *hook
+		candidates[i].ConfigRevision = 1
 	}
 	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		for i := range candidates {
 			candidate := &candidates[i]
+			if err := RequireWebhookManager(ctx, candidate); err != nil {
+				return err
+			}
 			if err := db.Insert(ctx, candidate); err != nil {
 				return err
 			}
@@ -341,14 +346,23 @@ func UpdateWebhook(ctx context.Context, w *Webhook) error {
 		if before.RepoID != w.RepoID || before.OwnerID != w.OwnerID {
 			return governance_model.ErrConflict
 		}
+		if err := RequireWebhookManager(ctx, before); err != nil {
+			return err
+		}
+		w.ConfigRevision = before.ConfigRevision + 1
 		count, err := db.GetEngine(ctx).ID(w.ID).Cols(
-			"url", "name", "http_method", "content_type", "secret", "events", "is_active", "type", "meta", "header_authorization_encrypted", "is_system_webhook",
+			"url", "name", "http_method", "content_type", "secret", "events", "is_active", "type", "meta", "header_authorization_encrypted", "is_system_webhook", "config_revision",
 		).Update(w)
 		if err != nil {
 			return err
 		}
 		if count != 1 {
 			return ErrWebhookNotExist{ID: w.ID}
+		}
+		if before.IsActive && !w.IsActive {
+			if err := CancelPendingHookTasks(ctx, w.ID, "webhook disabled"); err != nil {
+				return err
+			}
 		}
 		return appendWebhookAudit(ctx, before, w, "updated", webhookAuditValues(before), webhookAuditValues(w), webhookChangedFields(before, w))
 	})
@@ -368,11 +382,14 @@ func DeleteWebhookByID(ctx context.Context, id int64) (err error) {
 		if err != nil {
 			return err
 		}
+		if err := RequireWebhookManager(ctx, hook); err != nil {
+			return err
+		}
 		if count, err := db.DeleteByID[Webhook](ctx, id); err != nil {
 			return err
 		} else if count == 0 {
 			return ErrWebhookNotExist{ID: id}
-		} else if _, err = db.DeleteByBean(ctx, &HookTask{HookID: id}); err != nil {
+		} else if err = RedactDeletedHookTasks(ctx, id); err != nil {
 			return err
 		}
 		return appendWebhookAudit(ctx, hook, hook, "deleted", webhookAuditValues(hook), nil, []string{"deleted"})

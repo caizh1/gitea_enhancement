@@ -15,6 +15,7 @@ import (
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	governance_model "gitea.dev/models/governance"
+	"gitea.dev/models/unittest"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/tests"
 
@@ -188,6 +189,7 @@ func testAPICreateBranch(t testing.TB, session *TestSession, user, repo, oldBran
 
 func TestAPIRenameBranch(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
 		t.Run("RenameBranchWithEmptyRepo", func(t *testing.T) {
 			testAPIRenameBranch(t, "user10", "user10", "repo6", "master", "test", http.StatusNotFound)
 		})
@@ -443,35 +445,28 @@ func testAPIBranchProtectionBypassAllowlistValidation(t *testing.T) {
 }
 
 func TestAPICreateBranchWithSyncBranches(t *testing.T) {
-	defer tests.PrepareTestEnv(t)()
-
-	branches, err := db.Find[git_model.Branch](t.Context(), git_model.FindBranchOptions{
-		RepoID: 1,
-	})
-	assert.NoError(t, err)
-	assert.Len(t, branches, 8)
-
-	// make a broke repository with no branch on database
-	_, err = db.DeleteByBean(t.Context(), git_model.Branch{RepoID: 1})
-	assert.NoError(t, err)
-
 	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
+		require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+		branches, err := db.Find[git_model.Branch](t.Context(), git_model.FindBranchOptions{RepoID: 1})
+		require.NoError(t, err)
+		require.Len(t, branches, 8)
+
+		// make a broke repository with no branch on database
+		_, err = db.DeleteByBean(t.Context(), git_model.Branch{RepoID: 1})
+		require.NoError(t, err)
+		unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: 1})
+
 		ctx := NewAPITestContext(t, "user2", "repo1", auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
 		giteaURL.Path = ctx.GitPath()
 
 		testAPICreateBranch(t, ctx.Session, "user2", "repo1", "", "new_branch", http.StatusCreated)
-	})
 
-	branches, err = db.Find[git_model.Branch](t.Context(), git_model.FindBranchOptions{
-		RepoID: 1,
-	})
-	assert.NoError(t, err)
-	assert.Len(t, branches, 9)
+		branches, err = db.Find[git_model.Branch](t.Context(), git_model.FindBranchOptions{RepoID: 1})
+		require.NoError(t, err)
+		assert.Len(t, branches, 9)
 
-	branches, err = db.Find[git_model.Branch](t.Context(), git_model.FindBranchOptions{
-		RepoID:  1,
-		Keyword: "new_branch",
+		branches, err = db.Find[git_model.Branch](t.Context(), git_model.FindBranchOptions{RepoID: 1, Keyword: "new_branch"})
+		require.NoError(t, err)
+		assert.Len(t, branches, 1)
 	})
-	assert.NoError(t, err)
-	assert.Len(t, branches, 1)
 }

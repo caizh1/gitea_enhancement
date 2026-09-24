@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	actions_module "gitea.dev/modules/actions"
 	"gitea.dev/modules/actions/jobparser"
@@ -85,6 +88,71 @@ func GetRunsFromCommitStatuses(ctx context.Context, statuses []*git_model.Commit
 		runs = append(runs, run)
 	}
 	return runs, nil
+}
+
+// RedactScopedCommitStatusContexts hides a former source-name prefix when the viewer lacks source Code access.
+// Current registrations also identify old skipped statuses, which have no run URL.
+func RedactScopedCommitStatusContexts(ctx context.Context, viewer *user_model.User, consumer *repo_model.Repository, statuses []*git_model.CommitStatus) error {
+	if len(statuses) == 0 {
+		return nil
+	}
+	legacy := false
+	for _, status := range statuses {
+		if status.CreatorID == user_model.ActionsUserID && strings.Contains(status.Context, ": ") && !strings.HasPrefix(status.Context, "scoped:") {
+			legacy = true
+			break
+		}
+	}
+	if !legacy {
+		return nil
+	}
+	sources, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, consumer.OwnerID)
+	if err != nil {
+		return err
+	}
+	sourceIDs := make(map[int64]bool, len(sources))
+	for _, source := range sources {
+		sourceIDs[source.SourceRepoID] = true
+	}
+	for _, status := range statuses {
+		if status.CreatorID != user_model.ActionsUserID || !strings.Contains(status.Context, ": ") || strings.HasPrefix(status.Context, "scoped:") {
+			continue
+		}
+		if runID, _, ok := status.ParseGiteaActionsTargetURL(ctx); ok {
+			run, err := actions_model.GetRunByRepoAndID(ctx, consumer.ID, runID)
+			if err == nil && run.IsScopedRun {
+				sourceIDs[run.WorkflowRepoID] = true
+				canRead := false
+				if sourceRepo, err := repo_model.GetRepositoryByID(ctx, run.WorkflowRepoID); err == nil {
+					if perm, err := access_model.GetDoerRepoPermission(ctx, sourceRepo, viewer); err == nil {
+						canRead = perm.CanRead(unit.TypeCode)
+					}
+				}
+				if !canRead {
+					_, suffix, _ := strings.Cut(status.Context, ": ")
+					status.Context = actions_model.ScopedStatusContextPrefix(ctx, run.WorkflowRepoID) + ": " + suffix
+				}
+			}
+		}
+	}
+	for sourceID := range sourceIDs {
+		sourceRepo, err := repo_model.GetRepositoryByID(ctx, sourceID)
+		if err != nil {
+			continue
+		}
+		perm, err := access_model.GetDoerRepoPermission(ctx, sourceRepo, viewer)
+		if err == nil && perm.CanRead(unit.TypeCode) {
+			continue
+		}
+		oldPrefix := sourceRepo.FullName() + ": "
+		newPrefix := actions_model.ScopedStatusContextPrefix(ctx, sourceID) + ": "
+		for _, status := range statuses {
+			if strings.HasPrefix(status.Context, oldPrefix) && status.CreatorID == user_model.ActionsUserID {
+				status.Context = newPrefix + strings.TrimPrefix(status.Context, oldPrefix)
+			}
+		}
+	}
+	return nil
 }
 
 func getCommitStatusEventNameAndCommitID(run *actions_model.ActionRun) (event, commitID string, _ error) {

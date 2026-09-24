@@ -5,6 +5,8 @@ package actions
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -194,12 +196,31 @@ func GetVariablesOfRun(ctx context.Context, run *ActionRun) (map[string]string, 
 		log.Error("find global variables: %v", err)
 		return nil, err
 	}
+	for _, v := range globalVariables {
+		variables[v.Name] = v.Data
+	}
 
-	// Org / User level
-	ownerVariables, err := db.Find[ActionVariable](ctx, FindVariablesOpts{OwnerID: run.Repo.OwnerID})
-	if err != nil {
-		log.Error("find variables of org: %d, error: %v", run.Repo.OwnerID, err)
+	// Apply distant ancestors first so the nearest group wins.
+	chain, err := governance_model.Ancestors(ctx, run.Repo.OwnerID)
+	if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
 		return nil, err
+	}
+	ownerIDs := []int64{run.Repo.OwnerID}
+	if len(chain) > 0 {
+		ownerIDs = ownerIDs[:0]
+		for _, ancestor := range slices.Backward(chain) {
+			ownerIDs = append(ownerIDs, ancestor.ID)
+		}
+	}
+	for _, ownerID := range ownerIDs {
+		ownerVariables, err := db.Find[ActionVariable](ctx, FindVariablesOpts{OwnerID: ownerID})
+		if err != nil {
+			log.Error("find variables of org: %d, error: %v", ownerID, err)
+			return nil, err
+		}
+		for _, v := range ownerVariables {
+			variables[v.Name] = v.Data
+		}
 	}
 
 	// Repo level
@@ -209,8 +230,8 @@ func GetVariablesOfRun(ctx context.Context, run *ActionRun) (map[string]string, 
 		return nil, err
 	}
 
-	// Level precedence: Repo > Org / User > Global
-	for _, v := range append(globalVariables, append(ownerVariables, repoVariables...)...) {
+	// Level precedence: Repo > nearest Org / User > Global
+	for _, v := range repoVariables {
 		variables[v.Name] = v.Data
 	}
 

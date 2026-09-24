@@ -28,6 +28,21 @@ func TestGetActionsUserRepoPermission(t *testing.T) {
 	repo15 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 15}) // Private, Owner 2, no Actions unit in fixtures
 	owner2 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	actionsUser := user_model.NewActionsUser()
+	runner := &actions_model.ActionRunner{Name: "permission-test-runner"}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, runner))
+	for _, taskID := range []int64{47, 53} {
+		_, err := db.GetEngine(ctx).ID(taskID).Cols("runner_id", "status").Update(&actions_model.ActionTask{RunnerID: runner.ID, Status: actions_model.StatusRunning})
+		require.NoError(t, err)
+	}
+	_, err := db.GetEngine(ctx).ID(47).Cols("owner_id").Update(&actions_model.ActionTask{OwnerID: repo4.OwnerID})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(192).Cols("owner_id").Update(&actions_model.ActionRunJob{OwnerID: repo4.OwnerID})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(791).Cols("owner_id", "trigger_user_id").Update(&actions_model.ActionRun{OwnerID: repo4.OwnerID, TriggerUserID: repo4.OwnerID})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(795).Cols("trigger_user_id").Update(&actions_model.ActionRun{TriggerUserID: repo2.OwnerID})
+	require.NoError(t, err)
 
 	// Ensure repo2 and repo15 have Actions units for testing configuration
 	for _, r := range []*repo_model.Repository{repo2, repo15} {
@@ -197,5 +212,32 @@ func TestGetActionsUserRepoPermission(t *testing.T) {
 
 		// Should be clamped to Read-only
 		assert.Equal(t, perm_model.AccessModeRead, perm.UnitAccessMode(unit.TypeCode))
+	})
+
+	t.Run("RepoOverride_CannotBypassOwnerMaximum", func(t *testing.T) {
+		ownerMax := repo_model.MakeActionsTokenPermissions(perm_model.AccessModeWrite)
+		ownerMax.UnitAccessModes[unit.TypeCode] = perm_model.AccessModeNone
+		require.NoError(t, actions_model.SetOwnerActionsConfig(ctx, owner2.ID, actions_model.OwnerActionsConfig{
+			MaxTokenPermissions: &ownerMax,
+		}))
+		repo2ActionsUnit := repo2.MustGetUnit(ctx, unit.TypeActions)
+		repo2ActionsUnit.ActionsConfig().OverrideOwnerConfig = true
+		repo2ActionsUnit.ActionsConfig().TokenPermissionMode = repo_model.ActionsTokenPermissionModePermissive
+		repo2ActionsUnit.ActionsConfig().MaxTokenPermissions = nil
+		require.NoError(t, repo_model.UpdateRepoUnitConfig(ctx, repo2ActionsUnit))
+
+		p, err := GetActionsUserRepoPermission(ctx, repo2, actionsUser, 53)
+		require.NoError(t, err)
+		assert.Equal(t, perm_model.AccessModeNone, p.UnitAccessMode(unit.TypeCode))
+	})
+
+	t.Run("PublicRepo_CannotRaiseAbsoluteMaximum", func(t *testing.T) {
+		empty := repo_model.ActionsTokenPermissions{}
+		require.NoError(t, actions_model.SetOwnerActionsConfig(ctx, repo4.OwnerID, actions_model.OwnerActionsConfig{
+			MaxTokenPermissions: &empty,
+		}))
+		p, err := GetActionsUserRepoPermission(ctx, repo4, actionsUser, 47)
+		require.NoError(t, err)
+		assert.Equal(t, perm_model.AccessModeNone, p.UnitAccessMode(unit.TypeCode))
 	})
 }

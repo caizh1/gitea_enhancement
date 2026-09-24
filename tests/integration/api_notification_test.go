@@ -10,14 +10,57 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestAPINotificationRevokedUnit(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	ctx := t.Context()
+	reader := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 3})
+	issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 6})
+	notification := &activities_model.Notification{UserID: reader.ID, RepoID: repo.ID, IssueID: issue.ID, Source: activities_model.NotificationSourceIssue, Status: activities_model.NotificationStatusUnread}
+	require.NoError(t, db.Insert(ctx, notification))
+	issue.Title = "撤权后更新的保密标题"
+	_, err := db.GetEngine(ctx).ID(issue.ID).Cols("name").Update(issue)
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).Where("team_id = ? AND type <> ?", 2, unit.TypeCode).Delete(&organization.TeamUnit{})
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx,
+		&activities_model.Notification{UserID: reader.ID, RepoID: repo.ID, Source: activities_model.NotificationSourceCommit, CommitID: "abc123", Status: activities_model.NotificationStatusUnread},
+		&activities_model.Notification{UserID: reader.ID, RepoID: repo.ID, Source: activities_model.NotificationSourceRepository, Status: activities_model.NotificationStatusUnread},
+	))
+
+	session := loginUser(t, reader.Name)
+	token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeReadNotification, auth_model.AccessTokenScopeReadRepository)
+	response := MakeRequest(t, NewRequest(t, "GET", "/api/v1/notifications?all=true").AddTokenAuth(token), http.StatusOK)
+	threads := DecodeJSON(t, response, []api.NotificationThread{})
+	require.Len(t, threads, 2)
+	assert.Equal(t, "2", response.Header().Get("X-Total-Count"))
+	for _, thread := range threads {
+		assert.NotEqual(t, notification.ID, thread.ID)
+	}
+	MakeRequest(t, NewRequest(t, "GET", fmt.Sprintf("/api/v1/notifications/threads/%d", notification.ID)).AddTokenAuth(token), http.StatusNotFound)
+	response = MakeRequest(t, NewRequest(t, "GET", "/api/v1/notifications/new").AddTokenAuth(token), http.StatusOK)
+	count := DecodeJSON(t, response, &api.NotificationCount{})
+	assert.EqualValues(t, 2, count.New)
+	response = session.MakeRequest(t, NewRequest(t, "GET", "/notifications"), http.StatusOK)
+	assert.NotContains(t, response.Body.String(), "撤权后更新的保密标题")
+	response = session.MakeRequest(t, NewRequest(t, "GET", "/notifications/new"), http.StatusOK)
+	count = DecodeJSON(t, response, &api.NotificationCount{})
+	assert.EqualValues(t, 2, count.New)
+}
 
 func TestAPINotification(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()

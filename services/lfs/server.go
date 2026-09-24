@@ -5,8 +5,10 @@ package lfs
 
 import (
 	stdCtx "context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,7 +20,9 @@ import (
 	"strings"
 	"time"
 
+	asymkey_model "gitea.dev/models/asymkey"
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	governance_model "gitea.dev/models/governance"
 	perm_model "gitea.dev/models/perm"
@@ -35,6 +39,7 @@ import (
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -49,16 +54,18 @@ type requestContext struct {
 
 // Claims is a JWT Token Claims
 type Claims struct {
-	RepoID int64
-	Op     string
-	UserID int64
+	RepoID      int64
+	Op          string
+	UserID      int64
+	DeployKeyID int64
 	jwt.RegisteredClaims
 }
 
 type AuthTokenOptions struct {
-	Op     string
-	UserID int64
-	RepoID int64
+	Op          string
+	UserID      int64
+	RepoID      int64
+	DeployKeyID int64
 }
 
 func GetLFSAuthTokenWithBearer(opts AuthTokenOptions) (string, error) {
@@ -68,9 +75,10 @@ func GetLFSAuthTokenWithBearer(opts AuthTokenOptions) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(setting.LFS.HTTPAuthExpiry)),
 			NotBefore: jwt.NewNumericDate(now),
 		},
-		RepoID: opts.RepoID,
-		Op:     opts.Op,
-		UserID: opts.UserID,
+		RepoID:      opts.RepoID,
+		Op:          opts.Op,
+		UserID:      opts.UserID,
+		DeployKeyID: opts.DeployKeyID,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
@@ -108,7 +116,11 @@ func CheckAcceptMediaType(ctx *context.Context) {
 	}
 }
 
-var rangeHeaderRegexp = regexp.MustCompile(`bytes=(\d+)-(\d*).*`)
+var (
+	rangeHeaderRegexp    = regexp.MustCompile(`bytes=(\d+)-(\d*).*`)
+	errLFSContentChanged = errors.New("LFS object changed while upload was pending")
+	errLFSContentBusy    = errors.New("LFS object is being uploaded")
+)
 
 // DownloadHandler gets the content from the content store
 func DownloadHandler(ctx *context.Context) {
@@ -321,6 +333,7 @@ func UploadHandler(ctx *context.Context) {
 	}
 
 	contentStore := lfs_module.NewContentStore()
+	var stageRevision int64
 	uploadOrVerify := func(lockCtx stdCtx.Context) error {
 		exists, err := contentStore.Exists(p)
 		if err != nil {
@@ -353,12 +366,22 @@ func UploadHandler(ctx *context.Context) {
 					return lfs_module.ErrHashMismatch
 				}
 			}
-		} else if err := contentStore.Put(p, ctx.Req.Body); err != nil {
-			log.Error("Error putting LFS MetaObject [%s] into content store. Error: %v", p.Oid, err)
+		} else {
+			if err := contentStore.Put(p, ctx.Req.Body); err != nil {
+				log.Error("Error putting LFS MetaObject [%s] into content store. Error: %v", p.Oid, err)
+				return err
+			}
+		}
+		var stamp governance_model.LFSContentLock
+		has, err := db.GetEngine(lockCtx).Where("oid = ?", p.Oid).Get(&stamp)
+		if err != nil {
 			return err
 		}
-		_, err = git_model.NewLFSMetaObject(lockCtx, repository.ID, p)
-		return err
+		if !has {
+			return governance_model.ErrConflict
+		}
+		stageRevision = stamp.Revision
+		return nil
 	}
 
 	defer ctx.Req.Body.Close()
@@ -372,8 +395,83 @@ func UploadHandler(ctx *context.Context) {
 		}
 		return
 	}
+	valid, verifyErr := contentStore.Verify(p)
+	var finalErr error
+	if verifyErr != nil {
+		finalErr = verifyErr
+	} else if !valid {
+		finalErr = errLFSContentChanged
+	} else {
+		finalErr = governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repository.ID)}, func(lockCtx stdCtx.Context) error {
+			if keyID, ok := ctx.Data["lfsDeployKeyID"].(int64); ok && keyID > 0 {
+				if err := governance_service.CheckRepositoryContentLifecycle(lockCtx, repository.ID); err != nil {
+					return err
+				}
+				key, err := asymkey_model.GetDeployKeyByID(lockCtx, keyID)
+				if err != nil || key.RepoID != repository.ID || key.Mode < perm_model.AccessModeWrite {
+					return governance_model.ErrForbidden
+				}
+				publicKey, err := asymkey_model.GetPublicKeyByID(lockCtx, key.KeyID)
+				if err != nil || publicKey.Type != asymkey_model.KeyTypeDeploy {
+					return governance_model.ErrForbidden
+				}
+			} else if err := governance_service.CheckRepositoryContentWrite(lockCtx, ctx.Doer, repository.ID, unit.TypeCode); err != nil {
+				return err
+			}
+			// A second upload can be receiving a body under the same OID lock.
+			// Bound its wait so the governance lock never follows network speed.
+			waitCtx, cancel := stdCtx.WithTimeout(lockCtx, 200*time.Millisecond)
+			defer cancel()
+			err := governance_model.WithLFSContentLocks(waitCtx, []string{p.Oid}, func(lockCtx stdCtx.Context) error {
+				var stamp governance_model.LFSContentLock
+				has, err := db.GetEngine(lockCtx).Where("oid = ?", p.Oid).Get(&stamp)
+				if err != nil {
+					return err
+				}
+				if !has || stamp.Revision != stageRevision+1 {
+					return errLFSContentChanged
+				}
+				_, err = git_model.NewLFSMetaObject(lockCtx, repository.ID, p)
+				return err
+			})
+			if err != nil && waitCtx.Err() != nil {
+				return errLFSContentBusy
+			}
+			return err
+		})
+	}
+	if finalErr != nil {
+		cleanupCtx, cancel := stdCtx.WithTimeout(stdCtx.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := queueRejectedLFSUploadCleanup(cleanupCtx, p, stageRevision); err != nil {
+			log.Error("Unable to queue rejected LFS OID[%s] cleanup: %v", p.Oid, err)
+		}
+		switch {
+		case errors.Is(finalErr, governance_model.ErrConflict):
+			writeStatus(ctx, http.StatusLocked)
+		case errors.Is(finalErr, governance_model.ErrForbidden):
+			writeStatus(ctx, http.StatusForbidden)
+		case errors.Is(finalErr, errLFSContentChanged), errors.Is(finalErr, errLFSContentBusy):
+			writeStatus(ctx, http.StatusConflict)
+		default:
+			log.Error("Unable to link LFS OID[%s]: %v", p.Oid, finalErr)
+			writeStatus(ctx, http.StatusInternalServerError)
+		}
+		return
+	}
 
 	writeStatus(ctx, http.StatusOK)
+}
+
+func queueRejectedLFSUploadCleanup(ctx stdCtx.Context, p lfs_module.Pointer, stageRevision int64) error {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return err
+	}
+	resourceID := int64(binary.BigEndian.Uint64(random[:]) >> 1)
+	nextAttempt := time.Now().Add(24 * time.Hour).Unix()
+	object := governance_model.CleanupObject{Kind: "lfs", Path: p.RelativePath(), Revision: stageRevision}
+	return db.Insert(ctx, &governance_model.ResourceCleanup{Kind: "lfs_upload", ResourceID: resourceID, Objects: []governance_model.CleanupObject{object}, NextAttemptUnix: nextAttempt, ScopeType: "instance", Actor: governance_model.AuditActor(ctx)})
 }
 
 // VerifyHandler verify oid and its size from the content store
@@ -464,6 +562,10 @@ func getAuthenticatedRepository(ctx *context.Context, rc *requestContext, requir
 	}
 
 	if ctx.Written() {
+		return nil
+	}
+	if requireWrite && repository.IsArchived {
+		writeStatus(ctx, http.StatusLocked)
 		return nil
 	}
 
@@ -558,17 +660,20 @@ func authenticate(ctx *context.Context, repository *repo_model.Repository, autho
 	// now, either sign-in is required or the ctx.Doer cannot access, check the LFS token
 	// however, "ctx.Doer exists but cannot access then check LFS token" should not really happen:
 	// * why a request can be sent with both valid user session and valid LFS token then use LFS token to access?
-	user, err := parseToken(ctx, authorization, repository, accessMode)
+	user, deployKeyID, err := parseToken(ctx, authorization, repository, accessMode)
 	if err != nil {
 		// Most of these are Warn level - the true internal server errors are logged in parseToken already
 		log.Warn("Authentication failure for provided token with Error: %v", err)
 		return false
 	}
 	ctx.Doer = user
+	if deployKeyID > 0 {
+		ctx.Data["lfsDeployKeyID"] = deployKeyID
+	}
 	return true
 }
 
-func handleLFSToken(ctx stdCtx.Context, tokenSHA string, target *repo_model.Repository, mode perm_model.AccessMode) (*user_model.User, error) {
+func handleLFSToken(ctx stdCtx.Context, tokenSHA string, target *repo_model.Repository, mode perm_model.AccessMode) (*user_model.User, int64, error) {
 	token, err := jwt.ParseWithClaims(tokenSHA, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
@@ -576,49 +681,61 @@ func handleLFSToken(ctx stdCtx.Context, tokenSHA string, target *repo_model.Repo
 		return setting.LFS.JWTSecretBytes, nil
 	})
 	if err != nil {
-		return nil, errors.New("invalid token")
+		return nil, 0, errors.New("invalid token")
 	}
 
 	claims, claimsOk := token.Claims.(*Claims)
 	if !token.Valid || !claimsOk {
-		return nil, errors.New("invalid token claim")
+		return nil, 0, errors.New("invalid token claim")
 	}
 
 	if claims.RepoID != target.ID {
-		return nil, errors.New("invalid token claim")
+		return nil, 0, errors.New("invalid token claim")
 	}
 
 	if mode == perm_model.AccessModeWrite && claims.Op != "upload" {
-		return nil, errors.New("invalid token claim")
+		return nil, 0, errors.New("invalid token claim")
+	}
+	if claims.DeployKeyID > 0 {
+		key, err := asymkey_model.GetDeployKeyByID(ctx, claims.DeployKeyID)
+		if err != nil || key.RepoID != target.ID || key.Mode < mode || claims.UserID != target.OwnerID {
+			return nil, 0, util.NewPermissionDeniedErrorf("deploy key is not authorized for repository")
+		}
+		publicKey, err := asymkey_model.GetPublicKeyByID(ctx, key.KeyID)
+		if err != nil || publicKey.Type != asymkey_model.KeyTypeDeploy {
+			return nil, 0, util.NewPermissionDeniedErrorf("deploy key is not authorized for repository")
+		}
+		owner, err := user_model.GetUserByID(ctx, target.OwnerID)
+		return owner, claims.DeployKeyID, err
 	}
 
 	u, err := user_model.GetUserByID(ctx, claims.UserID)
 	if err != nil {
 		log.Error("Unable to GetUserById[%d]: Error: %v", claims.UserID, err)
-		return nil, err
+		return nil, 0, err
 	}
 	if !u.IsActive || u.ProhibitLogin {
-		return nil, util.NewPermissionDeniedErrorf("not allowed to access any repository")
+		return nil, 0, util.NewPermissionDeniedErrorf("not allowed to access any repository")
 	}
 
 	perm, err := access_model.GetDoerRepoPermission(ctx, target, u)
 	if err != nil {
 		log.Error("Unable to GetDoerRepoPermission for user[%d] repo[%d]: %v", claims.UserID, target.ID, err)
-		return nil, err
+		return nil, 0, err
 	}
 	if !perm.CanAccess(mode, unit.TypeCode) {
-		return nil, util.NewPermissionDeniedErrorf("no permission to access the repository")
+		return nil, 0, util.NewPermissionDeniedErrorf("no permission to access the repository")
 	}
-	return u, nil
+	return u, 0, nil
 }
 
-func parseToken(ctx stdCtx.Context, authorization string, target *repo_model.Repository, mode perm_model.AccessMode) (*user_model.User, error) {
+func parseToken(ctx stdCtx.Context, authorization string, target *repo_model.Repository, mode perm_model.AccessMode) (*user_model.User, int64, error) {
 	if authorization == "" {
-		return nil, errors.New("no token")
+		return nil, 0, errors.New("no token")
 	}
 	parsed, ok := httpauth.ParseAuthorizationHeader(authorization)
 	if !ok || parsed.BearerToken == nil {
-		return nil, errors.New("token not found")
+		return nil, 0, errors.New("token not found")
 	}
 	return handleLFSToken(ctx, parsed.BearerToken.Token, target, mode)
 }

@@ -24,11 +24,11 @@ func TestFilterNotificationsByRepoAccess(t *testing.T) {
 	accessibleRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
 
 	notifications := activities_model.NotificationList{
-		{ID: 1, Repository: inaccessibleRepo},
-		{ID: 2, Repository: accessibleRepo},
+		{ID: 1, RepoID: inaccessibleRepo.ID, Source: activities_model.NotificationSourceRepository, Repository: inaccessibleRepo},
+		{ID: 2, RepoID: accessibleRepo.ID, Source: activities_model.NotificationSourceRepository, Repository: accessibleRepo},
 	}
 
-	filtered, failures, err := filterNotificationsByRepoAccess(t.Context(), doer, notifications)
+	filtered, failures, err := notifications.FilterByAccess(t.Context(), doer)
 	require.NoError(t, err)
 
 	assert.Equal(t, []int{0}, failures)

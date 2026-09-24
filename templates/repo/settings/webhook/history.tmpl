@@ -1,8 +1,8 @@
 {{if .PageIsSettingsHooksEdit}}
 	<h4 class="ui top attached header flex-left-right">
 		<span>{{ctx.Locale.Tr "repo.settings.recent_deliveries"}}</span>
-		{{if .Permission.IsAdmin}}
-			<button class="ui tiny button" id="test-delivery" data-link="{{.Link}}/test"
+		{{if or .Permission.IsAdmin .IsOrganizationOwner}}
+			<button class="ui tiny button" id="test-delivery" data-link="{{.Link}}/test" {{if not .Webhook.IsActive}}disabled{{end}}
 				data-tooltip-content="{{ctx.Locale.Tr "repo.settings.webhook.test_delivery_desc"}}"
 			>
 				{{ctx.Locale.Tr "repo.settings.webhook.test_delivery"}}

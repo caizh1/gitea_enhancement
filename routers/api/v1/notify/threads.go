@@ -114,5 +114,14 @@ func getThread(ctx *context.APIContext) *activities_model.Notification {
 		ctx.APIError(http.StatusForbidden, fmt.Sprintf("only user itself and admin are allowed to read/change this thread %d", n.ID))
 		return nil
 	}
+	visible, err := activities_model.CanUserReadNotification(ctx, n, ctx.Doer)
+	if err != nil {
+		ctx.APIErrorInternal(err)
+		return nil
+	}
+	if !visible {
+		ctx.APIError(http.StatusNotFound, "notification thread not found")
+		return nil
+	}
 	return n
 }

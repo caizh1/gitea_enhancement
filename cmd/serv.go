@@ -292,7 +292,7 @@ func runServ(ctx context.Context, c *cli.Command) (returnErr error) {
 
 	// LFS SSH protocol
 	if verb == git.CmdVerbLfsTransfer {
-		token, err := lfs.GetLFSAuthTokenWithBearer(lfs.AuthTokenOptions{Op: lfsVerb, UserID: results.UserID, RepoID: results.RepoID})
+		token, err := lfs.GetLFSAuthTokenWithBearer(lfs.AuthTokenOptions{Op: lfsVerb, UserID: results.UserID, RepoID: results.RepoID, DeployKeyID: results.DeployKeyID})
 		if err != nil {
 			return err
 		}
@@ -303,7 +303,7 @@ func runServ(ctx context.Context, c *cli.Command) (returnErr error) {
 	if verb == git.CmdVerbLfsAuthenticate {
 		url := fmt.Sprintf("%s%s/%s.git/info/lfs", setting.AppURL, url.PathEscape(results.OwnerName), url.PathEscape(results.RepoName))
 
-		token, err := lfs.GetLFSAuthTokenWithBearer(lfs.AuthTokenOptions{Op: lfsVerb, UserID: results.UserID, RepoID: results.RepoID})
+		token, err := lfs.GetLFSAuthTokenWithBearer(lfs.AuthTokenOptions{Op: lfsVerb, UserID: results.UserID, RepoID: results.RepoID, DeployKeyID: results.DeployKeyID})
 		if err != nil {
 			return err
 		}

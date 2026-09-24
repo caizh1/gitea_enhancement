@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,76 @@ func TestGovernanceInvitationHTTP(t *testing.T) {
 	audit := unittest.AssertExistsAndLoadBean(t, &governance_model.AuditEvent{Type: "invitation.accepted", ObjectID: 4})
 	require.EqualValues(t, 4, audit.Actor.ID)
 	require.NotContains(t, string(audit.Details), token)
+}
+
+func TestGovernanceInvitationWebForm(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	ctx := t.Context()
+	defer test.MockVariableValue(&setting.MailService, &setting.Mailer{Protocol: "dummy"})()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	owner := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "web"}
+	group, err := governance_service.CreateGroup(ctx, owner, governance_service.GroupOption{Path: "invite-web-form", Visibility: 2})
+	require.NoError(t, err)
+	email := "invite-web-form@example.invalid"
+	require.NoError(t, db.Insert(ctx, &user_model.EmailAddress{UID: 4, Email: email, IsActivated: true}))
+	invitation, err := governance_service.CreateInvitation(ctx, owner, "group", group.ID, governance_service.InvitationOption{Email: email, Role: governance_model.Reporter, Revision: group.Revision})
+	require.NoError(t, err)
+	token, err := secret.DecryptSecret(setting.SecretKey, invitation.TokenEncrypted)
+	require.NoError(t, err)
+	landing := fmt.Sprintf("/governance/invitations/%d", invitation.ID)
+	wrong := loginUser(t, "user5")
+	response := wrong.MakeRequest(t, NewRequest(t, "GET", landing), http.StatusOK)
+	require.Contains(t, response.Body.String(), `data-invitation-preview`)
+	require.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"))
+	if strings.Contains(response.Body.String(), token) {
+		t.Fatal("邀请落地页意外包含令牌")
+	}
+	wrong.MakeRequest(t, NewRequestWithValues(t, "POST", landing, map[string]string{"action": "preview", "token": token}), http.StatusNotFound)
+	wrong.MakeRequest(t, NewRequestWithValues(t, "POST", landing, map[string]string{"action": "accept", "token": token}), http.StatusNotFound)
+	unittest.AssertCount(t, &governance_model.Membership{ScopeType: "group", ScopeID: group.ID, UserID: 5}, 0)
+
+	recipient := loginUser(t, "user4")
+	response = recipient.MakeRequest(t, NewRequest(t, "GET", landing), http.StatusOK)
+	require.Contains(t, response.Body.String(), `data-invitation-preview`)
+	response = recipient.MakeRequest(t, NewRequestWithValues(t, "POST", landing, map[string]string{"action": "preview", "token": token}), http.StatusOK)
+	require.Contains(t, response.Body.String(), email)
+	require.Contains(t, response.Body.String(), `value="accept"`)
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	require.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"))
+	response = recipient.MakeRequest(t, NewRequestWithValues(t, "POST", landing, map[string]string{"action": "accept", "token": token}), http.StatusOK)
+	require.Contains(t, response.Body.String(), "邀请已接受")
+	unittest.AssertCount(t, &governance_model.Membership{ScopeType: "group", ScopeID: group.ID, UserID: 4, Role: governance_model.Reporter}, 1)
+	recipient.MakeRequest(t, NewRequestWithValues(t, "POST", landing, map[string]string{"action": "accept", "token": token}), http.StatusNotFound)
+}
+
+func TestGovernanceInvitationRevokedWebRendersHTML404(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	ctx := t.Context()
+	defer test.MockVariableValue(&setting.MailService, &setting.Mailer{Protocol: "dummy"})()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	owner := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "web"}
+	group, err := governance_service.CreateGroup(ctx, owner, governance_service.GroupOption{Path: "invite-revoked-web", Visibility: 2})
+	require.NoError(t, err)
+	email := "invite-revoked-web@example.invalid"
+	require.NoError(t, db.Insert(ctx, &user_model.EmailAddress{UID: 4, Email: email, IsActivated: true}))
+	invitation, err := governance_service.CreateInvitation(ctx, owner, "group", group.ID, governance_service.InvitationOption{Email: email, Role: governance_model.Reporter, Revision: group.Revision})
+	require.NoError(t, err)
+	token, err := secret.DecryptSecret(setting.SecretKey, invitation.TokenEncrypted)
+	require.NoError(t, err)
+	require.NoError(t, governance_service.RevokeInvitation(ctx, owner, "group", group.ID, invitation.ID))
+
+	landing := fmt.Sprintf("/governance/invitations/%d", invitation.ID)
+	recipient := loginUser(t, "user4")
+	for _, action := range []string{"preview", "accept"} {
+		t.Run(action, func(t *testing.T) {
+			response := recipient.MakeRequest(t, NewRequestWithValues(t, "POST", landing, map[string]string{"action": action, "token": token}).SetHeader("Accept", "text/html"), http.StatusNotFound)
+			require.Contains(t, response.Header().Get("Content-Type"), "text/html")
+			require.True(t, test.IsNormalPageCompleted(response.Body.String()))
+			require.NotContains(t, response.Body.String(), token)
+			require.NotContains(t, response.Body.String(), email)
+		})
+	}
+	unittest.AssertCount(t, &governance_model.Membership{ScopeType: "group", ScopeID: group.ID, UserID: 4}, 0)
 }
 
 func TestGovernanceInvitationAuditRollback(t *testing.T) {

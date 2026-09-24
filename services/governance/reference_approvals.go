@@ -11,19 +11,25 @@ import (
 	"fmt"
 	"strings"
 
+	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/gitrepo"
 
 	"xorm.io/builder"
 )
 
 // PrepareGitReferenceTransaction 在短数据库事务外读取 Git；修订号变化时拒绝过期快照。
-func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_model.ReferenceTransaction) error {
+func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_model.ReferenceTransaction, gitEnv ...[]string) error {
 	if operation == nil || operation.RepoID <= 0 || len(operation.PullChanges) != 0 {
 		return governance_model.ErrInvalid
 	}
@@ -72,6 +78,25 @@ func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_m
 		return repository, err
 	}
 	var dependencies []string
+	forcePushes := make(map[string]bool)
+	for _, change := range operation.Changes {
+		if !strings.HasPrefix(change.Ref, "refs/heads/") || strings.Trim(change.Old, "0") == "" || strings.Trim(change.New, "0") == "" {
+			continue
+		}
+		repository, err := loadRepo(operation.RepoID)
+		if err != nil {
+			return err
+		}
+		command := gitcmd.NewCommand("rev-list", "--max-count=1").AddDynamicArguments(change.Old, "^"+change.New)
+		if len(gitEnv) > 0 {
+			command = command.WithEnv(gitEnv[0])
+		}
+		output, _, err := gitrepo.RunCmdString(ctx, repository, command)
+		if err != nil {
+			return fmt.Errorf("无法核对目标分支强推：%w", err)
+		}
+		forcePushes[change.Ref] = len(output) > 0
+	}
 	for _, pr := range pulls {
 		base, err := loadRepo(pr.BaseRepoID)
 		if err != nil {
@@ -142,6 +167,15 @@ func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_m
 		if repository.IsArchived {
 			return fmt.Errorf("%w：项目已归档，不能准备新的引用写入", governance_model.ErrForbidden)
 		}
+		if operation.Actor.ID == user_model.ActionsUserID {
+			allowed, err := actionsReferenceWriteAllowed(ctx, repository, operation.Actor)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return governance_model.ErrForbidden
+			}
+		}
 
 		if err := validateReferencePullSnapshot(ctx, operation.RepoID, changes, pulls, revisions); err != nil {
 			return err
@@ -172,9 +206,93 @@ func PrepareGitReferenceTransaction(ctx context.Context, operation *governance_m
 			if protection != nil && protection.RequireGovernanceApproval && operation.MergeAuthorizationID == "" {
 				return fmt.Errorf("%w：目标分支只接受通过最终审批授权的合并", governance_model.ErrForbidden)
 			}
+			if err := checkGroupBranchProtectionAtPrepared(ctx, repository, operation, change, forcePushes[change.Ref]); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
+}
+
+func checkGroupBranchProtectionAtPrepared(ctx context.Context, repository *repo_model.Repository, operation *governance_model.ReferenceTransaction, change governance_model.ReferenceChange, force bool) error {
+	protection, err := git_model.EvaluateEffectiveBranchProtection(ctx, repository.ID, strings.TrimPrefix(change.Ref, "refs/heads/"))
+	if err != nil || len(protection.Group) == 0 {
+		return err
+	}
+	if strings.Trim(change.New, "0") == "" {
+		return fmt.Errorf("%w：群组保护分支不能通过 Git 删除", governance_model.ErrForbidden)
+	}
+	if operation.MergeAuthorizationID != "" {
+		return nil
+	}
+	if operation.Actor.Kind == "system" {
+		if repository.IsMirror && operation.Actor.Transport == "internal_git" && operation.Actor.Name == "镜像后台同步" {
+			return nil
+		}
+		return governance_model.ErrForbidden
+	}
+	if operation.Actor.ID == user_model.ActionsUserID {
+		allowed, err := actionsReferenceWriteAllowed(ctx, repository, operation.Actor)
+		if err != nil {
+			return err
+		}
+		if !allowed || protection.Native == nil {
+			return governance_model.ErrForbidden
+		}
+		user := user_model.NewActionsUserWithTaskID(operation.Actor.CredentialID)
+		protection.Native.Repo = repository
+		if force && !protection.Native.CanUserForcePush(ctx, user) || !force && !protection.Native.CanUserPush(ctx, user) {
+			return governance_model.ErrForbidden
+		}
+		return nil
+	}
+	if operation.Actor.Kind == "deploy_key" {
+		var key asymkey_model.DeployKey
+		has, err := db.GetEngine(ctx).Where("repo_id = ? AND key_id = ?", repository.ID, operation.Actor.CredentialID).Get(&key)
+		if err != nil {
+			return err
+		}
+		if !has || key.Mode < perm.AccessModeWrite || !protection.CanDeployKeyPush(force) {
+			return governance_model.ErrForbidden
+		}
+		return nil
+	}
+	if operation.Actor.Kind != "user" {
+		return governance_model.ErrForbidden
+	}
+	user, err := user_model.GetUserByID(ctx, operation.Actor.EffectiveUserID())
+	if err != nil || !user.IsActive || user.ProhibitLogin {
+		return governance_model.ErrForbidden
+	}
+	permission, err := access_model.GetDoerRepoPermission(ctx, repository, user)
+	if err != nil {
+		return err
+	}
+	if !permission.CanWrite(unit.TypeCode) {
+		return governance_model.ErrForbidden
+	}
+	var allowed bool
+	if force {
+		allowed, err = protection.AllowsForcePush(ctx, user)
+	} else {
+		allowed, err = protection.CanUserPush(ctx, user)
+	}
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return governance_model.ErrForbidden
+	}
+	return nil
+}
+
+func actionsReferenceWriteAllowed(ctx context.Context, repository *repo_model.Repository, actor governance_model.Actor) (bool, error) {
+	if actor.Kind != "service_account" || actor.CredentialID <= 0 {
+		return false, nil
+	}
+	user := user_model.NewActionsUserWithTaskID(actor.CredentialID)
+	permission, err := access_model.GetActionsUserRepoPermission(ctx, repository, user, actor.CredentialID)
+	return err == nil && permission.CanWrite(unit.TypeCode), err
 }
 
 // referenceAffectedPulls 在计算差异前和最终事务内使用同一个筛选条件，不能漏掉新建或改目标的 PR。

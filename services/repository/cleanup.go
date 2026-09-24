@@ -79,15 +79,17 @@ func RunResourceCleanup(ctx context.Context, id int64) error {
 			table = "attachment"
 		} else if task.Kind == "group" {
 			table = "user"
-		} else if task.Kind != "repository" {
+		} else if task.Kind != "repository" && task.Kind != "lfs_upload" {
 			return governance_model.ErrInvalid
 		}
-		exists, err := db.GetEngine(ctx).Table(table).Where("id = ?", task.ResourceID).Exist()
-		if err != nil {
-			return err
-		}
-		if exists {
-			return governance_model.ErrConflict
+		if task.Kind != "lfs_upload" {
+			exists, err := db.GetEngine(ctx).Table(table).Where("id = ?", task.ResourceID).Exist()
+			if err != nil {
+				return err
+			}
+			if exists {
+				return governance_model.ErrConflict
+			}
 		}
 		for _, object := range task.Objects {
 			var err error
@@ -151,7 +153,7 @@ func cleanupAuditScope(task *governance_model.ResourceCleanup) (string, int64) {
 	if task.ScopeType != "" {
 		return task.ScopeType, task.ScopeID
 	}
-	if task.Kind == "package_blob" || task.Kind == "attachment" || task.Kind == "actions_run" {
+	if task.Kind == "package_blob" || task.Kind == "attachment" || task.Kind == "actions_run" || task.Kind == "lfs_upload" {
 		return "instance", 0
 	}
 	return task.Kind, task.ResourceID
@@ -190,12 +192,35 @@ func removeCleanupObject(ctx context.Context, object governance_model.CleanupObj
 	}
 	if object.Kind == "lfs" {
 		oid := strings.ReplaceAll(object.Path, "/", "")
-		return governance_model.WithLFSContentLocks(ctx, []string{oid}, func(ctx context.Context) error {
+		withLock := governance_model.WithLFSContentLocks
+		if object.Revision > 0 {
+			withLock = governance_model.WithLFSContentLocksWithoutRevision
+		}
+		return withLock(ctx, []string{oid}, func(ctx context.Context) error {
+			if object.Revision > 0 {
+				var stamp governance_model.LFSContentLock
+				has, err := db.GetEngine(ctx).Where("oid = ?", oid).Get(&stamp)
+				if err != nil || !has || stamp.Revision != object.Revision {
+					return err
+				}
+			}
 			exists, err := db.GetEngine(ctx).Table("lfs_meta_object").Where("oid = ?", oid).Exist()
 			if err != nil || exists {
 				return err
 			}
-			return store.Delete(object.Path)
+			if object.Revision > 0 {
+				affected, err := db.GetEngine(ctx).Where("oid = ?", oid).Incr("revision").Update(new(governance_model.LFSContentLock))
+				if err != nil {
+					return err
+				}
+				if affected != 1 {
+					return governance_model.ErrConflict
+				}
+			}
+			if err := store.Delete(object.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			return nil
 		})
 	}
 

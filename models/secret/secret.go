@@ -5,14 +5,18 @@ package secret
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
 	governance_model "gitea.dev/models/governance"
 	actions_module "gitea.dev/modules/actions"
 	"gitea.dev/modules/actions/jobparser"
+	"gitea.dev/modules/git"
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	secret_module "gitea.dev/modules/secret"
@@ -44,6 +48,7 @@ type Secret struct {
 	Name        string             `xorm:"UNIQUE(owner_repo_name) NOT NULL"`
 	Data        string             `xorm:"LONGTEXT"` // encrypted data
 	Description string             `xorm:"TEXT"`
+	Protected   bool               `xorm:"NOT NULL DEFAULT false"`
 	CreatedUnix timeutil.TimeStamp `xorm:"created NOT NULL"`
 }
 
@@ -66,7 +71,7 @@ func (err ErrSecretNotFound) Unwrap() error {
 }
 
 // InsertEncryptedSecret Creates, encrypts, and validates a new secret with yet unencrypted data and insert into database
-func InsertEncryptedSecret(ctx context.Context, ownerID, repoID int64, name, data, description string) (*Secret, error) {
+func InsertEncryptedSecret(ctx context.Context, ownerID, repoID int64, name, data, description string, protected ...bool) (*Secret, error) {
 	if ownerID != 0 && repoID != 0 {
 		// It's trying to create a secret that belongs to a repository, but OwnerID has been set accidentally.
 		// Remove OwnerID to avoid confusion; it's not worth returning an error here.
@@ -94,11 +99,14 @@ func InsertEncryptedSecret(ctx context.Context, ownerID, repoID int64, name, dat
 		Data:        encrypted,
 		Description: description,
 	}
+	if len(protected) > 0 {
+		secret.Protected = protected[0]
+	}
 	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		if err := db.Insert(ctx, secret); err != nil {
 			return err
 		}
-		return actions_model.AppendConfigurationAudit(ctx, secret.OwnerID, secret.RepoID, "actions.secret_created", "actions_secret", secret.ID, secret.Name, map[string]any{"name": secret.Name, "value_configured": secret.Data != "", "description_configured": secret.Description != ""})
+		return actions_model.AppendConfigurationAudit(ctx, secret.OwnerID, secret.RepoID, "actions.secret_created", "actions_secret", secret.ID, secret.Name, map[string]any{"name": secret.Name, "protected": secret.Protected, "value_configured": secret.Data != "", "description_configured": secret.Description != ""})
 	}); err != nil {
 		return nil, err
 	}
@@ -139,7 +147,7 @@ func (opts FindSecretsOptions) ToConds() builder.Cond {
 }
 
 // UpdateSecret changes org or user reop secret.
-func UpdateSecret(ctx context.Context, secretID int64, data, description string) error {
+func UpdateSecret(ctx context.Context, secretID int64, data, description string, protected ...*bool) error {
 	if len(data) > SecretDataMaxLength {
 		return util.NewInvalidArgumentErrorf("data too long")
 	}
@@ -159,9 +167,14 @@ func UpdateSecret(ctx context.Context, secretID int64, data, description string)
 		if !has {
 			return ErrSecretNotFound{}
 		}
-		beforeData, beforeDescription := s.Data, s.Description
+		beforeData, beforeDescription, beforeProtected := s.Data, s.Description, s.Protected
 		s.Data, s.Description = encrypted, description
-		affected, err := db.GetEngine(ctx).ID(secretID).Cols("data", "description").Update(s)
+		columns := []string{"data", "description"}
+		if len(protected) > 0 && protected[0] != nil {
+			s.Protected = *protected[0]
+			columns = append(columns, "protected")
+		}
+		affected, err := db.GetEngine(ctx).ID(secretID).Cols(columns...).Update(s)
 		if err != nil {
 			return err
 		}
@@ -175,11 +188,47 @@ func UpdateSecret(ctx context.Context, secretID int64, data, description string)
 		if beforeDescription != s.Description {
 			changed = append(changed, "description")
 		}
-		return actions_model.AppendConfigurationAudit(ctx, s.OwnerID, s.RepoID, "actions.secret_updated", "actions_secret", s.ID, s.Name, map[string]any{"name": s.Name, "changed_fields": changed, "value_configured": s.Data != "", "description_configured": s.Description != ""})
+		if beforeProtected != s.Protected {
+			changed = append(changed, "protected")
+		}
+		return actions_model.AppendConfigurationAudit(ctx, s.OwnerID, s.RepoID, "actions.secret_updated", "actions_secret", s.ID, s.Name, map[string]any{"name": s.Name, "changed_fields": changed, "protected": s.Protected, "value_configured": s.Data != "", "description_configured": s.Description != ""})
 	})
 }
 
+// ProtectedRefTrusted currently accepts only direct trusted events on a protected branch.
+func ProtectedRefTrusted(ctx context.Context, run *actions_model.ActionRun) (bool, error) {
+	if run == nil || run.IsForkPullRequest || run.CommitSHA == "" {
+		return false, nil
+	}
+	switch run.TriggerEvent {
+	case actions_module.GithubEventPush, actions_module.GithubEventSchedule, "workflow_dispatch":
+	default:
+		return false, nil
+	}
+	ref := git.RefName(run.Ref)
+	if ref.IsBranch() && ref.BranchName() != "" {
+		protected, err := git_model.IsBranchProtected(ctx, run.RepoID, ref.BranchName())
+		if err != nil || !protected {
+			return false, err
+		}
+		branch, err := git_model.GetBranch(ctx, run.RepoID, ref.BranchName())
+		if errors.Is(err, util.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return !branch.IsDeleted && branch.CommitID == run.CommitSHA, nil
+	}
+	// Tag protection has no durable tag-ref snapshot here; a rule added after an
+	// untrusted tag run was queued must not make its old commit trusted.
+	return false, nil
+}
+
 func GetSecretsOfTask(ctx context.Context, task *actions_model.ActionTask) (map[string]string, error) {
+	if task.Job == nil || task.Job.Run == nil || task.Job.Run.Repo == nil || task.OwnerID != task.Job.Run.Repo.OwnerID || task.Job.OwnerID != task.OwnerID || task.Job.Run.OwnerID != task.OwnerID {
+		return nil, fmt.Errorf("%w：Actions 任务的归属已变化", governance_model.ErrConflict)
+	}
 	baseSecrets := map[string]string{}
 
 	baseSecrets["GITHUB_TOKEN"] = task.Token
@@ -192,10 +241,25 @@ func GetSecretsOfTask(ctx context.Context, task *actions_model.ActionTask) (map[
 		return baseSecrets, nil
 	}
 
-	ownerSecrets, err := db.Find[Secret](ctx, FindSecretsOptions{OwnerID: task.Job.Run.Repo.OwnerID})
-	if err != nil {
-		log.Error("find secrets of owner %v: %v", task.Job.Run.Repo.OwnerID, err)
+	chain, err := governance_model.Ancestors(ctx, task.OwnerID)
+	if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
 		return nil, err
+	}
+	ownerIDs := []int64{task.OwnerID}
+	if len(chain) > 0 {
+		ownerIDs = ownerIDs[:0]
+		for _, ancestor := range slices.Backward(chain) {
+			ownerIDs = append(ownerIDs, ancestor.ID)
+		}
+	}
+	var ownerSecrets []*Secret
+	for _, ownerID := range ownerIDs {
+		secrets, err := db.Find[Secret](ctx, FindSecretsOptions{OwnerID: ownerID})
+		if err != nil {
+			log.Error("find secrets of owner %v: %v", ownerID, err)
+			return nil, err
+		}
+		ownerSecrets = append(ownerSecrets, secrets...)
 	}
 	repoSecrets, err := db.Find[Secret](ctx, FindSecretsOptions{RepoID: task.Job.Run.RepoID})
 	if err != nil {
@@ -203,11 +267,29 @@ func GetSecretsOfTask(ctx context.Context, task *actions_model.ActionTask) (map[
 		return nil, err
 	}
 
+	selected := make(map[string]*Secret, len(ownerSecrets)+len(repoSecrets))
 	for _, secret := range append(ownerSecrets, repoSecrets...) {
+		selected[secret.Name] = secret
+	}
+	trustedProtectedRef, checkedProtectedRef := false, false
+	for _, secret := range selected {
+		if secret.Protected {
+			// Check after choosing the nearest source; an ineligible override cannot expose a parent value.
+			if !checkedProtectedRef {
+				trustedProtectedRef, err = ProtectedRefTrusted(ctx, task.Job.Run)
+				if err != nil {
+					return nil, err
+				}
+				checkedProtectedRef = true
+			}
+			if !trustedProtectedRef {
+				continue
+			}
+		}
 		v, err := secret_module.DecryptSecret(setting.SecretKey, secret.Data)
 		if err != nil {
 			log.Error("Unable to decrypt Actions secret %v %q, maybe SECRET_KEY is wrong: %v", secret.ID, secret.Name, err)
-			continue
+			return nil, fmt.Errorf("unable to decrypt Actions secret %d: %w", secret.ID, err)
 		}
 		baseSecrets[secret.Name] = v
 	}

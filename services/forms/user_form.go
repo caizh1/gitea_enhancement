@@ -327,6 +327,7 @@ type AddSecretForm struct {
 	Name        string `binding:"Required;MaxSize(255)"`
 	Data        string `binding:"Required;MaxSize(65535)"`
 	Description string `binding:"MaxSize(65535)"`
+	Protected   bool
 }
 
 // Validate validates the fields

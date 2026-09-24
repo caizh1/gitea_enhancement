@@ -116,7 +116,7 @@ func GetLatestRunnerToken(ctx context.Context, ownerID, repoID int64) (*ActionRu
 	}
 
 	var runnerToken ActionRunnerToken
-	has, err := db.GetEngine(ctx).Where("owner_id=? AND repo_id=?", ownerID, repoID).
+	has, err := db.GetEngine(ctx).Where("owner_id=? AND repo_id=? AND is_active=?", ownerID, repoID, true).
 		OrderBy("id DESC").Get(&runnerToken)
 	if err != nil {
 		return nil, err

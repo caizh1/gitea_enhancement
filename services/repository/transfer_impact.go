@@ -31,6 +31,8 @@ type RepositoryTransferImpact struct {
 	NewPath                  string
 	RemovedAncestorPaths     []string
 	AddedAncestorPaths       []string
+	RemovedLifecycleSources  []governance_service.LifecycleSourceImpact
+	AddedLifecycleSources    []governance_service.LifecycleSourceImpact
 	RemovedMembershipSources int64
 	AddedMembershipSources   int64
 	RemovedShareSources      int64
@@ -44,6 +46,7 @@ type RepositoryTransferImpact struct {
 	DirectSharesRetained     int64
 	DirectApprovalRules      int64
 	CompatibilityAliasKept   bool
+	Runtime                  TransferRuntimeImpact
 }
 
 // PreviewRepositoryTransfer 只返回操作者有权转移且有权看见的来源和目标信息。
@@ -96,13 +99,27 @@ func previewRepositoryTransfer(ctx context.Context, actorID, repoID, targetOwner
 	if target.NamespacePath == "" {
 		impact.NewPath = target.Name + "/" + repo.Name
 	}
-	impact.ImpactFingerprint, err = repositoryTransferFingerprint(ctx, repo.ID, oldChain, newChain)
+	impact.Runtime, err = repositoryTransferRuntimeImpact(ctx, repo.ID, newChain)
+	if err != nil {
+		return nil, err
+	}
+	impact.ImpactFingerprint, err = repositoryTransferFingerprint(ctx, actorID, repo.ID, oldChain, newChain)
 	if err != nil {
 		return nil, err
 	}
 	if err := fillRepositoryTransferScopes(ctx, impact, removed, added); err != nil {
 		return nil, err
 	}
+	impact.RemovedLifecycleSources, _, err = governance_service.LifecycleSourceImpacts(ctx, actorID, removed)
+	if err != nil {
+		return nil, err
+	}
+	impact.AddedLifecycleSources, _, err = governance_service.LifecycleSourceImpacts(ctx, actorID, added)
+	if err != nil {
+		return nil, err
+	}
+	impact.RemovedAncestorPaths = governance_service.LifecycleSourcePaths(impact.RemovedLifecycleSources)
+	impact.AddedAncestorPaths = governance_service.LifecycleSourcePaths(impact.AddedLifecycleSources)
 	if impact.DirectSharesRetained, err = db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "repository", repo.ID).Count(new(governance_model.Share)); err != nil {
 		return nil, err
 	}
@@ -173,7 +190,7 @@ func countRepositoryTransferScopes(ctx context.Context, items []*governance_mode
 	return
 }
 
-func (impact *RepositoryTransferImpact) Validate(ctx context.Context, repo *repo_model.Repository, target *user_model.User) error {
+func (impact *RepositoryTransferImpact) Validate(ctx context.Context, actorID int64, repo *repo_model.Repository, target *user_model.User) error {
 	if impact == nil || repo.ID != impact.RepositoryID || repo.OwnerID != impact.SourceOwnerID || repo.Name != impact.SourceName || repo.Status != impact.SourceStatus || target.ID != impact.TargetOwnerID || target.Name != impact.TargetOwnerName {
 		return fmt.Errorf("%w：项目或目标命名空间已变化，请重新预览", governance_model.ErrConflict)
 	}
@@ -185,17 +202,17 @@ func (impact *RepositoryTransferImpact) Validate(ctx context.Context, repo *repo
 	if err != nil {
 		return err
 	}
-	fingerprint, err := repositoryTransferFingerprint(ctx, repo.ID, oldChain, newChain)
+	fingerprint, err := repositoryTransferFingerprint(ctx, actorID, repo.ID, oldChain, newChain)
 	if err != nil {
 		return err
 	}
 	if fingerprint != impact.ImpactFingerprint {
-		return fmt.Errorf("%w：继承权限、共享、审批策略或审计外送已变化，请重新预览", governance_model.ErrConflict)
+		return fmt.Errorf("%w：继承范围或转移限制已变化，请重新预览", governance_model.ErrConflict)
 	}
 	return nil
 }
 
-func repositoryTransferFingerprint(ctx context.Context, repoID int64, chains ...[]*governance_model.Namespace) (string, error) {
+func repositoryTransferFingerprint(ctx context.Context, actorID, repoID int64, chains ...[]*governance_model.Namespace) (string, error) {
 	type version struct {
 		ID, Revision int64
 		Enabled      bool
@@ -254,6 +271,14 @@ func repositoryTransferFingerprint(ctx context.Context, repoID int64, chains ...
 	for _, item := range streams {
 		streamVersions = append(streamVersions, version{item.ID, item.Revision, item.Enabled})
 	}
+	_, sourceFingerprint, err := governance_service.LifecycleSourceImpacts(ctx, actorID, namespaces)
+	if err != nil {
+		return "", err
+	}
+	runtime, err := repositoryTransferRuntimeImpact(ctx, repoID, chains[len(chains)-1])
+	if err != nil {
+		return "", err
+	}
 	payload, err := json.Marshal(struct {
 		Namespaces  []*governance_model.Namespace
 		Memberships []*governance_model.Membership
@@ -261,7 +286,9 @@ func repositoryTransferFingerprint(ctx context.Context, repoID int64, chains ...
 		Rules       []*governance_model.ApprovalRule
 		Settings    []*governance_model.ApprovalSettings
 		Streams     []version
-	}{namespaces, memberships, shares, rules, settings, streamVersions})
+		Lifecycle   string
+		Runtime     string
+	}{namespaces, memberships, shares, rules, settings, streamVersions, sourceFingerprint, runtime.Fingerprint})
 	if err != nil {
 		return "", err
 	}

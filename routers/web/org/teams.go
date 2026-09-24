@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	org_model "gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
@@ -120,20 +121,16 @@ func TeamsAction(ctx *context.Context) {
 			ctx.HTTPError(http.StatusNotFound)
 			return
 		}
-		err = org_service.AddTeamMember(ctx, ctx.Org.Team, ctx.Doer)
+		err = org_service.AddTeamMemberAsOwner(ctx, ctx.Doer, ctx.Org.Team, ctx.Doer)
 	case "leave":
 		err = org_service.RemoveTeamMember(ctx, ctx.Org.Team, ctx.Doer)
 		if err != nil {
 			if org_model.IsErrLastOrgOwner(err) {
-				ctx.Flash.Error(ctx.Tr("form.last_org_owner"))
+				ctx.JSONError(ctx.Tr("form.last_org_owner"))
 			} else {
-				log.Error("Action(%s): %v", ctx.PathParam("action"), err)
-				ctx.JSON(http.StatusOK, map[string]any{
-					"ok":  false,
-					"err": err.Error(),
-				})
-				return
+				ctx.JSONError(err.Error())
 			}
+			return
 		}
 		checkIsOrgMemberAndRedirect(ctx, ctx.Org.OrgLink+"/teams/")
 		return
@@ -149,18 +146,23 @@ func TeamsAction(ctx *context.Context) {
 			return
 		}
 
-		err = org_service.RemoveTeamMember(ctx, ctx.Org.Team, user)
+		err = org_service.RemoveTeamMemberAsOwner(ctx, ctx.Doer, ctx.Org.Team, user)
 		if err != nil {
-			if org_model.IsErrLastOrgOwner(err) {
-				ctx.Flash.Error(ctx.Tr("form.last_org_owner"))
-			} else {
-				log.Error("Action(%s): %v", ctx.PathParam("action"), err)
-				ctx.JSON(http.StatusOK, map[string]any{
-					"ok":  false,
-					"err": err.Error(),
-				})
+			if errors.Is(err, governance_model.ErrNotFound) {
+				ctx.HTTPError(http.StatusNotFound)
 				return
 			}
+			if errors.Is(err, governance_model.ErrConflict) {
+				ctx.JSONError(err.Error())
+				return
+			}
+			if org_model.IsErrLastOrgOwner(err) {
+				ctx.JSONError(ctx.Tr("form.last_org_owner"))
+			} else {
+				log.Error("Action(%s): %v", ctx.PathParam("action"), err)
+				ctx.JSONError(err.Error())
+			}
+			return
 		}
 		checkIsOrgMemberAndRedirect(ctx, ctx.Org.OrgLink+"/teams/"+url.PathEscape(ctx.Org.Team.LowerName))
 		return
@@ -176,7 +178,13 @@ func TeamsAction(ctx *context.Context) {
 			if user_model.IsErrUserNotExist(err) {
 				if setting.MailService != nil && user_model.ValidateEmail(uname) == nil {
 					if err := org_service.CreateTeamInvite(ctx, ctx.Doer, ctx.Org.Team, uname); err != nil {
-						if org_model.IsErrTeamInviteAlreadyExist(err) {
+						if errors.Is(err, governance_model.ErrNotFound) {
+							ctx.HTTPError(http.StatusNotFound)
+							return
+						} else if errors.Is(err, governance_model.ErrConflict) {
+							ctx.HTTPError(http.StatusConflict)
+							return
+						} else if org_model.IsErrTeamInviteAlreadyExist(err) {
 							ctx.Flash.Error(ctx.Tr("form.duplicate_invite_to_team"))
 						} else if org_model.IsErrUserEmailAlreadyAdded(err) {
 							ctx.Flash.Error(ctx.Tr("org.teams.add_duplicate_users"))
@@ -204,7 +212,7 @@ func TeamsAction(ctx *context.Context) {
 		if ctx.Org.Team.IsMember(ctx, u.ID) {
 			ctx.Flash.Error(ctx.Tr("org.teams.add_duplicate_users"))
 		} else {
-			err = org_service.AddTeamMember(ctx, ctx.Org.Team, u)
+			err = org_service.AddTeamMemberAsOwner(ctx, ctx.Doer, ctx.Org.Team, u)
 		}
 
 		page = "team"
@@ -220,7 +228,15 @@ func TeamsAction(ctx *context.Context) {
 			return
 		}
 
-		if err := org_model.RemoveInviteByID(ctx, iid, ctx.Org.Team.ID); err != nil {
+		if err := org_service.RemoveTeamInvite(ctx, ctx.Doer, ctx.Org.Team, iid); err != nil {
+			if errors.Is(err, governance_model.ErrNotFound) {
+				ctx.HTTPError(http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, governance_model.ErrConflict) {
+				ctx.HTTPError(http.StatusConflict)
+				return
+			}
 			log.Error("Action(%s): %v", ctx.PathParam("action"), err)
 			ctx.ServerError("RemoveInviteByID", err)
 			return
@@ -230,8 +246,15 @@ func TeamsAction(ctx *context.Context) {
 	}
 
 	if err != nil {
-		if org_model.IsErrLastOrgOwner(err) {
-			ctx.Flash.Error(ctx.Tr("form.last_org_owner"))
+		if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.HTTPError(http.StatusNotFound)
+			return
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		} else if org_model.IsErrLastOrgOwner(err) {
+			ctx.JSONError(ctx.Tr("form.last_org_owner"))
+			return
 		} else if errors.Is(err, user_model.ErrBlockedUser) {
 			ctx.Flash.Error(ctx.Tr("org.teams.members.blocked_user"))
 		} else {
@@ -291,16 +314,24 @@ func TeamsRepoAction(ctx *context.Context) {
 			ctx.ServerError("GetRepositoryByName", err)
 			return
 		}
-		err = repo_service.TeamAddRepository(ctx, ctx.Org.Team, repo)
+		err = repo_service.ChangeTeamRepositoryAsOwner(ctx, ctx.Doer, ctx.Org.Team, repo.ID, true)
 	case "remove":
-		err = repo_service.RemoveRepositoryFromTeam(ctx, ctx.Org.Team, ctx.FormInt64("repoid"))
+		err = repo_service.ChangeTeamRepositoryAsOwner(ctx, ctx.Doer, ctx.Org.Team, ctx.FormInt64("repoid"), false)
 	case "addall":
-		err = repo_service.AddAllRepositoriesToTeam(ctx, ctx.Org.Team)
+		err = repo_service.ChangeAllTeamRepositoriesAsOwner(ctx, ctx.Doer, ctx.Org.Team, true)
 	case "removeall":
-		err = repo_service.RemoveAllRepositoriesFromTeam(ctx, ctx.Org.Team)
+		err = repo_service.ChangeAllTeamRepositoriesAsOwner(ctx, ctx.Doer, ctx.Org.Team, false)
 	}
 
 	if err != nil {
+		if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.HTTPError(http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		}
 		log.Error("Action(%s): '%s' %v", ctx.PathParam("action"), ctx.Org.Team.Name, err)
 		ctx.ServerError("TeamsRepoAction", err)
 		return
@@ -409,9 +440,13 @@ func NewTeamPost(ctx *context.Context) {
 		return
 	}
 
-	if err := org_service.NewTeam(ctx, t); err != nil {
+	if err := org_service.NewTeamAsOwner(ctx, ctx.Doer, t); err != nil {
 		ctx.Data["Err_TeamName"] = true
 		switch {
+		case errors.Is(err, governance_model.ErrNotFound):
+			ctx.HTTPError(http.StatusNotFound)
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.HTTPError(http.StatusConflict)
 		case org_model.IsErrTeamAlreadyExist(err):
 			ctx.RenderWithErrDeprecated(ctx.Tr("form.team_name_been_taken"), tplTeamNew, &form)
 		default:
@@ -598,9 +633,13 @@ func EditTeamPost(ctx *context.Context) {
 		return
 	}
 
-	if err := org_service.UpdateTeam(ctx, t, isAuthChanged, isIncludeAllChanged); err != nil {
+	if err := org_service.UpdateTeamAsOwner(ctx, ctx.Doer, t, isAuthChanged, isIncludeAllChanged); err != nil {
 		ctx.Data["Err_TeamName"] = true
 		switch {
+		case errors.Is(err, governance_model.ErrNotFound):
+			ctx.HTTPError(http.StatusNotFound)
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.HTTPError(http.StatusConflict)
 		case org_model.IsErrTeamAlreadyExist(err):
 			ctx.RenderWithErrDeprecated(ctx.Tr("form.team_name_been_taken"), tplTeamNew, &form)
 		default:
@@ -613,7 +652,15 @@ func EditTeamPost(ctx *context.Context) {
 
 // DeleteTeam response for the delete team request
 func DeleteTeam(ctx *context.Context) {
-	if err := org_service.DeleteTeam(ctx, ctx.Org.Team); err != nil {
+	if err := org_service.DeleteTeamAsOwner(ctx, ctx.Doer, ctx.Org.Team); err != nil {
+		if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.HTTPError(http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		}
 		ctx.Flash.Error("DeleteTeam: " + err.Error())
 	} else {
 		ctx.Flash.Success(ctx.Tr("org.teams.delete_team_success"))
@@ -647,23 +694,16 @@ func TeamInvite(ctx *context.Context) {
 
 // TeamInvitePost handles the team invitation
 func TeamInvitePost(ctx *context.Context) {
-	invite, org, team, _, err := getTeamInviteFromContext(ctx)
+	org, team, err := org_service.AcceptTeamInvite(ctx, ctx.PathParam("token"), ctx.Doer)
 	if err != nil {
-		if org_model.IsErrTeamInviteNotFound(err) {
+		if org_model.IsErrTeamInviteNotFound(err) || errors.Is(err, governance_model.ErrNotFound) {
 			ctx.NotFound(err)
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
 		} else {
-			ctx.ServerError("getTeamInviteFromContext", err)
+			ctx.ServerError("AcceptTeamInvite", err)
 		}
 		return
-	}
-
-	if err := org_service.AddTeamMember(ctx, team, ctx.Doer); err != nil {
-		ctx.ServerError("AddTeamMember", err)
-		return
-	}
-
-	if err := org_model.RemoveInviteByID(ctx, invite.ID, team.ID); err != nil {
-		log.Error("RemoveInviteByID: %v", err)
 	}
 
 	ctx.Redirect(org.OrganisationLink() + "/teams/" + url.PathEscape(team.LowerName))

@@ -12,6 +12,7 @@ import (
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	project_model "gitea.dev/models/project"
 	"gitea.dev/models/renderhelper"
 	repo_model "gitea.dev/models/repo"
@@ -369,9 +370,13 @@ func ViewProject(ctx *context.Context) {
 	}
 
 	if ctx.Repo.Owner.IsOrganization() {
-		orgLabels, err := issues_model.GetLabelsByOrgID(ctx, ctx.Repo.Owner.ID, "", db.ListOptions{})
+		orgLabels, err := issues_model.GetLabelsByAncestorOrgID(ctx, ctx.Repo.Owner.ID, "")
 		if err != nil {
-			ctx.ServerError("GetLabelsByOrgID", err)
+			ctx.ServerError("GetLabelsByAncestorOrgID", err)
+			return
+		}
+		if err := issue.PopulateLabelSources(ctx, orgLabels); err != nil {
+			ctx.ServerError("PopulateLabelSources", err)
 			return
 		}
 
@@ -401,7 +406,7 @@ func ViewProject(ctx *context.Context) {
 	ctx.Data["NumLabels"] = len(labels)
 
 	// Get assignees.
-	assigneeUsers, err := repo_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
+	assigneeUsers, err := access_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
 	if err != nil {
 		ctx.ServerError("GetRepoAssignees", err)
 		return

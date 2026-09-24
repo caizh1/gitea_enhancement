@@ -63,6 +63,7 @@ func (Action) ListActionsSecrets(ctx *context.APIContext) {
 		apiSecrets[k] = &api.Secret{
 			Name:        v.Name,
 			Description: v.Description,
+			Protected:   v.Protected,
 			Created:     v.CreatedUnix.AsTime(),
 		}
 	}
@@ -108,7 +109,7 @@ func (Action) CreateOrUpdateSecret(ctx *context.APIContext) {
 
 	opt := web.GetForm(ctx).(*api.CreateOrUpdateSecretOption)
 
-	_, created, err := secret_service.CreateOrUpdateSecret(ctx, ctx.Org.Organization.ID, 0, ctx.PathParam("secretname"), opt.Data, opt.Description)
+	_, created, err := secret_service.CreateOrUpdateSecret(ctx, ctx.Org.Organization.ID, 0, ctx.PathParam("secretname"), opt.Data, opt.Description, opt.Protected)
 	if err != nil {
 		if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())

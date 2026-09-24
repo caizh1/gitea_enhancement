@@ -12,10 +12,14 @@ import (
 
 	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/actions/jobparser"
 	"gitea.dev/modules/timeutil"
+	"gitea.dev/modules/util"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +40,74 @@ func TestActionTask_GetRunJobLink(t *testing.T) {
 	assert.Empty(t, (&ActionTask{}).GetRunJobLink())
 	assert.Empty(t, (&ActionTask{Job: &ActionRunJob{ID: 42}}).GetRunJobLink())
 	assert.Empty(t, (&ActionTask{Job: &ActionRunJob{ID: 42, Run: &ActionRun{ID: 10}}}).GetRunJobLink())
+}
+
+func TestScheduledTaskCredentialValid(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	ctx := t.Context()
+	require.NoError(t, db.GetXORMEngineForTesting().Sync(new(scheduleBranchState)))
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	repo, err := repo_model.GetRepositoryByID(ctx, 1)
+	require.NoError(t, err)
+	const commit = "65f1bf27bc3bf70f64657658635e66094edbcb4d"
+	require.NoError(t, db.Insert(ctx, &scheduleBranchState{RepoID: repo.ID, Name: repo.DefaultBranch, CommitID: commit}))
+	schedule := &ActionSchedule{RepoID: 1, OwnerID: 2, TriggerUserID: user_model.ActionsUserID, WorkflowID: "schedule.yaml", Ref: "refs/heads/" + repo.DefaultBranch, CommitSHA: commit}
+	require.NoError(t, db.Insert(ctx, schedule))
+	run := &ActionRun{RepoID: 1, OwnerID: 2, ScheduleID: schedule.ID, TriggerUserID: user_model.ActionsUserID, WorkflowID: schedule.WorkflowID, Ref: schedule.Ref, CommitSHA: commit, WorkflowCommitSHA: commit, Status: StatusRunning}
+	require.NoError(t, db.Insert(ctx, run))
+	job := &ActionRunJob{RepoID: 1, OwnerID: 2, RunID: run.ID, JobID: "scheduled", Status: StatusRunning}
+	require.NoError(t, db.Insert(ctx, job))
+	runner := &ActionRunner{UUID: "schedule-credential", Name: "schedule-credential"}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, runner))
+	task := &ActionTask{RepoID: 1, OwnerID: 2, JobID: job.ID, RunnerID: runner.ID, Status: StatusRunning}
+	task.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, task))
+	job.TaskID = task.ID
+	_, err = db.GetEngine(ctx).ID(job.ID).Cols("task_id").Update(job)
+	require.NoError(t, err)
+	valid, err := TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.True(t, valid)
+	_, err = db.GetEngine(ctx).Table("branch").Where("repo_id = ? AND name = ?", repo.ID, repo.DefaultBranch).
+		Cols("commit_id").Update(&struct{ CommitID string }{CommitID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+	require.NoError(t, err)
+	valid, err = TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.False(t, valid)
+}
+
+func TestTaskCredentialUsesCurrentAttemptTriggerer(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	ctx := t.Context()
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	_, err := db.GetEngine(ctx).ID(4).Cols("prohibit_login").Update(&user_model.User{ProhibitLogin: true})
+	require.NoError(t, err)
+	run := &ActionRun{RepoID: 1, OwnerID: 2, TriggerUserID: 4, Status: StatusRunning}
+	require.NoError(t, db.Insert(ctx, run))
+	attempt := &ActionRunAttempt{RepoID: 1, RunID: run.ID, Attempt: 2, TriggerUserID: 2, Status: StatusRunning}
+	require.NoError(t, db.Insert(ctx, attempt))
+	job := &ActionRunJob{RepoID: 1, OwnerID: 2, RunID: run.ID, RunAttemptID: attempt.ID, JobID: "rerun", Status: StatusRunning}
+	require.NoError(t, db.Insert(ctx, job))
+	runner := &ActionRunner{UUID: "rerun-credential", Name: "rerun-credential"}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, runner))
+	task := &ActionTask{RepoID: 1, OwnerID: 2, JobID: job.ID, RunnerID: runner.ID, Status: StatusRunning}
+	task.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, task))
+	job.TaskID = task.ID
+	_, err = db.GetEngine(ctx).ID(job.ID).Cols("task_id").Update(job)
+	require.NoError(t, err)
+	valid, err := TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.True(t, valid)
+	_, err = db.GetEngine(ctx).ID(attempt.ID).Cols("trigger_user_id").Update(&ActionRunAttempt{TriggerUserID: 4})
+	require.NoError(t, err)
+	valid, err = TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.False(t, valid)
 }
 
 func TestMakeTaskStepDisplayName(t *testing.T) {
@@ -230,6 +302,8 @@ func TestStopTaskCancellingKeepsReportTime(t *testing.T) {
 // while assembling the runner response cannot strand the job in running state.
 func TestReleaseTaskForRunner(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	require.NoError(t, db.Insert(t.Context(), &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
 
 	run := &ActionRun{
 		Title:         "release-task-test-run",
@@ -276,6 +350,15 @@ func TestReleaseTaskForRunner(t *testing.T) {
 	claimed := unittest.AssertExistsAndLoadBean(t, &ActionRunJob{ID: job.ID})
 	require.Equal(t, StatusRunning, claimed.Status)
 	require.Equal(t, task.ID, claimed.TaskID)
+	_, err = GetRunningTaskByToken(t.Context(), task.Token)
+	require.NoError(t, err)
+	_, err = db.GetEngine(t.Context()).ID(1).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 5})
+	require.NoError(t, err)
+	_, err = GetRunningTaskByToken(t.Context(), task.Token)
+	require.ErrorIs(t, err, util.ErrNotExist)
+	assert.NotContains(t, err.Error(), task.Token)
+	_, err = db.GetEngine(t.Context()).ID(1).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 2})
+	require.NoError(t, err)
 
 	require.NoError(t, ReleaseTaskForRunner(t.Context(), task))
 
@@ -293,6 +376,8 @@ func TestReleaseTaskForRunner(t *testing.T) {
 // TestCreateTaskForRunnerPagination verifies that a job sitting beyond the first page is still claimed
 func TestCreateTaskForRunnerPagination(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	require.NoError(t, db.Insert(t.Context(), &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
 
 	defer func(orig int) { pickTaskBatchSize = orig }(pickTaskBatchSize)
 	pickTaskBatchSize = 2
@@ -359,6 +444,113 @@ func TestCreateTaskForRunnerPagination(t *testing.T) {
 	claimed := unittest.AssertExistsAndLoadBean(t, &ActionRunJob{ID: target.ID})
 	assert.Equal(t, StatusRunning, claimed.Status)
 	assert.Equal(t, task.ID, claimed.TaskID)
+}
+
+func TestAncestorRunnerClaimAndMoveRevocation(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	_, err := db.GetEngine(ctx).ID(6).Cols("parent_id", "full_path", "lower_path").Update(&governance_model.Namespace{
+		ParentID: 3, FullPath: "org3/org6", LowerPath: "org3/org6",
+	})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(1).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 6})
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	run := &ActionRun{
+		RepoID: 1, OwnerID: 6, TriggerUserID: 2, Status: StatusWaiting,
+		WorkflowID: "test.yaml", Ref: "refs/heads/main", CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0",
+	}
+	require.NoError(t, db.Insert(ctx, run))
+	job := &ActionRunJob{
+		RunID: run.ID, RepoID: 1, OwnerID: 6, CommitSHA: run.CommitSHA,
+		JobID: "ancestor-job", Attempt: 1, Status: StatusWaiting,
+		RunsOn:          []string{"ubuntu-latest"},
+		WorkflowPayload: []byte("on: push\njobs:\n  ancestor-job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"),
+	}
+	require.NoError(t, db.Insert(ctx, job))
+	sibling := &ActionRunner{UUID: "sibling-claim-runner", Name: "sibling-claim-runner", OwnerID: 7, AgentLabels: []string{"ubuntu-latest"}}
+	sibling.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, sibling))
+	_, claimed, err := CreateTaskForRunner(ctx, sibling)
+	require.NoError(t, err)
+	require.False(t, claimed)
+	runner := &ActionRunner{UUID: "ancestor-claim-runner", Name: "ancestor-claim-runner", OwnerID: 3, AgentLabels: []string{"ubuntu-latest"}}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, runner))
+	task, claimed, err := CreateTaskForRunner(ctx, runner)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	valid, err := TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.True(t, valid)
+	_, err = db.GetEngine(ctx).ID(6).Cols("parent_id", "full_path", "lower_path").Update(&governance_model.Namespace{
+		ParentID: 7, FullPath: "org7/org6", LowerPath: "org7/org6",
+	})
+	require.NoError(t, err)
+	valid, err = TaskCredentialValid(ctx, task)
+	require.NoError(t, err)
+	require.False(t, valid)
+}
+
+// TestClaimJobRejectsOwnerChangedAfterScan fixes the candidate at the old owner,
+// then changes repository ownership before the claim transaction starts.
+func TestClaimJobRejectsOwnerChangedAfterScan(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	run := &ActionRun{
+		Title: "stale-owner-run", RepoID: 1, OwnerID: 2, WorkflowID: "test.yaml", Index: 9912,
+		TriggerUserID: 2, Ref: "refs/heads/master", CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0", Event: "push", TriggerEvent: "push", Status: StatusWaiting,
+	}
+	require.NoError(t, db.Insert(ctx, run))
+	job := &ActionRunJob{
+		RunID: run.ID, RepoID: 1, OwnerID: 2, CommitSHA: run.CommitSHA,
+		Name: "stale-owner-job", Attempt: 1, JobID: "stale-owner-job", Status: StatusWaiting,
+		RunsOn: []string{"ubuntu-latest"}, WorkflowPayload: []byte("on: push\njobs:\n  stale-owner-job:\n    runs-on: ubuntu-latest\n"),
+	}
+	require.NoError(t, db.Insert(ctx, job))
+	runner := &ActionRunner{Name: "stale-owner-runner", OwnerID: 2, AgentLabels: []string{"ubuntu-latest"}}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, runner))
+
+	_, err := db.GetEngine(ctx).ID(1).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 5})
+	require.NoError(t, err)
+	task, ok, err := claimJobForRunner(ctx, runner, job)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Nil(t, task)
+	assert.Equal(t, StatusWaiting, unittest.AssertExistsAndLoadBean(t, &ActionRunJob{ID: job.ID}).Status)
+}
+
+func TestEphemeralRunnerCannotClaimSecondCandidate(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	ctx := t.Context()
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	run := &ActionRun{RepoID: 1, OwnerID: 2, WorkflowID: "test.yaml", Index: 9913, TriggerUserID: 2, Status: StatusWaiting}
+	require.NoError(t, db.Insert(ctx, run))
+	newJob := func(id string) *ActionRunJob {
+		job := &ActionRunJob{
+			RunID: run.ID, RepoID: 1, OwnerID: 2, Name: id, JobID: id, Attempt: 1, Status: StatusWaiting,
+			RunsOn: []string{"ubuntu-latest"}, WorkflowPayload: []byte("on: push\njobs:\n  " + id + ":\n    runs-on: ubuntu-latest\n"),
+		}
+		require.NoError(t, db.Insert(ctx, job))
+		return job
+	}
+	first, second := newJob("one"), newJob("two")
+	runner := &ActionRunner{UUID: "phase1-ephemeral-runner", Name: "phase1-ephemeral", Ephemeral: true, AgentLabels: []string{"ubuntu-latest"}}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, runner))
+
+	task, ok, err := claimJobForRunner(ctx, runner, first)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotNil(t, task)
+	task, ok, err = claimJobForRunner(ctx, runner, second)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Nil(t, task)
+	assert.Equal(t, StatusWaiting, unittest.AssertExistsAndLoadBean(t, &ActionRunJob{ID: second.ID}).Status)
 }
 
 type failFirstStepWrite struct{ fired atomic.Bool }

@@ -4,8 +4,8 @@
  <div class="ui container repo-setting-content" id="repo-members" data-url="{{.RepoLink}}/collaborators" data-revision="{{.MemberView.Revision}}">
  {{template "base/alert" .}}
  <div class="tw-flex tw-items-center tw-justify-between tw-flex-wrap tw-gap-3">
-  <div><h2>协作者</h2><p class="text light-2">每人一行，查看实际角色及全部授权来源。编辑某条来源时，其他授权继续生效。</p></div>
-  {{if .MemberView.CanManage}}<button type="button" class="ui primary button show-modal" data-modal="#repo-member-modal" data-modal-member-name="" data-modal-member-name.read-only="" data-modal-member-role.value="30" data-modal-member-custom.value="0" data-modal-member-expiry="" data-modal-member-expiry-unix="0">{{svg "octicon-plus"}} 添加协作者</button>{{end}}
+  <div><h2>协作者</h2><p class="text light-2">每人一行，查看实际角色及全部授权来源。编辑某条来源时，其他授权继续生效。</p>{{if and .SignedUser .SignedUser.IsAuditor (not .MemberView.CanManage)}}<p class="ui info message">全站审计员只读查看成员来源；编辑成员须另有项目授权。</p>{{end}}</div>
+  {{if .MemberView.CanManage}}<div class="tw-flex tw-flex-wrap tw-items-center tw-gap-2"><button type="button" class="ui primary button show-modal" data-modal="#repo-member-modal" data-modal-member-name="" data-modal-member-name.read-only="" data-modal-member-role.value="30" data-modal-member-custom.value="0" data-modal-member-expiry="" data-modal-member-expiry-unix="0">{{svg "octicon-plus"}} 添加协作者</button><a class="ui button" href="{{AppSubUrl}}/governance/repositories/{{.Repository.ID}}/invitations">通过邮箱邀请成员</a></div>{{end}}
  </div>
  {{if .MemberView.PublicProjection}}<p class="ui info message">当前仅展示公开可见的成员及授权来源；角色按可见来源计算。项目成员登录后可查看允许访问的完整成员信息。</p>{{end}}
  <form class="ui form member-filters tw-flex tw-items-end tw-flex-wrap tw-gap-3" method="get">

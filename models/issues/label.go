@@ -99,6 +99,9 @@ type Label struct {
 	QueryString       string `xorm:"-"`
 	IsSelected        bool   `xorm:"-"`
 	IsExcluded        bool   `xorm:"-"`
+	SourcePath        string `xorm:"-"`
+	SourceLink        string `xorm:"-"`
+	CanManageSource   bool   `xorm:"-"`
 
 	ArchivedUnix timeutil.TimeStamp `xorm:"DEFAULT NULL"`
 }
@@ -412,9 +415,146 @@ func GetLabelInRepoByName(ctx context.Context, repoID int64, labelName string) (
 func GetLabelInRepoOrOrgByID(ctx context.Context, repoID, ownerID int64, ownerIsOrg bool, labelID int64) (*Label, error) {
 	label, err := GetLabelInRepoByID(ctx, repoID, labelID)
 	if err != nil && errors.Is(err, util.ErrNotExist) && ownerIsOrg {
-		return GetLabelInOrgByID(ctx, ownerID, labelID)
+		orgIDs, scopeErr := LabelAncestorOrgIDs(ctx, ownerID)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		label, err = GetLabelByID(ctx, labelID)
+		if err == nil && label.RepoID == 0 && label.OrgID > 0 && slices.Contains(orgIDs, label.OrgID) {
+			return label, nil
+		}
+		if err != nil && !errors.Is(err, util.ErrNotExist) {
+			return nil, err
+		}
+		return nil, ErrOrgLabelNotExist{labelID, ownerID}
 	}
 	return label, err
+}
+
+// LabelAncestorOrgIDs returns the owning group followed by its actual parents.
+// Sharing only grants access and never adds a label configuration source.
+func LabelAncestorOrgIDs(ctx context.Context, ownerID int64) ([]int64, error) {
+	if ownerID <= 0 {
+		return nil, ErrOrgLabelNotExist{0, ownerID}
+	}
+	chain, err := governance_model.Ancestors(ctx, ownerID)
+	if errors.Is(err, governance_model.ErrNotFound) {
+		// Native organizations created before governance namespace migration remain usable.
+		return []int64{ownerID}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(chain))
+	for _, group := range chain {
+		if group.Kind == "group" {
+			ids = append(ids, group.ID)
+		}
+	}
+	return ids, nil
+}
+
+func labelScopeCondition(repoID int64, orgIDs []int64) builder.Cond {
+	repo := builder.And(builder.Eq{"repo_id": repoID}, builder.Eq{"org_id": 0})
+	if len(orgIDs) == 0 {
+		return repo
+	}
+	return builder.Or(repo, builder.And(builder.In("org_id", orgIDs), builder.Eq{"repo_id": 0}))
+}
+
+// GetLabelsInRepoOrAncestorsByIDs loads only labels usable by this repository.
+func GetLabelsInRepoOrAncestorsByIDs(ctx context.Context, repoID, ownerID int64, ownerIsOrg bool, labelIDs []int64) ([]*Label, error) {
+	labels := make([]*Label, 0, len(labelIDs))
+	if len(labelIDs) == 0 {
+		return labels, nil
+	}
+	orgIDs := []int64{}
+	if ownerIsOrg {
+		var err error
+		orgIDs, err = LabelAncestorOrgIDs(ctx, ownerID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	err := db.GetEngine(ctx).In("id", labelIDs).And(labelScopeCondition(repoID, orgIDs)).Asc("name").Find(&labels)
+	return labels, err
+}
+
+// GetLabelsByAncestorOrgID keeps every source label and its independent ID.
+func GetLabelsByAncestorOrgID(ctx context.Context, ownerID int64, sortType string) ([]*Label, error) {
+	orgIDs, err := LabelAncestorOrgIDs(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	labels := make([]*Label, 0)
+	sess := db.GetEngine(ctx).In("org_id", orgIDs).Where("repo_id = 0")
+	switch sortType {
+	case "reversealphabetically":
+		sess.Desc("name")
+	case "leastissues":
+		sess.Asc("num_issues")
+	case "mostissues":
+		sess.Desc("num_issues")
+	default:
+		sess.Asc("name")
+	}
+	sess.Asc("id")
+	if err := sess.Find(&labels); err != nil {
+		return nil, err
+	}
+	return labels, nil
+}
+
+// GetLabelIDsInRepoOrAncestorsByNames resolves each matching source independently.
+func GetLabelIDsInRepoOrAncestorsByNames(ctx context.Context, repoID, ownerID int64, ownerIsOrg bool, names []string) ([]int64, error) {
+	ids := make([]int64, 0)
+	if len(names) == 0 {
+		return ids, nil
+	}
+	orgIDs := []int64{}
+	if ownerIsOrg {
+		var err error
+		orgIDs, err = LabelAncestorOrgIDs(ctx, ownerID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	err := db.GetEngine(ctx).Table("label").In("name", names).And(labelScopeCondition(repoID, orgIDs)).Asc("id").Cols("id").Find(&ids)
+	return ids, err
+}
+
+// GetLabelsByRepoAndAncestors includes every repository and inherited source label.
+func GetLabelsByRepoAndAncestors(ctx context.Context, repoID, ownerID int64, ownerIsOrg bool, sortType string, opts db.ListOptions) ([]*Label, int64, error) {
+	orgIDs := []int64{}
+	if ownerIsOrg {
+		var err error
+		orgIDs, err = LabelAncestorOrgIDs(ctx, ownerID)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	cond := labelScopeCondition(repoID, orgIDs)
+	count, err := db.GetEngine(ctx).Where(cond).Count(new(Label))
+	if err != nil {
+		return nil, 0, err
+	}
+	labels := make([]*Label, 0)
+	sess := db.GetEngine(ctx).Where(cond)
+	switch sortType {
+	case "reversealphabetically":
+		sess.Desc("name")
+	case "leastissues":
+		sess.Asc("num_issues")
+	case "mostissues":
+		sess.Desc("num_issues")
+	default:
+		sess.Asc("name")
+	}
+	sess.Asc("id")
+	if opts.Page > 0 {
+		db.SetSessionPagination(sess, &opts)
+	}
+	return labels, count, sess.Find(&labels)
 }
 
 // GetLabelInRepoByID returns a label by ID in given repository.

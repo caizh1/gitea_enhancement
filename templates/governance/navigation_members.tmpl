@@ -1,4 +1,4 @@
-<div class="tw-flex tw-items-center tw-justify-between tw-gap-3"><h3>成员与权限来源</h3>{{if index .Group.Abilities "manage_group_members"}}<a class="ui primary button" href="#group-member-form">添加成员</a>{{end}}</div>
+<div class="tw-flex tw-flex-wrap tw-items-center tw-justify-between tw-gap-3"><h3>成员与权限来源</h3>{{if index .Group.Abilities "manage_group_members"}}<div class="tw-flex tw-flex-wrap tw-gap-2"><a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.Group.ID}}/invitations">成员邀请</a><a class="ui primary button" href="#group-member-form">添加成员</a></div>{{end}}</div>
 <form method="get" class="ui form tw-flex tw-flex-wrap tw-items-center tw-gap-3 tw-mb-5">
  <input type="hidden" name="tab" value="members">
  <div class="field tw-flex-1"><input type="search" name="q" value="{{.MemberSearch}}" placeholder="搜索用户名或姓名" aria-label="搜索成员"></div>
@@ -15,7 +15,8 @@
     {{range $unit,$access := .Units}}<p>{{$unit}}：{{$access}}</p>{{end}}
     {{if .URL}}<a href="{{.URL}}">{{if .CanManage}}前往来源修改{{else}}查看来源{{end}}</a>{{end}}
    </details>{{else}}无有效来源{{end}}</td>
-   <td>{{if .CanEdit}}<a href="#group-member-form" data-member-name="{{.Username}}" data-member-role="{{.Direct.Role}}" data-member-expiry="{{.Direct.ExpiresUnix}}" data-member-custom-role="{{.Direct.CustomRoleID}}">编辑直接授权</a><form method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/members" class="tw-mt-2">{{$.CsrfTokenHtml}}<input type="hidden" name="user_id" value="{{.UserID}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><button type="submit" class="ui small red basic button" name="action" value="remove">移除直接授权</button></form>{{else}}在授权来源处管理{{end}}</td>
+   <td>{{if .CanEdit}}<a href="#group-member-form" data-member-name="{{.Username}}" data-member-role="{{.Direct.Role}}" data-member-expiry="{{.Direct.ExpiresUnix}}" data-member-custom-role="{{.Direct.CustomRoleID}}">编辑直接授权</a><form method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/members" class="tw-mt-2">{{$.CsrfTokenHtml}}<input type="hidden" name="user_id" value="{{.UserID}}"><input type="hidden" name="revision" value="{{$.Group.Revision}}"><button type="submit" class="ui small red basic button" name="action" value="remove">移除直接授权</button></form>{{else}}在授权来源处管理{{end}}
+    {{if and .Direct (eq .UserID $.SignedUser.ID)}}<details class="tw-mt-2"><summary>退出本群组直接授权</summary><p>只移除你在本群组的直接成员关系；父群组、共享和原生团队的授权仍可能生效。最后一位永久 Owner 需先指定继任者。</p><form method="post" action="{{AppSubUrl}}/governance/groups/{{$.Group.ID}}/leave">{{$.CsrfTokenHtml}}<button type="submit" class="ui small red basic button">确认退出</button></form></details>{{end}}</td>
   </tr>{{else}}<tr><td colspan="4">没有匹配的成员</td></tr>{{end}}
  </tbody>
 </table>

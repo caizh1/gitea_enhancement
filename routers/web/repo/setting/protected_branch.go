@@ -47,6 +47,25 @@ func ProtectedBranchRules(ctx *context.Context) {
 		return
 	}
 	ctx.Data["ProtectedBranches"] = rules
+	groupRules, sourceID, err := git_model.GroupProtectedRulesForRepo(ctx, ctx.Repo.Repository)
+	if err != nil {
+		ctx.ServerError("GroupProtectedRulesForRepo", err)
+		return
+	}
+	ctx.Data["InheritedGroupProtectedBranches"] = groupRules
+	ctx.Data["GroupProtectionSource"] = fmt.Sprintf("受限群组来源 #%d", sourceID)
+	if sourceID != 0 {
+		if source, err := governance_service.CheckGroupAccess(ctx, ctx.Doer.ID, sourceID, governance_model.ReadGroup); err == nil {
+			ctx.Data["GroupProtectionSource"] = source.FullPath
+			ctx.Data["GroupProtectionManageURL"] = ""
+			if source.Abilities[governance_model.ManageGroup] {
+				ctx.Data["GroupProtectionManageURL"] = fmt.Sprintf("/governance/groups/%d?tab=settings", sourceID)
+			}
+		} else if !errors.Is(err, governance_model.ErrNotFound) {
+			ctx.ServerError("CheckGroupAccess", err)
+			return
+		}
+	}
 	summaries := map[int64]string{}
 	for _, rule := range rules {
 		configuration, err := governance_service.ReadBranchApprovals(ctx, ctx.Doer.ID, ctx.Repo.Repository.ID, rule.ID)
@@ -460,6 +479,9 @@ func RenameBranchPost(ctx *context.Context) {
 	msg, err := repository.RenameBranch(ctx, ctx.Repo.Repository, ctx.Doer, form.From, form.To)
 	if err != nil {
 		switch {
+		case errors.Is(err, repository.ErrRequiredWorkflowDefaultBranch), errors.Is(err, governance_model.ErrConflict):
+			ctx.Flash.Error(err.Error())
+			ctx.Redirect(ctx.Repo.RepoLink + "/branches")
 		case repo_model.IsErrUserDoesNotHaveAccessToRepo(err):
 			ctx.Flash.Error(ctx.Tr("repo.branch.rename_default_or_protected_branch_error"))
 			ctx.Redirect(ctx.Repo.RepoLink + "/branches")

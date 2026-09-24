@@ -4,7 +4,15 @@
   {{template "base/alert" .}}
   {{template "governance/navigation_header" .}}
   {{if .Navigation.RestrictedNavigation}}<p class="ui info message">此入口仅展示你已获权的仓库。</p>{{end}}
-  <div class="ui segment">{{if eq .GroupTab "activity"}}{{template "user/dashboard/feeds" .}}{{template "base/paginate" .}}{{else}}<div class="governance-navigation-panel" data-group-id="{{.Navigation.Group.ID}}"></div>{{end}}</div>
+  <div class="ui segment">
+   {{if eq .GroupTab "shared_projects"}}
+    <h2>共享项目</h2>
+    <p class="text light">共享给本群组、且你当前有代码读取权限的项目，共 {{.SharedProjects.Count}} 个。项目仍归原群组所有，配置不从本群组继承。</p>
+    <div class="flex-list">{{range .SharedProjects.Repositories}}<div class="flex-item"><div class="flex-item-main"><a class="tw-break-all" href="{{.Link}}">{{.FullPath}}</a>{{if .IsArchived}} <span class="ui label">已归档</span>{{end}}</div></div>{{else}}<p>当前没有可访问的共享项目。</p>{{end}}</div>
+    {{template "base/paginate" .}}
+   {{else if eq .GroupTab "activity"}}{{template "user/dashboard/feeds" .}}{{template "base/paginate" .}}
+   {{else}}<div class="governance-navigation-panel" data-group-id="{{.Navigation.Group.ID}}"></div>{{end}}
+  </div>
   {{if not .Navigation.RestrictedNavigation}}<div class="tw-flex tw-flex-wrap tw-gap-4 tw-mt-4"><a href="{{.Navigation.Group.URL}}?tab=readme">README 与原生组织视图</a><a href="{{.Navigation.Group.URL}}/-/packages">软件包</a><a href="{{.Navigation.Group.URL}}/-/projects">看板</a></div>{{end}}
  </div>
 </div>

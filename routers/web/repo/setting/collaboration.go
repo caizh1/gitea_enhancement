@@ -193,7 +193,19 @@ func AddTeamPost(ctx *context.Context) {
 		return
 	}
 
-	if err = repo_service.TeamAddRepository(ctx, team, ctx.Repo.Repository); err != nil {
+	if err = repo_service.ChangeTeamRepositoryAsActor(ctx, ctx.Doer, team, ctx.Repo.Repository.ID, true); err != nil {
+		if errors.Is(err, gm.ErrNotFound) {
+			ctx.HTTPError(http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, gm.ErrForbidden) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, gm.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		}
 		ctx.ServerError("TeamAddRepository", err)
 		return
 	}
@@ -214,7 +226,19 @@ func DeleteTeam(ctx *context.Context) {
 		return
 	}
 
-	if err = repo_service.RemoveRepositoryFromTeam(ctx, team, ctx.Repo.Repository.ID); err != nil {
+	if err = repo_service.ChangeTeamRepositoryAsActor(ctx, ctx.Doer, team, ctx.Repo.Repository.ID, false); err != nil {
+		if errors.Is(err, gm.ErrNotFound) {
+			ctx.HTTPError(http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, gm.ErrForbidden) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, gm.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict)
+			return
+		}
 		ctx.ServerError("team.RemoveRepositories", err)
 		return
 	}

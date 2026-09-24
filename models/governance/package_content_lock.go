@@ -16,7 +16,7 @@ type PackageContentLock LFSContentLock
 func (*PackageContentLock) TableName() string { return "governance_package_content_lock" }
 
 func WithPackageContentLocks(ctx context.Context, hashes []string, apply func(context.Context) error) error {
-	return withContentLocks(ctx, hashes, new(PackageContentLock), apply)
+	return withContentLocks(ctx, hashes, new(PackageContentLock), true, apply)
 }
 
 func AddPackageContentRecovery(engine db.EngineMigration) error {

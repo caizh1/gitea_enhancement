@@ -202,14 +202,23 @@ const lowerBase32Chars = "abcdefghijklmnopqrstuvwxyz234567"
 // base32 encoder that uses lowered characters without padding.
 var base32Lower = base32.NewEncoding(lowerBase32Chars).WithPadding(base32.NoPadding)
 
-// GenerateClientSecret will generate the client secret and returns the plaintext and saves the hash at the database
-func (app *OAuth2Application) GenerateClientSecret(ctx context.Context) (string, error) {
+// NewOAuth2ClientSecret prepares a secret before the application write transaction.
+func NewOAuth2ClientSecret() (string, string, error) {
 	rBytes := util.CryptoRandomBytes(32)
 	// Add a prefix to the base32, this is in order to make it easier
 	// for code scanners to grab sensitive tokens.
 	clientSecret := "gto_" + base32Lower.EncodeToString(rBytes)
 
 	hashedSecret, err := bcrypt.GenerateFromPassword([]byte(clientSecret), bcrypt.DefaultCost)
+	if err != nil {
+		return "", "", err
+	}
+	return clientSecret, string(hashedSecret), nil
+}
+
+// GenerateClientSecret will generate the client secret and returns the plaintext and saves the hash at the database
+func (app *OAuth2Application) GenerateClientSecret(ctx context.Context, authorize ...func(context.Context) error) (string, error) {
+	clientSecret, hashedSecret, err := NewOAuth2ClientSecret()
 	if err != nil {
 		return "", err
 	}
@@ -221,8 +230,13 @@ func (app *OAuth2Application) GenerateClientSecret(ctx context.Context) (string,
 		if fresh.UID != app.UID || fresh.ClientID != app.ClientID {
 			return ErrOAuthApplicationNotFound{ID: app.ID}
 		}
+		if len(authorize) > 0 && authorize[0] != nil {
+			if err := authorize[0](ctx); err != nil {
+				return err
+			}
+		}
 		candidate := *fresh
-		candidate.ClientSecret = string(hashedSecret)
+		candidate.ClientSecret = hashedSecret
 		affected, err := db.GetEngine(ctx).ID(app.ID).Cols("client_secret").Update(&candidate)
 		if err != nil {
 			return err
@@ -305,6 +319,8 @@ type CreateOAuth2ApplicationOptions struct {
 	ConfidentialClient         bool
 	SkipSecondaryAuthorization bool
 	RedirectURIs               []string
+	ClientSecretHash           string
+	Authorize                  func(context.Context) error
 }
 
 // CreateOAuth2Application inserts a new oauth2 application
@@ -315,10 +331,16 @@ func CreateOAuth2Application(ctx context.Context, opts CreateOAuth2ApplicationOp
 		Name:                       opts.Name,
 		ClientID:                   clientID,
 		RedirectURIs:               opts.RedirectURIs,
+		ClientSecret:               opts.ClientSecretHash,
 		ConfidentialClient:         opts.ConfidentialClient,
 		SkipSecondaryAuthorization: opts.SkipSecondaryAuthorization,
 	}
 	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		if opts.Authorize != nil {
+			if err := opts.Authorize(ctx); err != nil {
+				return err
+			}
+		}
 		if err := db.Insert(ctx, app); err != nil {
 			return err
 		}
@@ -337,6 +359,8 @@ type UpdateOAuth2ApplicationOptions struct {
 	ConfidentialClient         bool
 	SkipSecondaryAuthorization bool
 	RedirectURIs               []string
+	ClientSecretHash           string
+	Authorize                  func(context.Context) error
 }
 
 // UpdateOAuth2Application updates an oauth2 application
@@ -350,6 +374,11 @@ func UpdateOAuth2Application(ctx context.Context, opts UpdateOAuth2ApplicationOp
 		if app.UID != opts.UserID {
 			return errors.New("UID mismatch")
 		}
+		if opts.Authorize != nil {
+			if err := opts.Authorize(ctx); err != nil {
+				return err
+			}
+		}
 		builtinApps := BuiltinApplications()
 		if _, builtin := builtinApps[app.ClientID]; builtin {
 			return fmt.Errorf("failed to edit OAuth2 application: application is locked: %s", app.ClientID)
@@ -360,6 +389,9 @@ func UpdateOAuth2Application(ctx context.Context, opts UpdateOAuth2ApplicationOp
 		app.RedirectURIs = opts.RedirectURIs
 		app.ConfidentialClient = opts.ConfidentialClient
 		app.SkipSecondaryAuthorization = opts.SkipSecondaryAuthorization
+		if opts.ClientSecretHash != "" {
+			app.ClientSecret = opts.ClientSecretHash
+		}
 
 		if err = updateOAuth2Application(ctx, app); err != nil {
 			return err
@@ -367,6 +399,11 @@ func UpdateOAuth2Application(ctx context.Context, opts UpdateOAuth2ApplicationOp
 		app.ClientSecret = ""
 		if err = appendOAuthApplicationAudit(ctx, &before, app, "updated"); err != nil {
 			return err
+		}
+		if opts.ClientSecretHash != "" {
+			if err = appendOAuthApplicationAudit(ctx, &before, app, "secret_rotated"); err != nil {
+				return err
+			}
 		}
 		updated = app
 		return nil
@@ -411,11 +448,19 @@ func deleteOAuth2Application(ctx context.Context, id, userid int64) error {
 }
 
 // DeleteOAuth2Application deletes the application with the given id and the grants and auth codes related to it. It checks if the userid was the creator of the app.
-func DeleteOAuth2Application(ctx context.Context, id, userid int64) error {
+func DeleteOAuth2Application(ctx context.Context, id, userid int64, authorize ...func(context.Context) error) error {
 	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		app, err := GetOAuth2ApplicationByID(ctx, id)
 		if err != nil {
 			return err
+		}
+		if app.UID != userid {
+			return ErrOAuthApplicationNotFound{ID: id}
+		}
+		if len(authorize) > 0 && authorize[0] != nil {
+			if err := authorize[0](ctx); err != nil {
+				return err
+			}
 		}
 		builtinApps := BuiltinApplications()
 		if _, builtin := builtinApps[app.ClientID]; builtin {

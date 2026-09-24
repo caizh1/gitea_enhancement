@@ -5,15 +5,12 @@ package packages
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
-	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
-	"gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
@@ -48,6 +45,22 @@ func GetOrInsertBlob(ctx context.Context, pb *PackageBlob) (*PackageBlob, bool, 
 			result, exists, err = getOrInsertBlob(ctx, pb)
 			return err
 		})
+	})
+	return result, exists, err
+}
+
+// PrepareBlobUpload 在短事务内保留内容引用，避免上传期间被过期清理误删。
+func PrepareBlobUpload(ctx context.Context, pb *PackageBlob) (*PackageBlob, bool, error) {
+	var result *PackageBlob
+	var exists bool
+	err := db.WithTx(ctx, func(ctx context.Context) error {
+		var err error
+		result, exists, err = GetOrInsertBlob(ctx, pb)
+		if err != nil {
+			return err
+		}
+		_, err = db.GetEngine(ctx).Exec("UPDATE package_blob SET created_unix = ? WHERE id = ?", timeutil.TimeStampNow(), result.ID)
+		return err
 	})
 	return result, exists, err
 }
@@ -106,6 +119,8 @@ func ExistPackageBlobWithSHA(ctx context.Context, blobSha256 string) (bool, erro
 
 // FindExpiredUnreferencedBlobs gets all blobs without associated files older than the specific duration
 func FindExpiredUnreferencedBlobs(ctx context.Context, olderThan time.Duration) ([]*PackageBlob, error) {
+	// 上传正文先于引用提交；即时清理必须给仍在传输的内容保留宽限期。
+	olderThan = max(olderThan, 24*time.Hour)
 	pbs := make([]*PackageBlob, 0, 10)
 	return pbs, db.GetEngine(ctx).
 		Table("package_blob").
@@ -137,43 +152,33 @@ func GetTotalUnreferencedBlobSize(ctx context.Context) (int64, error) {
 
 // IsBlobAccessibleForUser tests if the user has access to the blob
 func IsBlobAccessibleForUser(ctx context.Context, blobID int64, user *user_model.User) (bool, error) {
-	if user.IsAdmin {
-		return true, nil
+	if user == nil {
+		return false, nil
 	}
-	ownerVisibilities := []structs.VisibleType{structs.VisibleTypePublic}
-	if !user.IsRestricted {
-		ownerVisibilities = append(ownerVisibilities, structs.VisibleTypeLimited)
-	}
-
-	maxTeamAuthorize := builder.
-		Select("max(team.authorize)").
-		From("team").
-		InnerJoin("team_user", "team_user.team_id = team.id").
-		Where(builder.Eq{"team_user.uid": user.ID}.And(builder.Expr("team_user.org_id = `user`.id")))
-
-	maxTeamUnitAccessMode := builder.
-		Select("max(team_unit.access_mode)").
-		From("team").
-		InnerJoin("team_user", "team_user.team_id = team.id").
-		InnerJoin("team_unit", "team_unit.team_id = team.id").
-		Where(builder.Eq{"team_user.uid": user.ID, "team_unit.type": unit.TypePackages}.And(builder.Expr("team_user.org_id = `user`.id")))
-
-	cond := builder.Eq{"package_blob.id": blobID}.And(
-		// owner = user
-		builder.Eq{"`user`.id": user.ID}.
-			// user can see owner
-			Or(builder.In("`user`.visibility", ownerVisibilities)).
-			// owner is an organization and user has access to it
-			Or(builder.Eq{"`user`.type": user_model.UserTypeOrganization}.
-				And(builder.Lte{strconv.Itoa(int(perm.AccessModeRead)): maxTeamAuthorize}.Or(builder.Lte{strconv.Itoa(int(perm.AccessModeRead)): maxTeamUnitAccessMode}))),
-	)
-
-	return db.GetEngine(ctx).
-		Table("package_blob").
+	var owners []struct{ OwnerID int64 }
+	err := db.GetEngine(ctx).Table("package_blob").
+		Select("DISTINCT package.owner_id AS owner_id").
 		Join("INNER", "package_file", "package_file.blob_id = package_blob.id").
 		Join("INNER", "package_version", "package_version.id = package_file.version_id").
 		Join("INNER", "package", "package.id = package_version.package_id").
-		Join("INNER", "user", "`user`.id = package.owner_id").
-		Where(cond).
-		Exist(&PackageBlob{})
+		Where("package_blob.id = ?", blobID).
+		Find(&owners)
+	if err != nil {
+		return false, err
+	}
+	for _, owner := range owners {
+		var mode perm.AccessMode
+		if user.IsGiteaActions() {
+			mode, err = TaskPackageAccessMode(ctx, owner.OwnerID, user)
+		} else {
+			mode, err = packageActorAccessMode(ctx, owner.OwnerID, user.ID)
+		}
+		if err != nil {
+			return false, err
+		}
+		if mode >= perm.AccessModeRead {
+			return true, nil
+		}
+	}
+	return false, nil
 }

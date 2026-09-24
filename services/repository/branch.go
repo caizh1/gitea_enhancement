@@ -13,6 +13,7 @@ import (
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -109,6 +110,10 @@ func LoadBranches(ctx context.Context, repo *repo_model.Repository, gitRepo *git
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	groupRules, _, err := git_model.GroupProtectedRulesForRepo(ctx, repo)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 
 	repoIDToRepo := map[int64]*repo_model.Repository{}
 	repoIDToRepo[repo.ID] = repo
@@ -118,7 +123,7 @@ func LoadBranches(ctx context.Context, repo *repo_model.Repository, gitRepo *git
 
 	branches := make([]*Branch, 0, len(dbBranches))
 	for i := range dbBranches {
-		branch, err := loadOneBranch(ctx, repo, dbBranches[i], &rules, repoIDToRepo, repoIDToGitRepo)
+		branch, err := loadOneBranch(ctx, repo, dbBranches[i], &rules, groupRules, repoIDToRepo, repoIDToGitRepo)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("loadOneBranch: %v", err)
 		}
@@ -127,7 +132,7 @@ func LoadBranches(ctx context.Context, repo *repo_model.Repository, gitRepo *git
 
 	if defaultDBBranchOptional != nil {
 		// Always add the default branch
-		defaultBranchOptional, err = loadOneBranch(ctx, repo, defaultDBBranchOptional, &rules, repoIDToRepo, repoIDToGitRepo)
+		defaultBranchOptional, err = loadOneBranch(ctx, repo, defaultDBBranchOptional, &rules, groupRules, repoIDToRepo, repoIDToGitRepo)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("loadOneBranch: %v", err)
 		}
@@ -185,7 +190,7 @@ func DelRepoDivergenceFromCache(ctx context.Context, repoID int64) error {
 	return nil
 }
 
-func loadOneBranch(ctx context.Context, repo *repo_model.Repository, dbBranch *git_model.Branch, protectedBranches *git_model.ProtectedBranchRules,
+func loadOneBranch(ctx context.Context, repo *repo_model.Repository, dbBranch *git_model.Branch, protectedBranches *git_model.ProtectedBranchRules, groupRules []*git_model.GroupProtectedBranch,
 	repoIDToRepo map[int64]*repo_model.Repository,
 	repoIDToGitRepo map[int64]*git.Repository,
 ) (*Branch, error) {
@@ -194,6 +199,12 @@ func loadOneBranch(ctx context.Context, repo *repo_model.Repository, dbBranch *g
 	branchName := dbBranch.Name
 	p := protectedBranches.GetFirstMatched(branchName)
 	isProtected := p != nil
+	for _, rule := range groupRules {
+		if rule.Match(branchName) {
+			isProtected = true
+			break
+		}
+	}
 
 	var divergence *gitrepo.DivergeObject
 
@@ -306,7 +317,13 @@ func checkBranchName(ctx context.Context, repo *repo_model.Repository, name stri
 // It will check whether the branches of the repository have never been synced before.
 // If so, it will sync all branches of the repository.
 // Otherwise, it will sync the branches that need to be updated.
-func SyncBranchesToDB(ctx context.Context, repoID, pusherID int64, branchNames, commitIDs []string, getCommit func(commitID string) (*git.Commit, error)) error {
+func SyncBranchesToDB(ctx context.Context, repoID, pusherID int64, branchNames []string, gitRepo *git.Repository) error {
+	return repo_module.WithBranchSync(ctx, repoID, func(ctx context.Context) error {
+		return syncBranchesToDBLocked(ctx, repoID, pusherID, branchNames, gitRepo)
+	})
+}
+
+func syncBranchesToDBLocked(ctx context.Context, repoID, pusherID int64, branchNames []string, gitRepo *git.Repository) error {
 	// Some designs that make the code look strange but are made for performance optimization purposes:
 	// 1. Sync branches in a batch to reduce the number of DB queries.
 	// 2. Lazy load commit information since it may be not necessary.
@@ -318,32 +335,45 @@ func SyncBranchesToDB(ctx context.Context, repoID, pusherID int64, branchNames, 
 	// For the first batch, it will hit optimization 3.
 	// For other batches, it will hit optimization 4.
 
-	if len(branchNames) != len(commitIDs) {
-		return errors.New("branchNames and commitIDs length not match")
+	current := make(map[string]*git.Commit, len(branchNames))
+	for _, branchName := range branchNames {
+		commitID, err := gitRepo.GetRefCommitID(git.RefNameFromBranch(branchName).String())
+		if git.IsErrNotExist(err) {
+			current[branchName] = nil
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("get current ref of %s: %w", branchName, err)
+		}
+		commit, err := gitRepo.GetCommit(commitID)
+		if err != nil {
+			return fmt.Errorf("get commit of %s: %w", branchName, err)
+		}
+		current[branchName] = commit
+	}
+
+	branches, err := git_model.GetBranches(ctx, repoID, branchNames, true)
+	if err != nil {
+		return fmt.Errorf("git_model.GetBranches: %w", err)
+	}
+	if len(branches) == 0 {
+		hasBranch, err := db.Exist[git_model.Branch](ctx, git_model.FindBranchOptions{
+			RepoID:          repoID,
+			IsDeletedBranch: optional.Some(false),
+		}.ToConds())
+		if err != nil {
+			return err
+		}
+		if !hasBranch {
+			_, err = repo_module.SyncRepoBranches(ctx, repoID, pusherID)
+			return err
+		}
 	}
 
 	return db.WithTx(ctx, func(ctx context.Context) error {
 		branches, err := git_model.GetBranches(ctx, repoID, branchNames, true)
 		if err != nil {
 			return fmt.Errorf("git_model.GetBranches: %v", err)
-		}
-
-		if len(branches) == 0 {
-			// if user haven't visit UI but directly push to a branch after upgrading from 1.20 -> 1.21,
-			// we cannot simply insert the branch but need to check we have branches or not
-			hasBranch, err := db.Exist[git_model.Branch](ctx, git_model.FindBranchOptions{
-				RepoID:          repoID,
-				IsDeletedBranch: optional.Some(false),
-			}.ToConds())
-			if err != nil {
-				return err
-			}
-			if !hasBranch {
-				if _, err = repo_module.SyncRepoBranches(ctx, repoID, pusherID); err != nil {
-					return fmt.Errorf("repo_module.SyncRepoBranches %d failed: %v", repoID, err)
-				}
-				return nil
-			}
 		}
 
 		branchMap := make(map[string]*git_model.Branch, len(branches))
@@ -353,16 +383,19 @@ func SyncBranchesToDB(ctx context.Context, repoID, pusherID int64, branchNames, 
 
 		newBranches := make([]*git_model.Branch, 0, len(branchNames))
 
-		for i, branchName := range branchNames {
-			commitID := commitIDs[i]
+		for _, branchName := range branchNames {
 			branch, exist := branchMap[branchName]
-			if exist && branch.CommitID == commitID && !branch.IsDeleted {
+			commit := current[branchName]
+			if commit == nil {
+				if exist && !branch.IsDeleted {
+					if err := git_model.MarkBranchAsDeleted(ctx, repoID, branchName, pusherID); err != nil {
+						return err
+					}
+				}
 				continue
 			}
-
-			commit, err := getCommit(commitID)
-			if err != nil {
-				return fmt.Errorf("get commit of %s failed: %v", branchName, err)
+			if exist && branch.CommitID == commit.ID.String() && !branch.IsDeleted {
+				continue
 			}
 
 			if exist {
@@ -416,8 +449,12 @@ func CreateNewBranchFromCommit(ctx context.Context, doer *user_model.User, repo 
 
 // RenameBranch rename a branch
 func RenameBranch(ctx context.Context, repo *repo_model.Repository, doer *user_model.User, from, to string) (string, error) {
-	err := repo.MustNotBeArchived()
+	release, err := LockRepositoryWorking(ctx, repo.ID)
 	if err != nil {
+		return "", err
+	}
+	defer release()
+	if err := refreshBranchMutationRepository(ctx, repo); err != nil {
 		return "", err
 	}
 
@@ -449,6 +486,11 @@ func RenameBranch(ctx context.Context, repo *repo_model.Repository, doer *user_m
 			RepoName: repo.LowerName,
 		}
 	}
+	if isDefault {
+		if err := checkRequiredWorkflowDefaultBranch(ctx, repo.ID); err != nil {
+			return "", err
+		}
+	}
 
 	// If from == rule name, admins are allowed to modify them.
 	if protectedBranch, err := git_model.GetProtectedBranchRuleByName(ctx, repo.ID, from); err != nil {
@@ -459,13 +501,24 @@ func RenameBranch(ctx context.Context, repo *repo_model.Repository, doer *user_m
 			RepoName: repo.LowerName,
 		}
 	}
-
-	// We also need to check if "to" matches with a protected branch rule.
-	rule, err := git_model.GetFirstMatchProtectedBranchRule(ctx, repo.ID, to)
+	sourceProtection, err := git_model.EvaluateEffectiveBranchProtection(ctx, repo.ID, from)
 	if err != nil {
 		return "", err
 	}
-	if rule != nil && !rule.CanUserPush(ctx, doer) {
+	if len(sourceProtection.Group) > 0 {
+		return "", git_model.ErrBranchIsProtected
+	}
+
+	// We also need to check if "to" matches with a protected branch rule.
+	rule, err := git_model.EvaluateEffectiveBranchProtection(ctx, repo.ID, to)
+	if err != nil {
+		return "", err
+	}
+	allowed, err := rule.CanUserPush(ctx, doer)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
 		return "", git_model.ErrBranchIsProtected
 	}
 
@@ -706,7 +759,8 @@ var branchSyncQueue *queue.WorkerPoolQueue[*BranchSyncOptions]
 
 func handlerBranchSync(items ...*BranchSyncOptions) []*BranchSyncOptions {
 	for _, opts := range items {
-		_, err := repo_module.SyncRepoBranches(graceful.GetManager().ShutdownContext(), opts.RepoID, 0)
+		ctx := graceful.GetManager().ShutdownContext()
+		_, err := repo_module.SyncRepoBranches(ctx, opts.RepoID, 0)
 		if err != nil {
 			log.Error("syncRepoBranches [%d] failed: %v", opts.RepoID, err)
 		}
@@ -740,25 +794,48 @@ func AddAllRepoBranchesToSyncQueue(ctx context.Context) error {
 }
 
 func SetRepoDefaultBranch(ctx context.Context, repo *repo_model.Repository, newBranchName string) error {
+	release, err := LockRepositoryWorking(ctx, repo.ID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := refreshBranchMutationRepository(ctx, repo); err != nil {
+		return err
+	}
 	if repo.DefaultBranch == newBranchName {
 		return nil
 	}
+	if err := checkRequiredWorkflowDefaultBranch(ctx, repo.ID); err != nil {
+		return err
+	}
 
-	if exist, _ := git_model.IsBranchExist(ctx, repo.ID, newBranchName); !exist {
-		return git_model.ErrBranchNotExist{
-			BranchName: newBranchName,
+	if !repo.IsEmpty {
+		exist, err := git_model.IsBranchExist(ctx, repo.ID, newBranchName)
+		if err != nil {
+			return err
+		}
+		if !exist {
+			return git_model.ErrBranchNotExist{BranchName: newBranchName}
 		}
 	}
 
 	oldDefaultBranchName := repo.DefaultBranch
+	if !repo.IsEmpty {
+		if err := gitrepo.SetDefaultBranch(ctx, repo, newBranchName); err != nil {
+			return err
+		}
+	}
 	repo.DefaultBranch = newBranchName
-	if err := db.WithTx(ctx, func(ctx context.Context) error {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		if err := checkRequiredWorkflowDefaultBranch(ctx, repo.ID); err != nil {
+			return err
+		}
 		if err := repo_model.UpdateDefaultBranch(ctx, repo); err != nil {
 			return err
 		}
 
 		if err := actions_model.DeleteScheduleTaskByRepo(ctx, repo.ID); err != nil {
-			log.Error("DeleteCronTaskByRepo: %v", err)
+			return err
 		}
 		// cancel running cron jobs of this repository and delete old schedules
 		if err := actions_service.CancelPreviousJobs(
@@ -768,11 +845,17 @@ func SetRepoDefaultBranch(ctx context.Context, repo *repo_model.Repository, newB
 			"",
 			webhook_module.HookEventSchedule,
 		); err != nil {
-			log.Error("CancelPreviousJobs: %v", err)
+			return err
 		}
 
-		return gitrepo.SetDefaultBranch(ctx, repo, newBranchName)
+		return nil
 	}); err != nil {
+		repo.DefaultBranch = oldDefaultBranchName
+		if !repo.IsEmpty {
+			if restoreErr := gitrepo.SetDefaultBranch(context.WithoutCancel(ctx), repo, oldDefaultBranchName); restoreErr != nil {
+				return errors.Join(err, fmt.Errorf("恢复默认分支失败，需核对 Git HEAD 与仓库设置: %w", restoreErr))
+			}
+		}
 		return err
 	}
 

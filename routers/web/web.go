@@ -639,9 +639,11 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		m.Post("/{id}/archive", governance.ArchiveGroup)
 		m.Post("/{id}/deletion", governance.GroupDeletion)
 		m.Post("/{id}/members", governance.SaveGroupMember)
+		m.Post("/{id}/leave", governance.LeaveGroup)
 		m.Post("/{id}/shares", governance.SaveGroupShare)
 		m.Post("/{id}/share-restriction", governance.SaveExternalShareRestriction)
 		m.Post("/{id}/roles", governance.SaveGroupRole)
+		m.Post("/{id}/branch-protection", governance.SaveGroupBranchProtection)
 	}, reqSignIn)
 
 	m.Combo("/governance/repositories/{id}/approval-rules", reqSignIn).Get(governance.ApprovalRules).Post(governance.SaveApprovalRule)
@@ -1061,6 +1063,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 					addWebhookAddRoutes()
 					m.Group("/{id}", func() {
 						m.Get("", repo_setting.WebHooksEdit)
+						m.Post("/test", repo_setting.TestWebhook)
 						m.Post("/replay/{uuid}", repo_setting.ReplayWebhook)
 					})
 					addWebhookEditRoutes()
@@ -1552,7 +1555,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/generate-notes", web.Bind(forms.GenerateReleaseNotesForm{}), repo.GenerateReleaseNotes)
 			m.Post("/delete", repo.DeleteRelease)
 			m.Post("/attachments", repo.UploadReleaseAttachment)
-			m.Post("/attachments/remove", repo.DeleteAttachment)
+			m.Post("/attachments/remove", repo.DeleteReleaseAttachment)
 		}, reqSignIn, context.RepoMustNotBeArchived(), reqRepoReleaseWriter)
 	}, optSignIn, context.RepoAssignment, repo.MustBeNotEmpty, reqRepoReleaseReader)
 	// end "/{username}/{reponame}": repo releases

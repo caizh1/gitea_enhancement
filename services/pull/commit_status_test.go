@@ -163,4 +163,16 @@ func TestEffectiveRequiredContexts(t *testing.T) {
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"a/check", "b/check", "shared/check"}, got)
 	})
+
+	t.Run("saved source-name pattern is displayed with an opaque source ID", func(t *testing.T) {
+		sourceRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		legacy := sourceRepo.FullName() + ": CI / build (push)"
+		_, err := db.GetEngine(t.Context()).Where("owner_id = ? AND source_repo_id = ?", consumer.OwnerID, sourceRepo.ID).Cols("workflow_configs").Update(&actions_model.ActionScopedWorkflowSource{
+			WorkflowConfigs: map[string]*actions_model.ScopedWorkflowConfig{"ci.yaml": {Required: true, Patterns: []string{legacy}}},
+		})
+		require.NoError(t, err)
+		got, err := EffectiveRequiredContexts(t.Context(), consumer, &git_model.ProtectedBranch{})
+		require.NoError(t, err)
+		assert.Equal(t, []string{actions_model.ScopedStatusContextPrefix(t.Context(), sourceRepo.ID) + ": CI / build (push)"}, got)
+	})
 }

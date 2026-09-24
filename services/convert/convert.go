@@ -63,7 +63,17 @@ func ToEmailSearch(email *user_model.SearchEmailResult) *api.Email {
 
 // ToBranch convert a git.Commit and git.Branch to an api.Branch
 func ToBranch(ctx context.Context, repo *repo_model.Repository, branchName string, c *git.Commit, bp *git_model.ProtectedBranch, user *user_model.User, isRepoAdmin bool) (*api.Branch, error) {
-	if bp == nil {
+	effective := &git_model.EffectiveBranchProtection{Native: bp, Repo: repo}
+	groupRules, _, err := git_model.GroupProtectedRulesForRepo(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	for _, rule := range groupRules {
+		if rule.Match(branchName) {
+			effective.Group = append(effective.Group, rule)
+		}
+	}
+	if !effective.IsProtected() {
 		var hasPerm bool
 		var canPush bool
 		var err error
@@ -96,23 +106,33 @@ func ToBranch(ctx context.Context, repo *repo_model.Repository, branchName strin
 		Name:                branchName,
 		Commit:              ToPayloadCommit(ctx, repo, c),
 		Protected:           true,
-		RequiredApprovals:   bp.RequiredApprovals,
-		EnableStatusCheck:   bp.EnableStatusCheck,
-		StatusCheckContexts: bp.StatusCheckContexts,
+		StatusCheckContexts: []string{},
 	}
-
-	if isRepoAdmin {
-		branch.EffectiveBranchProtectionName = bp.RuleName
+	if bp != nil {
+		branch.RequiredApprovals = bp.RequiredApprovals
+		branch.EnableStatusCheck = bp.EnableStatusCheck
+		branch.StatusCheckContexts = bp.StatusCheckContexts
+		if isRepoAdmin {
+			branch.EffectiveBranchProtectionName = bp.RuleName
+		}
 	}
 
 	if user != nil {
-		permission, err := access_model.GetIndividualUserRepoPermission(ctx, repo, user)
+		permission, err := access_model.GetDoerRepoPermission(ctx, repo, user)
 		if err != nil {
 			return nil, err
 		}
-		bp.Repo = repo
-		branch.UserCanPush = bp.CanUserPush(ctx, user)
-		branch.UserCanMerge = git_model.IsUserMergeWhitelisted(ctx, bp, user.ID, permission)
+		if bp != nil {
+			bp.Repo = repo
+		}
+		branch.UserCanPush, err = effective.CanUserPush(ctx, user)
+		if err != nil {
+			return nil, err
+		}
+		branch.UserCanMerge, err = effective.CanUserMerge(ctx, user, permission)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return branch, nil

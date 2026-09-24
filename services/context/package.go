@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
 	"gitea.dev/models/perm"
@@ -15,6 +16,7 @@ import (
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
+	governance_service "gitea.dev/services/governance"
 )
 
 // Package contains owner, access mode and optional the package descriptor
@@ -42,6 +44,12 @@ func PackageAssignment() func(ctx *Context) {
 			}
 		}
 		paCtx := &packageAssignmentCtx{Base: ctx.Base, Doer: ctx.Doer, ContextUser: ctx.ContextUser}
+		if _, ok := ctx.Value(governance_model.AuditActorContextKey).(governance_model.Actor); !ok {
+			ctx.SetContextValue(governance_model.AuditActorContextKey, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "package"))
+		}
+		if ctx.Doer != nil && ctx.Doer.IsGiteaActions() {
+			ctx.SetContextValue(packages_model.PackageTaskUserContextKey, ctx.Doer)
+		}
 		ctx.Package = packageAssignment(paCtx, errorFn)
 	}
 }
@@ -50,6 +58,12 @@ func PackageAssignment() func(ctx *Context) {
 func PackageAssignmentAPI() func(ctx *APIContext) {
 	return func(ctx *APIContext) {
 		paCtx := &packageAssignmentCtx{Base: ctx.Base, Doer: ctx.Doer, ContextUser: ctx.ContextUser}
+		if _, ok := ctx.Value(governance_model.AuditActorContextKey).(governance_model.Actor); !ok {
+			ctx.SetContextValue(governance_model.AuditActorContextKey, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "api"))
+		}
+		if ctx.Doer != nil && ctx.Doer.IsGiteaActions() {
+			ctx.SetContextValue(packages_model.PackageTaskUserContextKey, ctx.Doer)
+		}
 		ctx.Package = packageAssignment(paCtx, ctx.APIError)
 	}
 }
@@ -118,30 +132,35 @@ func determineAccessMode(ctx *Base, pkgOwner, doer *user_model.User) (perm.Acces
 		return perm.AccessModeNone, nil
 	}
 
-	// TODO: ActionUser permission check
 	accessMode := perm.AccessModeNone
 	if pkgOwner.IsOrganization() {
-		org := organization.OrgFromUser(pkgOwner)
-
-		if doer != nil && !doer.IsGhost() {
-			// 1. If user is logged in, check all team packages permissions
+		if doer != nil && doer.IsGiteaActions() {
 			var err error
-			accessMode, err = org.GetOrgUserMaxAuthorizeLevel(ctx, doer.ID)
+			accessMode, err = packages_model.TaskPackageAccessMode(ctx, pkgOwner.ID, doer)
 			if err != nil {
-				return accessMode, err
+				return perm.AccessModeNone, err
 			}
-			// If access mode is less than write check every team for more permissions
-			// The minimum possible access mode is read for org members
-			if accessMode < perm.AccessModeWrite {
-				teams, err := organization.GetUserOrgTeams(ctx, org.ID, doer.ID)
-				if err != nil {
-					return accessMode, err
+		} else if doer != nil && !doer.IsGhost() {
+			abilities, err := organization.GovernanceGroupAbilities(ctx, pkgOwner.ID, doer.ID)
+			if err != nil {
+				return perm.AccessModeNone, err
+			}
+			if abilities[governance_model.WritePackages] {
+				accessMode = perm.AccessModeWrite
+			} else if abilities[governance_model.ReadPackages] {
+				accessMode = perm.AccessModeRead
+			}
+			teams, err := organization.GetUserOrgTeams(ctx, pkgOwner.ID, doer.ID)
+			if err != nil {
+				return perm.AccessModeNone, err
+			}
+			for _, t := range teams {
+				teamMode := t.UnitAccessMode(ctx, unit.TypePackages)
+				if t.HasAdminAccess() {
+					teamMode = t.AccessMode
 				}
-				for _, t := range teams {
-					perm := t.UnitAccessMode(ctx, unit.TypePackages)
-					if accessMode < perm {
-						accessMode = perm
-					}
+				if accessMode < teamMode {
+					accessMode = teamMode
 				}
 			}
 		}
@@ -149,8 +168,26 @@ func determineAccessMode(ctx *Base, pkgOwner, doer *user_model.User) (perm.Acces
 			// 2. If user is unauthorized or no org member, check if org is visible
 			accessMode = perm.AccessModeRead
 		}
+		if accessMode > perm.AccessModeRead {
+			chain, err := governance_model.Ancestors(ctx, pkgOwner.ID)
+			if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+				return perm.AccessModeNone, err
+			}
+			for _, source := range chain {
+				if source.Archived || source.DeleteAfter != 0 {
+					accessMode = perm.AccessModeRead
+					break
+				}
+			}
+		}
 	} else {
-		if doer != nil && !doer.IsGhost() {
+		if doer != nil && doer.IsGiteaActions() {
+			var err error
+			accessMode, err = packages_model.TaskPackageAccessMode(ctx, pkgOwner.ID, doer)
+			if err != nil {
+				return perm.AccessModeNone, err
+			}
+		} else if doer != nil && !doer.IsGhost() {
 			// 1. Check if user is package owner
 			if doer.ID == pkgOwner.ID {
 				accessMode = perm.AccessModeOwner

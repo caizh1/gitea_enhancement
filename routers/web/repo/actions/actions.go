@@ -15,6 +15,7 @@ import (
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/actions"
@@ -314,10 +315,16 @@ func prepareScopedWorkflows(ctx *context.Context, curWorkflowID string, curWorkf
 			continue
 		}
 
+		sourceName := fmt.Sprintf("#%d", sourceRepo.ID)
+		sourceShortName := sourceName
+		if perm, err := access_model.GetDoerRepoPermission(ctx, sourceRepo, ctx.Doer); err == nil && perm.CanRead(unit.TypeCode) {
+			sourceName = sourceRepo.FullName()
+			sourceShortName = sourceRepo.Name
+		}
 		group := ScopedWorkflowSourceGroup{
 			SourceRepoID:        sourceRepo.ID,
-			SourceRepoName:      sourceRepo.FullName(),
-			SourceRepoShortName: sourceRepo.Name,
+			SourceRepoName:      sourceName,
+			SourceRepoShortName: sourceShortName,
 			FromInstance:        source.OwnerID == 0,
 		}
 		for _, e := range entries {
@@ -517,10 +524,16 @@ func prepareWorkflowList(ctx *context.Context, workflows []WorkflowInfo, otherWo
 
 	// Check for each run if there is at least one online runner that can run its jobs
 	runErrors := make(map[int64]string)
+	availableOwnerIDs, err := actions_model.AvailableRunnerOwnerIDs(ctx, ctx.Repo.Repository.OwnerID)
+	if err != nil {
+		ctx.ServerError("AvailableRunnerOwnerIDs", err)
+		return
+	}
 	runners, err := db.Find[actions_model.ActionRunner](ctx, actions_model.FindRunnerOptions{
-		RepoID:        ctx.Repo.Repository.ID,
-		IsOnline:      optional.Some(true),
-		WithAvailable: true,
+		RepoID:            ctx.Repo.Repository.ID,
+		IsOnline:          optional.Some(true),
+		WithAvailable:     true,
+		AvailableOwnerIDs: availableOwnerIDs,
 	})
 	if err != nil {
 		ctx.ServerError("FindRunners", err)

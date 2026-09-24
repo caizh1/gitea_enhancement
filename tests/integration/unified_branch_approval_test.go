@@ -16,6 +16,7 @@ import (
 	api "gitea.dev/modules/structs"
 	gs "gitea.dev/services/governance"
 	"gitea.dev/tests"
+
 	"github.com/stretchr/testify/require"
 )
 

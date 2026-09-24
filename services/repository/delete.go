@@ -160,8 +160,18 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 		return err
 	}
 
-	if _, err := db.GetEngine(ctx).In("hook_id", builder.Select("id").From("webhook").Where(builder.Eq{"webhook.repo_id": repo.ID})).
-		Delete(&webhook.HookTask{}); err != nil {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		hooks, err := db.Find[webhook.Webhook](ctx, webhook.ListWebhookOptions{RepoID: repo.ID})
+		if err != nil {
+			return err
+		}
+		for _, hook := range hooks {
+			if err := webhook.RedactDeletedHookTasks(ctx, hook.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 

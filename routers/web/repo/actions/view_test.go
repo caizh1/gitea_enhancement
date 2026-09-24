@@ -8,6 +8,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/translation"
@@ -15,6 +16,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOrganizationTriggerCancellationUsesSelectedAttempt(t *testing.T) {
+	organization := &user_model.User{Type: user_model.UserTypeOrganization}
+	human := &user_model.User{Type: user_model.UserTypeIndividual}
+	first := &actions_model.ActionRunAttempt{ID: 39, Status: actions_model.StatusCancelled, TriggerUser: organization}
+	second := &actions_model.ActionRunAttempt{ID: 40, Status: actions_model.StatusSuccess, TriggerUser: human}
+	assert.True(t, isOrganizationTriggerCancellation(first, first.ID))
+	assert.False(t, isOrganizationTriggerCancellation(first, second.ID))
+	assert.False(t, isOrganizationTriggerCancellation(second, second.ID))
+	assert.False(t, isOrganizationTriggerCancellation(&actions_model.ActionRunAttempt{ID: 41, Status: actions_model.StatusWaiting, TriggerUser: organization}, 41))
+	assert.False(t, isOrganizationTriggerCancellation(nil, 0))
+}
 
 func TestViewPullRequestFromRun(t *testing.T) {
 	repo := &repo_model.Repository{ID: 1, OwnerName: "owner", Name: "repo"}

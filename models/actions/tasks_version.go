@@ -5,8 +5,10 @@ package actions
 
 import (
 	"context"
+	"errors"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/timeutil"
 )
@@ -80,11 +82,22 @@ func IncreaseTaskVersion(ctx context.Context, ownerID, repoID int64) error {
 			return err
 		}
 
-		// 2. increase owner
+		// 2. increase owner and its ancestors
 		if ownerID > 0 {
-			if err := increaseTasksVersionByScope(ctx, ownerID, 0); err != nil {
-				log.Error("IncreaseTasksVersionByScope(Owner): %v", err)
+			chain, err := governance_model.Ancestors(ctx, ownerID)
+			if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
 				return err
+			}
+			if len(chain) == 0 {
+				if err := increaseTasksVersionByScope(ctx, ownerID, 0); err != nil {
+					return err
+				}
+			}
+			for _, ancestor := range chain {
+				if err := increaseTasksVersionByScope(ctx, ancestor.ID, 0); err != nil {
+					log.Error("IncreaseTasksVersionByScope(Owner): %v", err)
+					return err
+				}
 			}
 		}
 

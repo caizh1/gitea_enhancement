@@ -8,7 +8,6 @@ import (
 	"time"
 
 	activities_model "gitea.dev/models/activities"
-	"gitea.dev/models/db"
 	"gitea.dev/modules/structs"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
@@ -69,18 +68,12 @@ func ListNotifications(ctx *context.APIContext) {
 		return
 	}
 
-	totalCount, err := db.Count[activities_model.Notification](ctx, opts)
+	nl, totalCount, err := activities_model.FindVisibleNotifications(ctx, ctx.Doer, *opts)
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return
 	}
-
-	nl, err := db.Find[activities_model.Notification](ctx, opts)
-	if err != nil {
-		ctx.APIErrorInternal(err)
-		return
-	}
-	err = activities_model.NotificationList(nl).LoadAttributes(ctx)
+	err = nl.LoadAttributes(ctx)
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return
@@ -149,7 +142,7 @@ func ReadNotifications(ctx *context.APIContext) {
 		statuses := ctx.FormStrings("status-types")
 		opts.Status = statusStringsToNotificationStatuses(statuses, []string{"unread"})
 	}
-	nl, err := db.Find[activities_model.Notification](ctx, opts)
+	nl, _, err := activities_model.FindVisibleNotifications(ctx, ctx.Doer, *opts)
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return

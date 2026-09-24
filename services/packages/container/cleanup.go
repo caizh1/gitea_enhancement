@@ -48,7 +48,7 @@ func cleanupExpiredUploadedBlobs(ctx context.Context, olderThan time.Duration) e
 	}
 
 	for _, pf := range pfs {
-		if err := packages_service.DeletePackageFile(ctx, pf); err != nil {
+		if err := packages_service.DeletePackageFileForCleanup(ctx, pf); err != nil {
 			return err
 		}
 	}

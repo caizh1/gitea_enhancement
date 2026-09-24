@@ -67,12 +67,12 @@ func CheckAuditAccess(ctx context.Context, userID int64, scope string, scopeID i
 		if err != nil {
 			return err
 		}
+		if governance_model.HasOwnerGrant(grants) {
+			return nil
+		}
 		for _, grant := range grants {
 			if !grant.Abilities[governance_model.ReadAudit] {
 				continue
-			}
-			if grant.Role == governance_model.Owner {
-				return nil
 			}
 			if grant.CustomRoleID > 0 {
 				role, has, err := db.GetByID[governance_model.CustomRole](ctx, grant.CustomRoleID)

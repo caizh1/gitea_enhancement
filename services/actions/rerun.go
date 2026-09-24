@@ -79,6 +79,12 @@ func validateRerun(ctx context.Context, run *actions_model.ActionRun, repo *repo
 	if run.RepoID != repo.ID {
 		return util.NewInvalidArgumentErrorf("run %d does not belong to repo %d", run.ID, repo.ID)
 	}
+	if run.OwnerID != repo.OwnerID {
+		return fmt.Errorf("%w：仓库归属已变化，请从当前仓库重新触发工作流", governance_model.ErrConflict)
+	}
+	if run.ScopeInvalidated {
+		return fmt.Errorf("%w：群组归属已变化，请从当前仓库重新触发工作流", governance_model.ErrConflict)
+	}
 	for _, job := range jobsToRerun {
 		if job.RunID != run.ID {
 			return util.NewInvalidArgumentErrorf("job %d does not belong to workflow run %d", job.ID, run.ID)
@@ -90,6 +96,13 @@ func validateRerun(ctx context.Context, run *actions_model.ActionRun, repo *repo
 	cfgUnit := repo.MustGetUnit(ctx, unit.TypeActions)
 	cfg := cfgUnit.ActionsConfig()
 	if run.IsScopedRun {
+		valid, err := actions_model.ScopedWorkflowRunValid(ctx, run)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return fmt.Errorf("%w：工作流来源已失效，请重新触发", governance_model.ErrConflict)
+		}
 		// a required scoped workflow can never be opted out, so a stale disabled flag must not block rerun
 		optedOut, err := actions_model.IsScopedWorkflowOptedOut(ctx, cfg, repo.OwnerID, run.WorkflowRepoID, run.WorkflowID)
 		if err != nil {
@@ -219,6 +232,26 @@ func execRerunPlan(ctx context.Context, plan *rerunPlan) (*actions_model.ActionR
 	var hasWaitingCallerJobs bool
 
 	err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		freshRepo, err := repo_model.GetRepositoryByID(ctx, plan.run.RepoID)
+		if err != nil {
+			return err
+		}
+		freshRun, err := actions_model.GetRunByRepoAndID(ctx, plan.run.RepoID, plan.run.ID)
+		if err != nil {
+			return err
+		}
+		if freshRepo.OwnerID != freshRun.OwnerID || freshRun.OwnerID != plan.run.OwnerID || freshRepo.IsArchived || freshRun.ScopeInvalidated {
+			return fmt.Errorf("%w：仓库归属或生命周期已变化，请从当前仓库重新触发工作流", governance_model.ErrConflict)
+		}
+		if freshRun.IsScopedRun {
+			valid, err := actions_model.ScopedWorkflowRunValid(ctx, freshRun)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				return fmt.Errorf("%w：工作流来源已失效，请重新触发", governance_model.ErrConflict)
+			}
+		}
 		newAttemptStatus, jobsToCancel, err := PrepareToStartRunWithConcurrency(ctx, newAttempt)
 		if err != nil {
 			return err

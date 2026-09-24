@@ -4,11 +4,13 @@
 package actions
 
 import (
+	stdctx "context"
 	"errors"
 	"net/http"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
@@ -17,6 +19,7 @@ import (
 	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 )
 
 const (
@@ -35,6 +38,28 @@ type variablesCtx struct {
 	IsGlobal          bool
 	VariablesTemplate templates.TplName
 	RedirectLink      string
+}
+
+type inheritedVariable struct {
+	Name        string
+	Data        string
+	Description string
+	Source      string
+	Overridden  bool
+}
+
+func visibleNamespaceSource(ctx stdctx.Context, viewerID int64, isAdmin bool, namespace *governance_model.Namespace) (string, bool, error) {
+	if namespace.Kind == "user" {
+		return namespace.FullPath, viewerID == namespace.ID || isAdmin, nil
+	}
+	state, err := governance_service.CheckGroupAccess(ctx, viewerID, namespace.ID, governance_model.ReadGroup)
+	if errors.Is(err, governance_model.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return state.FullPath, true, nil
 }
 
 func getVariablesCtx(ctx *context.Context) (*variablesCtx, error) {
@@ -105,6 +130,69 @@ func Variables(ctx *context.Context) {
 		return
 	}
 	ctx.Data["Variables"] = variables
+	ownerID := vCtx.OwnerID
+	if vCtx.IsRepo {
+		ownerID = ctx.Repo.Repository.OwnerID
+	}
+	if ownerID > 0 {
+		chain, err := governance_model.Ancestors(ctx, ownerID)
+		if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+			ctx.ServerError("Ancestors", err)
+			return
+		}
+		seen := make(map[string]bool, len(variables))
+		for _, variable := range variables {
+			seen[variable.Name] = true
+		}
+		inherited := make([]inheritedVariable, 0)
+		start := 0
+		if !vCtx.IsRepo {
+			start = 1
+		}
+		if start > len(chain) {
+			start = len(chain)
+		}
+		for _, ancestor := range chain[start:] {
+			source, sourceVisible, err := visibleNamespaceSource(ctx, ctx.Doer.ID, ctx.Doer.IsAdmin, ancestor)
+			if err != nil {
+				ctx.ServerError("CheckGroupAccess", err)
+				return
+			}
+			if !sourceVisible {
+				source = string(ctx.Tr("actions.inheritance.restricted"))
+			}
+			entries, err := actions_model.FindVariables(ctx, actions_model.FindVariablesOpts{OwnerID: ancestor.ID})
+			if err != nil {
+				ctx.ServerError("FindVariables", err)
+				return
+			}
+			for _, variable := range entries {
+				entry := inheritedVariable{variable.Name, variable.Data, variable.Description, source, seen[variable.Name]}
+				if !sourceVisible {
+					entry.Description = ""
+					if entry.Overridden {
+						entry.Data = ""
+					}
+				}
+				inherited = append(inherited, entry)
+				seen[variable.Name] = true
+			}
+		}
+		globalVariables, err := actions_model.FindVariables(ctx, actions_model.FindVariablesOpts{})
+		if err != nil {
+			ctx.ServerError("FindVariables", err)
+			return
+		}
+		for _, variable := range globalVariables {
+			entry := inheritedVariable{variable.Name, variable.Data, variable.Description, string(ctx.Tr("actions.inheritance.instance")), seen[variable.Name]}
+			if !ctx.Doer.IsAdmin && entry.Overridden {
+				entry.Data = ""
+				entry.Description = ""
+			}
+			inherited = append(inherited, entry)
+		}
+		ctx.Data["InheritedVariables"] = inherited
+	}
 	ctx.Data["DataMaxLength"] = actions_model.VariableDataMaxLength
 	ctx.Data["DescriptionMaxLength"] = actions_model.VariableDescriptionMaxLength
 	ctx.HTML(http.StatusOK, vCtx.VariablesTemplate)

@@ -33,6 +33,7 @@ import (
 	"gitea.dev/modules/templates/vars"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web/middleware"
+	actions_service "gitea.dev/services/actions"
 	asymkey_service "gitea.dev/services/asymkey"
 	"gitea.dev/services/context"
 	"gitea.dev/services/context/upload"
@@ -793,6 +794,12 @@ func prepareIssueViewCommentsAndSidebarParticipants(ctx *context.Context, issue 
 				ctx.ServerError("LoadCommentPushCommits", err)
 				return
 			}
+			for _, commit := range comment.Commits {
+				if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, commit.Statuses); err != nil {
+					ctx.ServerError("RedactScopedCommitStatusContexts", err)
+					return
+				}
+			}
 			if !ctx.Repo.Permission.CanRead(unit.TypeActions) {
 				for _, commit := range comment.Commits {
 					if commit.Status == nil {
@@ -941,7 +948,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBox(ctx *context.Context, issue *
 	data.AutodetectManualMerge = prConfig.AutodetectManualMerge
 
 	needRefreshMergeBox := pull.IsChecking()
-	needRefreshMergeBox = needRefreshMergeBox || (data.StatusCheckData != nil && data.StatusCheckData.pullCommitStatusState.IsPending())
+	needRefreshMergeBox = needRefreshMergeBox || data.scopedWorkflowBlocked || (data.StatusCheckData != nil && data.StatusCheckData.pullCommitStatusState.IsPending())
 	data.ReloadingInterval = util.Iif(needRefreshMergeBox, 5000, 0)
 
 	// Only show the merge box if the PR is not merged, or the branch is deletable.
@@ -954,7 +961,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBox(ctx *context.Context, issue *
 	// admin and writer both can make an auto merge schedule (not affected by overridable blockers)
 	// Required scoped workflow checks gate the merge even when the rule's own status check is disabled (see IsPullCommitStatusPass),
 	// so block on any required status context, not only when enableStatusCheck is on.
-	data.hasStatusCheckBlocker = (data.enableStatusCheck || data.hasRequiredStatusContexts) && !data.StatusCheckData.RequiredChecksState.IsSuccess()
+	data.hasStatusCheckBlocker = data.scopedWorkflowBlocked || (data.enableStatusCheck || data.hasRequiredStatusContexts) && !data.StatusCheckData.RequiredChecksState.IsSuccess()
 
 	// this logic is from:
 	// {{$notAllOverridableChecksOk := or .IsBlockedByApprovals .IsBlockedByRejection .IsBlockedByOfficialReviewRequests .IsBlockedByOutdatedBranch .IsBlockedByChangedProtectedFiles (and .EnableStatusCheck (not $requiredStatusCheckState.IsSuccess))}}
@@ -971,7 +978,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBox(ctx *context.Context, issue *
 	}
 
 	// CanMergeNow means: if the doer has write permission, whether the PR can be merged now
-	data.canMergeNow = (!data.hasOverridableBlockers || data.canBypassProtection) && // status checks are satisfied
+	data.canMergeNow = !data.scopedWorkflowBlocked && (!data.hasOverridableBlockers || data.canBypassProtection) && // status checks are satisfied
 		(!data.requireSigned || data.willSign) // signing requirement is satisfied
 
 	prInfo.prepareMergeBoxInfoItems(ctx)

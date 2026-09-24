@@ -15,6 +15,9 @@ import (
 	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
 	actions_model "gitea.dev/models/actions"
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	unit_model "gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
@@ -78,6 +81,14 @@ func TestActionsScopedWorkflows(t *testing.T) {
 				reqReq := NewRequestWithURLValues(t, "POST", "/user/settings/actions/scoped-workflows/required", vals)
 				user2Session.MakeRequest(t, reqReq, http.StatusOK)
 			}
+		}
+		registerUserRunner := func(t *testing.T, runner *mockRunner, name string) {
+			request := NewRequest(t, "POST", "/api/v1/user/actions/runners/registration-token").AddTokenAuth(user2Token)
+			response := MakeRequest(t, request, http.StatusOK)
+			registration := DecodeJSON(t, response, &struct {
+				Token string `json:"token"`
+			}{})
+			runner.doRegister(t, name, registration.Token, []string{"ubuntu-latest"}, false)
 		}
 
 		t.Run("Trigger and run creation", func(t *testing.T) {
@@ -249,17 +260,19 @@ jobs:
 			// protectAndOpenPR protects consumer's default branch and opens a PR on `branch`, returning a merge-request builder.
 			// When statusCheckEnabled it also configures "ci/manual" as the only CONFIGURED required context and satisfies it,
 			// so the scoped check is the only thing that can gate the merge; otherwise the rule's own status check stays off.
-			protectAndOpenPR := func(t *testing.T, consumer *repo_model.Repository, branch string, statusCheckEnabled bool) func() *RequestWrapper {
-				pbValues := map[string]string{
-					"rule_name":                  consumer.DefaultBranch,
-					"enable_push":                "true",
-					"block_admin_merge_override": "true", // otherwise the repo owner bypasses the status check
+			protectAndOpenPR := func(t *testing.T, consumer *repo_model.Repository, branch string, protected, statusCheckEnabled bool) (func() *RequestWrapper, string) {
+				if protected {
+					pbValues := map[string]string{
+						"rule_name":                  consumer.DefaultBranch,
+						"enable_push":                "true",
+						"block_admin_merge_override": "true",
+					}
+					if statusCheckEnabled {
+						pbValues["enable_status_check"] = "true"
+						pbValues["status_check_contexts"] = "ci/manual"
+					}
+					user2Session.MakeRequest(t, NewRequestWithValues(t, "POST", fmt.Sprintf("/%s/%s/settings/branches/edit", consumer.OwnerName, consumer.Name), pbValues), http.StatusSeeOther)
 				}
-				if statusCheckEnabled {
-					pbValues["enable_status_check"] = "true"
-					pbValues["status_check_contexts"] = "ci/manual"
-				}
-				user2Session.MakeRequest(t, NewRequestWithValues(t, "POST", fmt.Sprintf("/%s/%s/settings/branches/edit", consumer.OwnerName, consumer.Name), pbValues), http.StatusSeeOther)
 
 				prFile := &api.CreateFileOptions{
 					FileOptions: api.FileOptions{
@@ -285,26 +298,34 @@ jobs:
 				return func() *RequestWrapper {
 					return NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/%s/pulls/%d/merge", consumer.OwnerName, consumer.Name, pr.Index),
 						&forms.MergePullRequestForm{Do: string(repo_model.MergeStyleMerge), MergeMessageField: "merge"}).AddTokenAuth(user2Token)
-				}
+				}, pr.Head.Sha
 			}
 
 			t.Run("pending blocks, success allows", func(t *testing.T) {
 				consumer := createTestRepo(t, "sw-gate-consumer", false)
+				lowerRunner := newMockRunner()
+				lowerRunner.registerAsRepoRunner(t, consumer.OwnerName, consumer.Name, "sw-gate-repo-runner", []string{"ubuntu-latest"}, false)
 				runner := newMockRunner()
-				runner.registerAsRepoRunner(t, consumer.OwnerName, consumer.Name, "sw-gate-runner", []string{"ubuntu-latest"}, false)
+				registerUserRunner(t, runner, "sw-gate-owner-runner")
 
-				mergeReq := protectAndOpenPR(t, consumer, "gate-pr", true)
+				mergeReq, head := protectAndOpenPR(t, consumer, "gate-pr", true, true)
 				run := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true})
 				assert.Equal(t, source.ID, run.WorkflowRepoID)
+				assert.Equal(t, head, run.CommitSHA, "scoped PR run binds the consumer head commit")
 
 				// the pending required scoped check blocks the merge
 				assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 5*time.Second))
 				user2Session.MakeRequest(t, mergeReq(), http.StatusMethodNotAllowed)
+				lowerRunner.fetchNoTask(t, 300*time.Millisecond)
 
 				// the required scoped run succeeds ->  merge allowed
 				task := runner.fetchTask(t)
 				runner.execTask(t, task, &mockTaskOutcome{result: runnerv1.Result_RESULT_SUCCESS})
 				assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 5*time.Second))
+				readyPR := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: consumer.ID, HeadBranch: "gate-pr"})
+				readyPage := user2Session.MakeRequest(t, NewRequest(t, "GET", fmt.Sprintf("/%s/%s/pulls/%d", consumer.OwnerName, consumer.Name, readyPR.Index)), http.StatusOK)
+				assert.NotContains(t, readyPage.Body.String(), "Required scoped workflow checks are not ready")
+				assert.Contains(t, readyPage.Body.String(), `id="pull-request-merge-form"`)
 				user2Session.MakeRequest(t, mergeReq(), http.StatusOK)
 			})
 
@@ -314,7 +335,7 @@ jobs:
 				consumer := createTestRepo(t, "sw-noact-consumer", false)
 				require.NoError(t, repo_service.UpdateRepositoryUnits(t.Context(), consumer, nil, []unit_model.Type{unit_model.TypeActions}))
 
-				mergeReq := protectAndOpenPR(t, consumer, "noact-pr", true)
+				mergeReq, _ := protectAndOpenPR(t, consumer, "noact-pr", true, true)
 				assert.Equal(t, 0, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true}),
 					"Actions disabled, so no scoped run is created")
 
@@ -327,10 +348,11 @@ jobs:
 				// the scoped check gates the merge even when the branch's OWN status check is off
 				consumer := createTestRepo(t, "sw-nocheck-consumer", false)
 				runner := newMockRunner()
-				runner.registerAsRepoRunner(t, consumer.OwnerName, consumer.Name, "sw-nocheck-runner", []string{"ubuntu-latest"}, false)
+				registerUserRunner(t, runner, "sw-nocheck-owner-runner")
 
-				mergeReq := protectAndOpenPR(t, consumer, "nocheck-pr", false)
-				unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true})
+				mergeReq, head := protectAndOpenPR(t, consumer, "nocheck-pr", true, false)
+				run := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true})
+				assert.Equal(t, head, run.CommitSHA)
 
 				// pending scoped check blocks the merge despite the branch's own status check being off
 				assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 5*time.Second))
@@ -342,11 +364,24 @@ jobs:
 				assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 5*time.Second))
 				user2Session.MakeRequest(t, mergeReq(), http.StatusOK)
 			})
+
+			t.Run("unprotected branch still needs the scoped run", func(t *testing.T) {
+				consumer := createTestRepo(t, "sw-unprotected-consumer", false)
+				runner := newMockRunner()
+				registerUserRunner(t, runner, "sw-unprotected-owner-runner")
+				mergeReq, head := protectAndOpenPR(t, consumer, "unprotected-pr", false, false)
+				run := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true})
+				assert.Equal(t, head, run.CommitSHA)
+				user2Session.MakeRequest(t, mergeReq(), http.StatusMethodNotAllowed)
+				task := runner.fetchTask(t)
+				runner.execTask(t, task, &mockTaskOutcome{result: runnerv1.Result_RESULT_SUCCESS})
+				assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 5*time.Second))
+				user2Session.MakeRequest(t, mergeReq(), http.StatusOK)
+			})
 		})
 
-		t.Run("Filtered required scoped check passes as skipped and allows merge", func(t *testing.T) {
-			// A required scoped workflow excluded by a paths filter posts a skipped (success) commit status,
-			// so the required check is satisfied and the PR can merge.
+		t.Run("Filtered required scoped check has no trusted run and blocks merge", func(t *testing.T) {
+			// A paths-filtered workflow posts only a skipped ordinary status, with no trusted run.
 
 			const scopedFilteredPRWorkflow = `name: Scoped Filtered PR
 on:
@@ -389,12 +424,60 @@ jobs:
 			// Filtered: no scoped run is created, but a skipped commit status is posted on the PR head.
 			assert.Equal(t, 0, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true}), "filtered scoped workflow creates no run")
 			assertSkippedCommitStatusExists(t, consumer.ID, pr.Head.Sha, "pull_request")
+			spoofedContext := actions_model.ScopedStatusContextPrefix(t.Context(), source.ID) + ": Scoped Filtered PR / scoped-filtered-job (pull_request)"
+			spoofedStatus := NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/%s/statuses/%s", consumer.OwnerName, consumer.Name, pr.Head.Sha),
+				api.CreateStatusOption{State: commitstatus.CommitStatusSuccess, Context: spoofedContext}).AddTokenAuth(user2Token)
+			user2Session.MakeRequest(t, spoofedStatus, http.StatusCreated)
+			pullURL := fmt.Sprintf("/%s/%s/pulls/%d", consumer.OwnerName, consumer.Name, pr.Index)
+			ownerPage := user2Session.MakeRequest(t, NewRequest(t, "GET", pullURL), http.StatusOK)
+			assert.NotContains(t, ownerPage.Body.String(), "All checks successful")
+			assert.NotContains(t, ownerPage.Body.String(), `id="pull-request-merge-form"`)
+			ownerReadiness := NewHTMLParser(t, ownerPage.Body).doc.Find("#required-scoped-workflow-readiness")
+			assert.Contains(t, ownerReadiness.Text(), "No trusted run matches this pull request head")
+			assert.Equal(t, "/user/settings/actions/scoped-workflows", ownerReadiness.Find("a").AttrOr("href", ""))
+			readerPage := loginUser(t, "user4").MakeRequest(t, NewRequest(t, "GET", pullURL), http.StatusOK)
+			readerReadiness := NewHTMLParser(t, readerPage.Body).doc.Find("#required-scoped-workflow-readiness")
+			assert.Contains(t, readerReadiness.Text(), "Contact the required workflow source owner")
+			assert.Zero(t, readerReadiness.Find("a").Length())
 
-			// The skipped (success) status satisfies the required scoped check (prefixed with the source repo), so the merge is allowed.
+			// A skipped status cannot replace the missing run.
 			assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 5*time.Second))
 			mergeReq := NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/%s/pulls/%d/merge", consumer.OwnerName, consumer.Name, pr.Index),
 				&forms.MergePullRequestForm{Do: string(repo_model.MergeStyleMerge), MergeMessageField: "merge"}).AddTokenAuth(user2Token)
-			user2Session.MakeRequest(t, mergeReq, http.StatusOK)
+			user2Session.MakeRequest(t, mergeReq, http.StatusMethodNotAllowed)
+		})
+
+		t.Run("fork pull_request_target binds the head", func(t *testing.T) {
+			source := createTestRepo(t, "sw-fork-target-source", false)
+			createRepoWorkflowFile(t, user2, user2Token, source, ".gitea/scoped_workflows/target.yaml", `name: Scoped Target
+on: pull_request_target
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo target
+`)
+			registerUserScopedSource(t, source, "target.yaml")
+			consumer := createTestRepo(t, "sw-fork-target-consumer", false)
+			user4 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+			user4Token := getTokenForLoggedInUser(t, loginUser(t, user4.Name), auth_model.AccessTokenScopeWriteRepository)
+			forkReq := NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/%s/forks", consumer.OwnerName, consumer.Name),
+				&api.CreateForkOption{Name: new("sw-fork-target")}).AddTokenAuth(user4Token)
+			forkResp := MakeRequest(t, forkReq, http.StatusAccepted)
+			fork := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: DecodeJSON(t, forkResp, &api.Repository{}).ID})
+			forkCtx := NewAPITestContext(t, user4.Name, fork.Name, auth_model.AccessTokenScopeWriteRepository)
+			defer doAPIDeleteRepository(forkCtx)(t)
+			doAPICreateFile(forkCtx, "change.txt", &api.CreateFileOptions{FileOptions: api.FileOptions{
+				NewBranchName: "target-pr", Message: "change", Author: api.Identity{Name: user4.Name, Email: user4.Email},
+				Committer: api.Identity{Name: user4.Name, Email: user4.Email},
+			}, ContentBase64: base64.StdEncoding.EncodeToString([]byte("change"))})(t)
+			pr, err := doAPICreatePullRequest(forkCtx, consumer.OwnerName, consumer.Name, consumer.DefaultBranch, user4.Name+":target-pr")(t)
+			require.NoError(t, err)
+			run := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true, WorkflowID: "target.yaml"})
+			assert.Equal(t, 1, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID}), "consumer has no workflow YAML; only the scoped source creates a run")
+			assert.Equal(t, pr.Head.Sha, run.CommitSHA)
+			assert.Equal(t, source.ID, run.WorkflowRepoID)
+			assert.NotEmpty(t, run.WorkflowCommitSHA)
 		})
 
 		t.Run("Settings page required patterns", func(t *testing.T) {
@@ -428,9 +511,9 @@ jobs:
 				assert.Contains(t, body, `name="required_patterns[push.yaml]"`, "patterns textarea uses the field name the parser expects")
 				assert.Contains(t, body, pattern, "the saved pattern round-trips into the textarea")
 				// the default prefill must use the workflow display name so it matches the status context the run posts (name: Scoped Push)
-				assert.Contains(t, body, `data-default-pattern="`+source.FullName()+`: Scoped Push / *"`)
+				assert.Contains(t, body, fmt.Sprintf(`data-default-pattern="scoped:%d: Scoped Push / *"`, source.ID))
 				// the expected-checks preview derives the exact context a run posts (job scoped-job, event push) for live glob matching
-				assert.Contains(t, body, `data-context="`+source.FullName()+`: Scoped Push / scoped-job (push)"`)
+				assert.Contains(t, body, fmt.Sprintf(`data-context="scoped:%d: Scoped Push / scoped-job (push)"`, source.ID))
 			})
 
 			t.Run("live pattern kept as history after un-require", func(t *testing.T) {
@@ -468,8 +551,35 @@ jobs:
 				// its row shows a warning not to mark it required (must-present would block forever).
 				body := settingsBody(t)
 				assert.Contains(t, body, "posts no status checks", "the no-status-check warning is shown")
-				assert.NotContains(t, body, `data-context="`+source.FullName()+`: Manual /`, "a workflow_dispatch-only workflow must list no expected contexts")
+				assert.NotContains(t, body, fmt.Sprintf(`data-context="scoped:%d: Manual /`, source.ID), "a workflow_dispatch-only workflow must list no expected contexts")
 			})
+		})
+
+		t.Run("Stale source registration requires reconfirmation", func(t *testing.T) {
+			source := createTestRepo(t, "sw-stale-source", true)
+			createRepoWorkflowFile(t, user2, user2Token, source, ".gitea/scoped_workflows/push.yaml", scopedPushWorkflow)
+			registerUserScopedSource(t, source, "push.yaml")
+			settingsURL := "/user/settings/actions/scoped-workflows"
+			before := user2Session.MakeRequest(t, NewRequest(t, "GET", settingsURL), http.StatusOK).Body.String()
+			assert.Contains(t, before, source.FullName())
+			_, err := db.GetEngine(t.Context()).ID(source.ID).Incr("actions_scope_revision").Update(new(repo_model.Repository))
+			require.NoError(t, err)
+			after := user2Session.MakeRequest(t, NewRequest(t, "GET", settingsURL), http.StatusOK).Body.String()
+			assert.Contains(t, after, fmt.Sprintf("#%d", source.ID))
+			assert.Contains(t, after, "old registration cannot run workflows")
+			assert.NotContains(t, after, source.FullName())
+			assert.NotContains(t, after, `name="workflow_ids" value="push.yaml"`)
+			update := NewRequestWithURLValues(t, "POST", settingsURL+"/required", url.Values{
+				"repo_id": {strconv.FormatInt(source.ID, 10)}, "workflow_ids": {"push.yaml"},
+			})
+			response := user2Session.MakeRequest(t, update, http.StatusBadRequest)
+			assert.Contains(t, response.Body.String(), "remove this registration")
+			add := NewRequestWithValues(t, "POST", settingsURL+"/add", map[string]string{"repo_name": source.Name})
+			response = user2Session.MakeRequest(t, add, http.StatusBadRequest)
+			assert.Contains(t, response.Body.String(), "remove this registration")
+			required, err := actions_model.IsScopedWorkflowRequired(t.Context(), user2.ID, source.ID, "push.yaml")
+			require.NoError(t, err)
+			assert.True(t, required, "旧必选检查仍保留")
 		})
 
 		t.Run("Distinct sources same filename", func(t *testing.T) {
@@ -533,8 +643,9 @@ jobs:
 				"after the source switches to on: push, the next consumer push creates a scoped run")
 		})
 
-		t.Run("Deletion cleans up source registration", func(t *testing.T) {
+		t.Run("Deletion suspends source until purge", func(t *testing.T) {
 			source := createTestRepo(t, "sw-delete-source", false)
+			createRepoWorkflowFile(t, user2, user2Token, source, ".gitea/scoped_workflows/push.yaml", scopedPushWorkflow)
 
 			addReq := NewRequestWithValues(t, "POST", "/user/settings/actions/scoped-workflows/add", map[string]string{"repo_name": source.Name})
 			user2Session.MakeRequest(t, addReq, http.StatusOK)
@@ -542,6 +653,21 @@ jobs:
 
 			delReq := NewRequest(t, "DELETE", fmt.Sprintf("/api/v1/repos/%s/%s", source.OwnerName, source.Name)).AddTokenAuth(user2Token)
 			MakeRequest(t, delReq, http.StatusNoContent)
+			unittest.AssertExistsAndLoadBean(t, &actions_model.ActionScopedWorkflowSource{SourceRepoID: source.ID})
+			archived := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: source.ID})
+			require.True(t, archived.IsArchived)
+			effective, err := actions_model.IsScopedWorkflowSourceEffective(t.Context(), user2.ID, source.ID)
+			require.NoError(t, err)
+			assert.True(t, effective, "required configuration remains registered during retention")
+			valid, err := actions_model.ScopedWorkflowSourceValid(t.Context(), user2.ID, source.ID)
+			require.NoError(t, err)
+			assert.False(t, valid)
+			consumer := createTestRepo(t, "sw-delete-consumer", false)
+			createRepoWorkflowFile(t, user2, user2Token, consumer, "marker.txt", "trigger")
+			assert.Zero(t, unittest.GetCount(t, &actions_model.ActionRun{RepoID: consumer.ID, IsScopedRun: true}))
+			_, err = db.GetEngine(t.Context()).ID(source.ID).Cols("due_unix").Update(&governance_model.RepositoryDeletion{DueUnix: time.Now().Add(-time.Minute).Unix()})
+			require.NoError(t, err)
+			require.NoError(t, repo_service.RunScheduledRepositoryDeletions(t.Context()))
 			unittest.AssertNotExistsBean(t, &actions_model.ActionScopedWorkflowSource{SourceRepoID: source.ID})
 		})
 	})

@@ -59,9 +59,9 @@ func webhookAuditEvents(hook *Webhook) []string {
 	if json.Unmarshal([]byte(hook.Events), events) != nil {
 		return nil
 	}
-	copy := *hook
-	copy.HookEvent = events
-	return copy.EventsArray()
+	snapshot := *hook
+	snapshot.HookEvent = events
+	return snapshot.EventsArray()
 }
 
 func webhookAuditScope(ctx context.Context, hook *Webhook) (scopeType string, scopeID int64, ancestors []int64, resourcePath string, err error) {
@@ -148,7 +148,7 @@ func DeleteOwnerWebhooks(ctx context.Context, ownerID int64) error {
 			if err := appendWebhookAudit(ctx, hook, hook, "deleted", webhookAuditValues(hook), nil, []string{"deleted"}); err != nil {
 				return err
 			}
-			if _, err := db.DeleteByBean(ctx, &HookTask{HookID: hook.ID}); err != nil {
+			if err := RedactDeletedHookTasks(ctx, hook.ID); err != nil {
 				return err
 			}
 			if count, err := db.DeleteByID[Webhook](ctx, hook.ID); err != nil {

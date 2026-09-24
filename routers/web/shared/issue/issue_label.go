@@ -43,9 +43,13 @@ func PrepareFilterIssueLabels(ctx *context.Context, repoID int64, owner *user_mo
 	}
 
 	if owner != nil && owner.IsOrganization() {
-		orgLabels, err := issues_model.GetLabelsByOrgID(ctx, owner.ID, "", db.ListOptions{})
+		orgLabels, err := issues_model.GetLabelsByAncestorOrgID(ctx, owner.ID, "")
 		if err != nil {
-			ctx.ServerError("GetLabelsByOrgID", err)
+			ctx.ServerError("GetLabelsByAncestorOrgID", err)
+			return ret
+		}
+		if err := PopulateLabelSources(ctx, orgLabels); err != nil {
+			ctx.ServerError("PopulateLabelSources", err)
 			return ret
 		}
 		issues_model.SortLabelsForDisplay(orgLabels)

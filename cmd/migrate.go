@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/services/versioned_migration"
@@ -39,5 +40,6 @@ func runMigrate(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 
-	return nil
+	// 全新数据库也必须允许在 Web 启动前使用原生 CLI 创建首个管理员。
+	return governance_model.InitializeLock(ctx)
 }

@@ -6,7 +6,9 @@ package packages
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"gitea.dev/models/db"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 
@@ -14,6 +16,39 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 )
+
+func TestPrepareBlobUploadReservesCleanupWindow(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	input := &PackageBlob{Size: 1, HashMD5: strings.Repeat("d", 32), HashSHA1: strings.Repeat("d", 40), HashSHA256: strings.Repeat("d", 64), HashSHA512: strings.Repeat("d", 128)}
+	blob, _, err := GetOrInsertBlob(ctx, input)
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).Exec("UPDATE package_blob SET created_unix = ? WHERE id = ?", 1, blob.ID)
+	require.NoError(t, err)
+	expired, err := FindExpiredUnreferencedBlobs(ctx, 0)
+	require.NoError(t, err)
+	require.Contains(t, idsOfBlobs(expired), blob.ID)
+	reserved, existed, err := PrepareBlobUpload(ctx, input)
+	require.NoError(t, err)
+	require.True(t, existed)
+	require.Equal(t, blob.ID, reserved.ID)
+	expired, err = FindExpiredUnreferencedBlobs(ctx, 0)
+	require.NoError(t, err)
+	require.NotContains(t, idsOfBlobs(expired), blob.ID, "即时清理不能回收正在上传的正文")
+	_, err = db.GetEngine(ctx).Exec("UPDATE package_blob SET created_unix = ? WHERE id = ?", 1, blob.ID)
+	require.NoError(t, err)
+	expired, err = FindExpiredUnreferencedBlobs(ctx, 24*time.Hour)
+	require.NoError(t, err)
+	require.Contains(t, idsOfBlobs(expired), blob.ID, "失败且过期的孤立正文仍由原清理任务回收")
+}
+
+func idsOfBlobs(blobs []*PackageBlob) []int64 {
+	ids := make([]int64, 0, len(blobs))
+	for _, blob := range blobs {
+		ids = append(ids, blob.ID)
+	}
+	return ids
+}
 
 func TestGetOrInsertBlobConcurrent(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())

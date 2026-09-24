@@ -4,17 +4,40 @@
 package integration
 
 import (
+	"context"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"xorm.io/xorm/contexts"
 )
+
+type actionsCandidateScanHook struct {
+	once    sync.Once
+	scanned chan struct{}
+}
+
+func (*actionsCandidateScanHook) BeforeProcess(c *contexts.ContextHook) (context.Context, error) {
+	return c.Ctx, nil
+}
+
+func (h *actionsCandidateScanHook) AfterProcess(c *contexts.ContextHook) error {
+	if strings.HasPrefix(strings.ToUpper(c.SQL), "SELECT") && strings.Contains(c.SQL, "action_run_job") {
+		h.once.Do(func() { close(h.scanned) })
+	}
+	return nil
+}
 
 // minimalWorkflowPayload returns the minimal YAML for a single-job workflow with no steps.
 func minimalConcurrentWorkflowPayload(jobID string) []byte {
@@ -33,6 +56,8 @@ func minimalConcurrentWorkflowPayload(jobID string) []byte {
 // guards only runs concurrently against MySQL/PostgreSQL in CI.
 func TestCreateTaskForRunnerConcurrentClaim(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	require.NoError(t, db.Insert(t.Context(), &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
 
 	const numJobs = 3
 
@@ -115,4 +140,76 @@ func TestCreateTaskForRunnerConcurrentClaim(t *testing.T) {
 		assert.Equal(t, actions_model.StatusRunning, updated.Status)
 		assert.NotZero(t, updated.TaskID)
 	}
+}
+
+func TestCreateTaskForRunnerRejectsOwnerChangeAfterCandidateScan(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	require.NoError(t, db.Insert(t.Context(), &repo_model.RepoUnit{RepoID: 1, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	run := &actions_model.ActionRun{RepoID: 1, OwnerID: 2, WorkflowID: "test.yaml", Index: 9902, TriggerUserID: 2, Status: actions_model.StatusWaiting}
+	require.NoError(t, db.Insert(t.Context(), run))
+	job := &actions_model.ActionRunJob{
+		RunID: run.ID, RepoID: 1, OwnerID: 2, JobID: "transfer-race", Attempt: 1, Status: actions_model.StatusWaiting,
+		RunsOn: []string{"ubuntu-latest"}, WorkflowPayload: minimalConcurrentWorkflowPayload("transfer-race"),
+	}
+	require.NoError(t, db.Insert(t.Context(), job))
+	runner := &actions_model.ActionRunner{UUID: "phase1-transfer-race-runner", Name: "transfer-race-runner", OwnerID: 2, AgentLabels: []string{"ubuntu-latest"}}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(t.Context(), runner))
+
+	hook := &actionsCandidateScanHook{scanned: make(chan struct{})}
+	unittest.GetXORMEngine().AddHook(hook)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	writerReady := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		writerDone <- governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+			_, err := db.GetEngine(ctx).ID(1).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 5})
+			if err != nil {
+				return err
+			}
+			close(writerReady)
+			select {
+			case <-releaseWriter:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+	select {
+	case <-writerReady:
+	case err := <-writerDone:
+		require.NoError(t, err)
+		return
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err())
+	}
+	type result struct {
+		task *actions_model.ActionTask
+		ok   bool
+		err  error
+	}
+	claimDone := make(chan result, 1)
+	go func() {
+		task, ok, err := actions_model.CreateTaskForRunner(ctx, runner)
+		claimDone <- result{task, ok, err}
+	}()
+	select {
+	case <-hook.scanned:
+	case r := <-claimDone:
+		require.NoError(t, r.err)
+		require.FailNow(t, "claim returned before scanning a candidate")
+	case <-ctx.Done():
+		require.NoError(t, ctx.Err())
+	}
+	close(releaseWriter)
+	require.NoError(t, <-writerDone)
+	r := <-claimDone
+	require.NoError(t, r.err)
+	assert.False(t, r.ok)
+	assert.Nil(t, r.task)
+	assert.Equal(t, actions_model.StatusWaiting, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunJob{ID: job.ID}).Status)
 }

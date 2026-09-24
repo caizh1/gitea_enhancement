@@ -14,7 +14,10 @@ import (
 	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/actions/jobparser"
 	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/log"
@@ -171,8 +174,165 @@ func GetTaskByID(ctx context.Context, id int64) (*ActionTask, error) {
 	return &task, nil
 }
 
+// TaskCredentialValid rejects credentials from workflows whose repository
+// scope or lifecycle has changed since the task was issued.
+func TaskCredentialValid(ctx context.Context, task *ActionTask) (bool, error) {
+	if !task.Status.In(StatusRunning, StatusCancelling) {
+		return false, nil
+	}
+	repo, err := repo_model.GetRepositoryByID(ctx, task.RepoID)
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if repo.OwnerID != task.OwnerID || repo.IsArchived || repo.Status != repo_model.RepositoryReady && repo.Status != repo_model.RepositoryPendingTransfer {
+		return false, nil
+	}
+	unitEnabled, err := db.GetEngine(ctx).Where("repo_id = ? AND type = ?", repo.ID, unit.TypeActions).Exist(new(repo_model.RepoUnit))
+	if err != nil || !unitEnabled {
+		return false, err
+	}
+	active, err := ownerActionsActive(ctx, repo.OwnerID)
+	if err != nil || !active {
+		return false, err
+	}
+	runner, err := GetRunnerByID(ctx, task.RunnerID)
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	allowed, err := runnerCanUseRepo(ctx, runner, task.RepoID, task.OwnerID)
+	if err != nil || runner.IsDisabled || !allowed {
+		return false, err
+	}
+	job, err := GetRunJobByRepoAndID(ctx, task.RepoID, task.JobID)
+	if err != nil {
+		return false, err
+	}
+	run, err := GetRunByRepoAndID(ctx, task.RepoID, job.RunID)
+	if err != nil {
+		return false, err
+	}
+	if job.OwnerID != task.OwnerID || run.OwnerID != task.OwnerID || run.ScopeInvalidated || job.TaskID != task.ID {
+		return false, nil
+	}
+	if run.IsScopedRun {
+		valid, err := ScopedWorkflowRunValid(ctx, run)
+		if err != nil || !valid {
+			return false, err
+		}
+		trusted, err := RequiredScopedRunnerAllowed(ctx, run, runner)
+		if err != nil || !trusted {
+			return false, err
+		}
+	}
+	triggerUserID, err := TaskEffectiveTriggerUserID(ctx, job, run)
+	if err != nil || triggerUserID == 0 {
+		return false, err
+	}
+	if triggerUserID == user_model.ActionsUserID {
+		return ScheduledRunValid(ctx, run, repo)
+	}
+	triggerer, err := user_model.GetUserByID(ctx, triggerUserID)
+	if err != nil || !triggerer.IsActive || triggerer.ProhibitLogin {
+		if errors.Is(err, util.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// TaskEffectiveTriggerUserID uses the actor who started this attempt, not the original run.
+func TaskEffectiveTriggerUserID(ctx context.Context, job *ActionRunJob, run *ActionRun) (int64, error) {
+	if job.RunAttemptID == 0 {
+		return run.TriggerUserID, nil
+	}
+	var attempt ActionRunAttempt
+	has, err := db.GetEngine(ctx).ID(job.RunAttemptID).Get(&attempt)
+	if err != nil || !has || attempt.RunID != run.ID {
+		return 0, err
+	}
+	return attempt.TriggerUserID, nil
+}
+
+// ScheduledRunValid binds the system actor to the current persisted schedule scope.
+func ScheduledRunValid(ctx context.Context, run *ActionRun, repo *repo_model.Repository) (bool, error) {
+	if run.ScheduleID == 0 || run.RepoID != repo.ID || run.OwnerID != repo.OwnerID || run.ScopeInvalidated {
+		return false, nil
+	}
+	var schedule ActionSchedule
+	has, err := db.GetEngine(ctx).ID(run.ScheduleID).Get(&schedule)
+	if err != nil || !has {
+		return false, err
+	}
+	if schedule.RepoID != repo.ID || schedule.OwnerID != repo.OwnerID || schedule.TriggerUserID != user_model.ActionsUserID || schedule.ScopeRevision != repo.ActionsScopeRevision ||
+		run.Ref != schedule.Ref || run.CommitSHA != schedule.CommitSHA || run.WorkflowCommitSHA != schedule.CommitSHA || run.WorkflowID != schedule.WorkflowID {
+		return false, nil
+	}
+	return ScheduleBranchCurrent(ctx, repo, schedule.Ref, schedule.CommitSHA)
+}
+
+// ScheduledRunValidForWrite also holds the branch row through a run or claim transaction.
+func ScheduledRunValidForWrite(ctx context.Context, run *ActionRun, repo *repo_model.Repository) (bool, error) {
+	valid, err := ScheduledRunValid(ctx, run, repo)
+	if err != nil || !valid {
+		return valid, err
+	}
+	return LockScheduleBranchCurrent(ctx, repo, run.Ref, run.CommitSHA)
+}
+
+func ownerActionsActive(ctx context.Context, ownerID int64) (bool, error) {
+	owner, err := user_model.GetUserByID(ctx, ownerID)
+	if err != nil {
+		return false, err
+	}
+	if !owner.IsOrganization() && !owner.IsActive {
+		return false, nil
+	}
+	chain, err := governance_model.Ancestors(ctx, ownerID)
+	if errors.Is(err, governance_model.ErrNotFound) {
+		return true, nil // legacy native owner before governance migration
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, ancestor := range chain {
+		if ancestor.Archived || ancestor.DeleteAfter != 0 {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func runnerCanUseRepo(ctx context.Context, runner *ActionRunner, repoID, ownerID int64) (bool, error) {
+	if runner.RepoID != 0 {
+		return runner.RepoID == repoID, nil
+	}
+	if runner.OwnerID == 0 || runner.OwnerID == ownerID {
+		return true, nil
+	}
+	chain, err := governance_model.Ancestors(ctx, ownerID)
+	if errors.Is(err, governance_model.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, ancestor := range chain {
+		if ancestor.ID == runner.OwnerID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func GetRunningTaskByToken(ctx context.Context, token string) (*ActionTask, error) {
-	errNotExist := fmt.Errorf("task with token %q: %w", token, util.ErrNotExist)
+	errNotExist := fmt.Errorf("task token: %w", util.ErrNotExist)
 	if token == "" {
 		return nil, errNotExist
 	}
@@ -198,6 +358,10 @@ func GetRunningTaskByToken(ctx context.Context, token string) (*ActionTask, erro
 			return nil, err
 		}
 		if has {
+			valid, err := TaskCredentialValid(ctx, task)
+			if err != nil || !valid {
+				return nil, errNotExist
+			}
 			return task, nil
 		}
 		successfulTokenTaskCache.Remove(token)
@@ -215,6 +379,10 @@ func GetRunningTaskByToken(ctx context.Context, token string) (*ActionTask, erro
 	for _, t := range tasks {
 		tempHash := auth_model.HashToken(token, t.TokenSalt)
 		if subtle.ConstantTimeCompare([]byte(t.TokenHash), []byte(tempHash)) == 1 {
+			valid, err := TaskCredentialValid(ctx, t)
+			if err != nil || !valid {
+				return nil, errNotExist
+			}
 			if successfulTokenTaskCache != nil {
 				successfulTokenTaskCache.Add(token, t.ID)
 			}
@@ -242,6 +410,10 @@ func makeTaskStepDisplayName(step *jobparser.Step, limit int) (name string) {
 // another runner won the optimistic-lock race; it is never returned to callers.
 var errJobAlreadyClaimed = errors.New("job already claimed by another runner")
 
+// ErrTaskIneligible tells the claim loop to skip a candidate whose current
+// permission no longer allows disclosure.
+var ErrTaskIneligible = errors.New("Actions task is no longer eligible")
+
 // pickTaskBatchSize bounds how many waiting jobs each CreateTaskForRunner query loads,
 // so a large backlog is not fetched into memory on every runner poll.
 // It is a var only so tests can shrink it to exercise pagination cheaply.
@@ -252,6 +424,16 @@ var pickTaskBatchSize = 100
 // concurrent claim by another runner (which would lose the optimistic lock on
 // job #1) does not leave the remaining jobs permanently unassigned.
 func CreateTaskForRunner(ctx context.Context, runner *ActionRunner) (*ActionTask, bool, error) {
+	return createTaskForRunner(ctx, runner, nil)
+}
+
+// CreateTaskForRunnerWithPayload builds the runner payload inside the claim's
+// authorization transaction. The callback may only perform local reads.
+func CreateTaskForRunnerWithPayload(ctx context.Context, runner *ActionRunner, build func(context.Context, *ActionTask) error) (*ActionTask, bool, error) {
+	return createTaskForRunner(ctx, runner, build)
+}
+
+func createTaskForRunner(ctx context.Context, runner *ActionRunner, build func(context.Context, *ActionTask) error) (*ActionTask, bool, error) {
 	if db.InTransaction(ctx) {
 		return nil, false, errors.New("CreateTaskForRunner must not be called within a database transaction")
 	}
@@ -261,9 +443,25 @@ func CreateTaskForRunner(ctx context.Context, runner *ActionRunner) (*ActionTask
 	if runner.RepoID != 0 {
 		jobCond = builder.Eq{"repo_id": runner.RepoID}
 	} else if runner.OwnerID != 0 {
+		ownerIDs := []int64{runner.OwnerID}
+		namespace, err := governance_model.GetNamespace(ctx, runner.OwnerID)
+		if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+			return nil, false, err
+		}
+		if err == nil && namespace.Kind == "group" {
+			var groups []*governance_model.Namespace
+			if err := e.Where("kind = ? AND lower_path LIKE ?", "group", namespace.LowerPath+"/%").Find(&groups); err != nil {
+				return nil, false, err
+			}
+			for _, group := range groups {
+				if strings.HasPrefix(group.LowerPath, namespace.LowerPath+"/") {
+					ownerIDs = append(ownerIDs, group.ID)
+				}
+			}
+		}
 		jobCond = builder.In("repo_id", builder.Select("`repository`.id").From("repository").
 			Join("INNER", "repo_unit", "`repository`.id = `repo_unit`.repo_id").
-			Where(builder.Eq{"`repository`.owner_id": runner.OwnerID, "`repo_unit`.type": unit.TypeActions}))
+			Where(builder.And(builder.In("`repository`.owner_id", ownerIDs), builder.Eq{"`repo_unit`.type": unit.TypeActions})))
 	}
 	baseCond := builder.Eq{"task_id": 0, "status": StatusWaiting, "is_reusable_caller": false}.And(jobCond)
 
@@ -293,7 +491,7 @@ func CreateTaskForRunner(ctx context.Context, runner *ActionRunner) (*ActionTask
 			if !runner.CanMatchLabels(v.RunsOn) {
 				continue
 			}
-			task, ok, err := claimJobForRunner(ctx, runner, v)
+			task, ok, err := claimJobForRunnerWithPayload(ctx, runner, v, build)
 			if err != nil {
 				return nil, false, err
 			}
@@ -317,14 +515,111 @@ func CreateTaskForRunner(ctx context.Context, runner *ActionRunner) (*ActionTask
 // another runner wins the optimistic-lock race (the caller should try the next
 // candidate job).
 func claimJobForRunner(ctx context.Context, runner *ActionRunner, job *ActionRunJob) (*ActionTask, bool, error) {
+	return claimJobForRunnerWithPayload(ctx, runner, job, nil)
+}
+
+func claimJobForRunnerWithPayload(ctx context.Context, runner *ActionRunner, job *ActionRunJob, build func(context.Context, *ActionTask) error) (*ActionTask, bool, error) {
 	var resultTask *ActionTask
 
-	err := db.WithTx(ctx, func(ctx context.Context) error {
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		e := db.GetEngine(ctx)
-
-		if err := job.LoadAttributes(ctx); err != nil {
+		freshRunner, err := GetRunnerByID(ctx, runner.ID)
+		if err != nil || freshRunner.IsDisabled || freshRunner.OwnerID != runner.OwnerID || freshRunner.RepoID != runner.RepoID {
+			if err != nil && !errors.Is(err, util.ErrNotExist) {
+				return err
+			}
+			return errJobAlreadyClaimed
+		}
+		if freshRunner.Ephemeral {
+			used, err := e.Where("runner_id = ?", freshRunner.ID).Exist(new(ActionTask))
+			if err != nil {
+				return err
+			}
+			if used {
+				return errJobAlreadyClaimed
+			}
+		}
+		freshJob, err := GetRunJobByRepoAndID(ctx, job.RepoID, job.ID)
+		if err != nil {
+			if errors.Is(err, util.ErrNotExist) {
+				return errJobAlreadyClaimed
+			}
 			return err
 		}
+		if freshJob.TaskID != 0 || freshJob.Status != StatusWaiting || freshJob.IsReusableCaller || !freshRunner.CanMatchLabels(freshJob.RunsOn) {
+			return errJobAlreadyClaimed
+		}
+		repo, err := repo_model.GetRepositoryByID(ctx, freshJob.RepoID)
+		if err != nil {
+			if errors.Is(err, util.ErrNotExist) {
+				return errJobAlreadyClaimed
+			}
+			return err
+		}
+		run, err := GetRunByRepoAndID(ctx, repo.ID, freshJob.RunID)
+		if err != nil {
+			return err
+		}
+		allowed, err := runnerCanUseRepo(ctx, freshRunner, repo.ID, repo.OwnerID)
+		if err != nil {
+			return err
+		}
+		if repo.OwnerID != freshJob.OwnerID || repo.OwnerID != run.OwnerID || run.ScopeInvalidated || repo.IsArchived || repo.Status != repo_model.RepositoryReady ||
+			run.Status.IsDone() || run.Status == StatusCancelling || run.NeedApproval && run.ApprovedBy == 0 ||
+			!allowed {
+			return errJobAlreadyClaimed
+		}
+		unitEnabled, err := e.Where("repo_id = ? AND type = ?", repo.ID, unit.TypeActions).Exist(new(repo_model.RepoUnit))
+		if err != nil {
+			return err
+		}
+		if !unitEnabled {
+			return errJobAlreadyClaimed
+		}
+		active, err := ownerActionsActive(ctx, repo.OwnerID)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return errJobAlreadyClaimed
+		}
+		if run.IsScopedRun {
+			valid, err := ScopedWorkflowRunValid(ctx, run)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				return errJobAlreadyClaimed
+			}
+			trusted, err := RequiredScopedRunnerAllowed(ctx, run, freshRunner)
+			if err != nil {
+				return err
+			}
+			if !trusted {
+				return errJobAlreadyClaimed
+			}
+		}
+		triggerUserID, err := TaskEffectiveTriggerUserID(ctx, freshJob, run)
+		if err != nil {
+			return err
+		}
+		if triggerUserID == 0 {
+			return errJobAlreadyClaimed
+		}
+		if triggerUserID == user_model.ActionsUserID {
+			valid, err := ScheduledRunValidForWrite(ctx, run, repo)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				return errJobAlreadyClaimed
+			}
+		}
+
+		if err := freshJob.LoadAttributes(ctx); err != nil {
+			return err
+		}
+		job = freshJob
 
 		now := timeutil.TimeStampNow()
 		job.Started = now
@@ -386,6 +681,21 @@ func claimJobForRunner(ctx context.Context, runner *ActionRunner, job *ActionRun
 		}
 
 		task.Job = job
+		valid, err := TaskCredentialValid(ctx, task)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return errJobAlreadyClaimed
+		}
+		if build != nil {
+			if err := build(ctx, task); err != nil {
+				if errors.Is(err, ErrTaskIneligible) {
+					return errJobAlreadyClaimed
+				}
+				return err
+			}
+		}
 		resultTask = task
 		return nil
 	})

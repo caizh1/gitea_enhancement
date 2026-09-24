@@ -93,6 +93,9 @@ var EventCatalog = map[string]EventDefinition{
 	"credential.webauthn_created":              {Description: "登记通行密钥"},
 	"credential.webauthn_revoked":              {Description: "撤销通行密钥"},
 	"user.security_changed":                    {Description: "修改账号安全设置或状态"},
+	"user.blocked":                             {Description: "屏蔽用户 / Block user"},
+	"user.unblocked":                           {Description: "解除屏蔽 / Unblock user"},
+	"user.block_note_updated":                  {Description: "修改屏蔽备注 / Update block note"},
 	"user.created":                             {Description: "创建用户账号"},
 	"user.deleted":                             {Description: "删除用户账号"},
 	"credential.email_created":                 {Description: "添加账号邮箱"},
@@ -224,6 +227,8 @@ var EventCatalog = map[string]EventDefinition{
 	"access.package_download":                  {Description: "下载软件包文件", StreamOnly: true},
 	"access.actions_log":                       {Description: "下载 Actions 运行日志", StreamOnly: true},
 	"access.actions_artifact":                  {Description: "下载 Actions 构件", StreamOnly: true},
+
+	"actions.runner_token_deactivated_on_transfer": {Description: "转移项目时失效 Actions Runner 注册令牌"},
 }
 
 func validateAuditDetails(raw json.Value) error {

@@ -8,12 +8,68 @@ import (
 	"testing"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/optional"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestDeactivatePrimaryEmailPreservesPermanentOwner(t *testing.T) {
+	for _, scope := range []string{"repository", "group"} {
+		t.Run(scope, func(t *testing.T) {
+			unittest.PrepareTestEnv(t)
+			ctx := t.Context()
+			require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+			var repo *repo_model.Repository
+			if scope == "repository" {
+				repo = &repo_model.Repository{OwnerID: 4, OwnerName: "user4", Name: "email-owner-guard", LowerName: "email-owner-guard", IsPrivate: true}
+				require.NoError(t, db.Insert(ctx, repo))
+			} else {
+				_, err := db.GetEngine(ctx).ID(3).Cols("native_owner_team_id").Update(&governance_model.Namespace{NativeOwnerTeamID: 0})
+				require.NoError(t, err)
+				require.NoError(t, db.Insert(ctx, &governance_model.Membership{ScopeType: "group", ScopeID: 3, UserID: 4, Role: governance_model.Owner}))
+			}
+			email, err := user_model.GetPrimaryEmailAddressOfUser(ctx, 4)
+			require.NoError(t, err)
+			require.ErrorIs(t, user_model.ActivateUserEmail(ctx, 4, email.Email, false), governance_model.ErrConflict)
+			current, err := user_model.GetUserByID(ctx, 4)
+			require.NoError(t, err)
+			require.True(t, current.IsActive)
+			email, err = user_model.GetPrimaryEmailAddressOfUser(ctx, 4)
+			require.NoError(t, err)
+			require.True(t, email.IsActivated)
+			if repo != nil {
+				require.NoError(t, db.Insert(ctx, &governance_model.Membership{ScopeType: "repository", ScopeID: repo.ID, UserID: 5, Role: governance_model.Owner}))
+			} else {
+				require.NoError(t, db.Insert(ctx, &governance_model.Membership{ScopeType: "group", ScopeID: 3, UserID: 5, Role: governance_model.Owner}))
+			}
+			require.NoError(t, user_model.ActivateUserEmail(ctx, 4, email.Email, false))
+			current, err = user_model.GetUserByID(ctx, 4)
+			require.NoError(t, err)
+			require.False(t, current.IsActive)
+			email, err = user_model.GetPrimaryEmailAddressOfUser(ctx, 4)
+			require.NoError(t, err)
+			require.False(t, email.IsActivated)
+		})
+	}
+}
+
+func TestDeactivateSecondaryEmailKeepsOwnerActive(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	email := &user_model.EmailAddress{UID: 4, Email: "user4-secondary@example.invalid", LowerEmail: "user4-secondary@example.invalid", IsActivated: true}
+	require.NoError(t, db.Insert(ctx, email))
+	require.NoError(t, db.Insert(ctx, &repo_model.Repository{OwnerID: 4, OwnerName: "user4", Name: "secondary-owner-guard", LowerName: "secondary-owner-guard", IsPrivate: true}))
+	require.NoError(t, user_model.ActivateUserEmail(ctx, 4, email.Email, false))
+	current, err := user_model.GetUserByID(ctx, 4)
+	require.NoError(t, err)
+	require.True(t, current.IsActive)
+}
 
 func TestGetEmailAddresses(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())

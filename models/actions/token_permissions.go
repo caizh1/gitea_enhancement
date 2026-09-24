@@ -5,10 +5,71 @@ package actions
 
 import (
 	"context"
+	"errors"
 
+	governance_model "gitea.dev/models/governance"
+	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/json"
 )
+
+func ownerTokenPolicies(ctx context.Context, ownerID int64) ([]OwnerActionsConfig, repo_model.ActionsTokenPermissions, error) {
+	chain, err := governance_model.Ancestors(ctx, ownerID)
+	if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+		return nil, repo_model.ActionsTokenPermissions{}, err
+	}
+	ownerIDs := []int64{ownerID} // Legacy installations may not have namespace rows yet.
+	if err == nil {
+		ownerIDs = make([]int64, 0, len(chain))
+		for _, namespace := range chain {
+			ownerIDs = append(ownerIDs, namespace.ID)
+		}
+	}
+
+	policies := make([]OwnerActionsConfig, 0, len(ownerIDs))
+	defaultPermissions := repo_model.MakeActionsTokenPermissions(perm.AccessModeWrite)
+	hasDefault := false
+	for _, id := range ownerIDs {
+		raw, err := user_model.GetUserSetting(ctx, id, user_model.SettingsKeyActionsConfig)
+		if err != nil {
+			return nil, repo_model.ActionsTokenPermissions{}, err
+		}
+		var cfg OwnerActionsConfig
+		if err := cfg.FromDB([]byte(raw)); err != nil {
+			return nil, repo_model.ActionsTokenPermissions{}, err
+		}
+		policies = append(policies, cfg)
+		if hasDefault || raw == "" {
+			continue
+		}
+		var declared struct {
+			TokenPermissionMode repo_model.ActionsTokenPermissionMode `json:"token_permission_mode"`
+		}
+		if err := json.Unmarshal([]byte(raw), &declared); err != nil {
+			return nil, repo_model.ActionsTokenPermissions{}, err
+		}
+		if declared.TokenPermissionMode == repo_model.ActionsTokenPermissionModePermissive || declared.TokenPermissionMode == repo_model.ActionsTokenPermissionModeRestricted {
+			defaultPermissions = cfg.GetDefaultTokenPermissions()
+			hasDefault = true
+		}
+	}
+	return policies, defaultPermissions, nil
+}
+
+// ClampTaskTokenPermissionsForRepo applies the repository and every owner ancestor's absolute ceilings.
+func ClampTaskTokenPermissionsForRepo(ctx context.Context, permissions repo_model.ActionsTokenPermissions, repo *repo_model.Repository) (repo_model.ActionsTokenPermissions, error) {
+	policies, _, err := ownerTokenPolicies(ctx, repo.OwnerID)
+	if err != nil {
+		return repo_model.ActionsTokenPermissions{}, err
+	}
+	permissions = repo.MustGetUnit(ctx, unit.TypeActions).ActionsConfig().ClampPermissions(permissions)
+	for _, policy := range policies {
+		permissions = policy.ClampPermissions(permissions)
+	}
+	return permissions, nil
+}
 
 // ComputeTaskTokenPermissions computes the effective permissions for a job token against the target repository.
 // It uses the job's stored permissions (if any), then applies org/repo clamps and fork/cross-repo restrictions.
@@ -22,12 +83,8 @@ func ComputeTaskTokenPermissions(ctx context.Context, task *ActionTask, targetRe
 	}
 	runRepo := task.Job.Repo
 
-	if err := runRepo.LoadOwner(ctx); err != nil {
-		return ret, err
-	}
-
 	repoActionsCfg := runRepo.MustGetUnit(ctx, unit.TypeActions).ActionsConfig()
-	ownerActionsCfg, err := GetOwnerActionsConfig(ctx, runRepo.OwnerID)
+	policies, inheritedDefault, err := ownerTokenPolicies(ctx, runRepo.OwnerID)
 	if err != nil {
 		return ret, err
 	}
@@ -38,14 +95,12 @@ func ComputeTaskTokenPermissions(ctx context.Context, task *ActionTask, targetRe
 	} else if repoActionsCfg.OverrideOwnerConfig {
 		jobDeclaredPerms = repoActionsCfg.GetDefaultTokenPermissions()
 	} else {
-		jobDeclaredPerms = ownerActionsCfg.GetDefaultTokenPermissions()
+		jobDeclaredPerms = inheritedDefault
 	}
 
-	var effectivePerms repo_model.ActionsTokenPermissions
-	if repoActionsCfg.OverrideOwnerConfig {
-		effectivePerms = repoActionsCfg.ClampPermissions(jobDeclaredPerms)
-	} else {
-		effectivePerms = ownerActionsCfg.ClampPermissions(jobDeclaredPerms)
+	effectivePerms := repoActionsCfg.ClampPermissions(jobDeclaredPerms)
+	for _, policy := range policies {
+		effectivePerms = policy.ClampPermissions(effectivePerms)
 	}
 
 	// Cross-repository access and fork pull requests are strictly read-only for security.

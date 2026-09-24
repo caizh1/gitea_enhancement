@@ -437,32 +437,44 @@ func doMergeAndPush(ctx context.Context, pr *issues_model.PullRequest, doer *use
 	mergeCtx.env = append(mergeCtx.env, repo_module.EnvPushTrigger+"="+string(pushTrigger))
 	var authorization *governance_model.MergeAuthorization
 	if pushTrigger == repo_module.PushTriggerPRMergeToBase {
-		authorization, err = governance_service.AuthorizePullMerge(ctx, governance_model.AuditActor(ctx), pr, approvalHead, mergeBaseSHA, mergeCommitID, func(ctx context.Context, fresh *issues_model.PullRequest) error {
+		baseRepo, loadErr := repo_model.GetRepositoryByID(ctx, pr.BaseRepoID)
+		if loadErr != nil {
+			return "", loadErr
+		}
+		scopedSnapshot, captureErr := captureRequiredScopedSourceSnapshot(ctx, baseRepo)
+		if captureErr != nil {
+			return "", captureErr
+		}
+		authorization, err = governance_service.AuthorizePullMerge(ctx, governance_model.AuditActor(ctx), pr, approvalHead, mergeBaseSHA, mergeCommitID, func(ctx context.Context, fresh *issues_model.PullRequest) ([]string, error) {
 			if err := fresh.LoadBaseRepo(ctx); err != nil {
-				return err
+				return nil, err
 			}
 			currentUser, err := user_model.GetUserByID(ctx, doer.ID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			permission, err := access_model.GetIndividualUserRepoPermission(ctx, fresh.BaseRepo, currentUser)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			allowed, err := IsUserAllowedToMerge(ctx, fresh, permission, currentUser)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if !allowed {
-				return governance_model.ErrForbidden
+				return nil, governance_model.ErrForbidden
 			}
 			if err := CheckPullBranchProtectionsAtHead(ctx, fresh, approvalHead); err != nil {
 				if errors.Is(err, ErrNotReadyToMerge) {
-					return fmt.Errorf("%w：原生合并条件已变化：%v", governance_model.ErrConflict, err)
+					return nil, fmt.Errorf("%w：原生合并条件已变化：%v", governance_model.ErrConflict, err)
 				}
-				return err
+				return nil, err
 			}
-			return nil
+			dependencies, err := requiredScopedSourceDependencies(ctx, fresh.BaseRepo, approvalHead, scopedSnapshot)
+			if errors.Is(err, ErrNotReadyToMerge) {
+				return nil, fmt.Errorf("%w：必选工作流来源已变化：%v", governance_model.ErrConflict, err)
+			}
+			return dependencies, err
 		})
 	}
 	if err != nil {
@@ -643,29 +655,24 @@ func isUserAllowedToMergeInRepoBranch(ctx context.Context, repoID int64, branch 
 		return false, nil
 	}
 
-	pb, err := git_model.GetFirstMatchProtectedBranchRule(ctx, repoID, branch)
+	protection, err := git_model.EvaluateEffectiveBranchProtection(ctx, repoID, branch)
 	if err != nil {
 		return false, err
 	}
 
 	nativePermission := p.WithoutGovernance()
-	if (nativePermission.CanWrite(unit.TypeCode) && pb == nil) || (pb != nil && git_model.IsUserMergeWhitelisted(ctx, pb, user.ID, nativePermission)) {
-		return true, nil
-	}
 	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
 	if err != nil {
 		return false, err
 	}
-	canMerge, err := access_model.HasGovernanceAbility(ctx, repo, user, governance_model.MergeCode)
-	if err != nil || !canMerge {
-		return false, err
+	if protection.IsProtected() {
+		return protection.CanUserMerge(ctx, user, p)
 	}
-	if pb == nil || !pb.EnableMergeWhitelist {
+	if nativePermission.CanWrite(unit.TypeCode) {
 		return true, nil
 	}
-	// 显式原生合并白名单仍约束自定义 MergeCode，且不会把 PushCode 当成 MergeCode。
-	return git_model.IsUserMergeWhitelisted(ctx, pb, user.ID, nativePermission), nil
-
+	canMerge, err := access_model.HasGovernanceAbility(ctx, repo, user, governance_model.MergeCode)
+	return canMerge, err
 }
 
 // CheckPullBranchProtections checks whether the PR is ready to be merged (reviews and status checks)
@@ -678,16 +685,15 @@ func CheckPullBranchProtections(ctx context.Context, pr *issues_model.PullReques
 	if err != nil {
 		return fmt.Errorf("LoadProtectedBranch: %v", err)
 	}
-	if pb == nil {
-		return nil
-	}
-
 	isPass, err := IsPullCommitStatusPass(ctx, pr)
 	if err != nil {
 		return err
 	}
 	if !isPass {
 		return util.ErrorWrap(ErrNotReadyToMerge, "Not all required status checks successful")
+	}
+	if pb == nil {
+		return nil
 	}
 	return checkPullReviewProtections(ctx, pr, pb, skipProtectedFilesCheck)
 }
@@ -697,6 +703,9 @@ func CheckPullBranchProtectionsAtHead(ctx context.Context, pr *issues_model.Pull
 	if err := pr.LoadBaseRepo(ctx); err != nil {
 		return err
 	}
+	if err := checkRequiredScopedRuns(ctx, pr.BaseRepo, head); err != nil {
+		return err
+	}
 	pb, err := git_model.GetFirstMatchProtectedBranchRule(ctx, pr.BaseRepoID, pr.BaseBranch)
 	if err != nil {
 		return err
@@ -704,9 +713,9 @@ func CheckPullBranchProtectionsAtHead(ctx context.Context, pr *issues_model.Pull
 	if pb == nil {
 		return nil
 	}
-	required, err := EffectiveRequiredContexts(ctx, pr.BaseRepo, pb)
-	if err != nil {
-		return err
+	var required []string
+	if pb.EnableStatusCheck {
+		required = pb.StatusCheckContexts
 	}
 	if len(required) > 0 || pb.EnableStatusCheck {
 		statuses, err := git_model.GetLatestCommitStatus(ctx, pr.BaseRepoID, head, db.ListOptionsAll)

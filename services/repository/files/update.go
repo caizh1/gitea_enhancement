@@ -660,21 +660,28 @@ func writeRepoObjectForRename(ctx context.Context, t *TemporaryUploadRepository,
 
 // VerifyBranchProtection verify the branch protection for modifying the given treePath on the given branch
 func VerifyBranchProtection(ctx context.Context, repo *repo_model.Repository, gitRepo *git.Repository, doer *user_model.User, branchName string, treePaths []string) error {
-	protectedBranch, err := git_model.GetFirstMatchProtectedBranchRule(ctx, repo.ID, branchName)
+	effective, err := git_model.EvaluateEffectiveBranchProtection(ctx, repo.ID, branchName)
 	if err != nil {
 		return err
+	}
+	protectedBranch := effective.Native
+	canUserPush, err := effective.CanUserPush(ctx, doer)
+	if err != nil {
+		return err
+	}
+	if protectedBranch == nil && !canUserPush {
+		return ErrUserCannotCommit{UserName: doer.LowerName}
 	}
 	if protectedBranch != nil {
 		protectedBranch.Repo = repo
 		globUnprotected := protectedBranch.GetUnprotectedFilePatterns()
 		globProtected := protectedBranch.GetProtectedFilePatterns()
-		canUserPush := protectedBranch.CanUserPush(ctx, doer)
 		for _, treePath := range treePaths {
 			isUnprotectedFile := false
 			if len(globUnprotected) != 0 {
 				isUnprotectedFile = protectedBranch.IsUnprotectedFile(globUnprotected, treePath)
 			}
-			if !canUserPush && !isUnprotectedFile {
+			if !canUserPush && (!isUnprotectedFile || len(effective.Group) > 0) {
 				return ErrUserCannotCommit{
 					UserName: doer.LowerName,
 				}

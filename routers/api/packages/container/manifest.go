@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
-	governance_model "gitea.dev/models/governance"
 	packages_model "gitea.dev/models/packages"
 	container_model "gitea.dev/models/packages/container"
 	user_model "gitea.dev/models/user"
@@ -20,7 +18,6 @@ import (
 	"gitea.dev/modules/log"
 	packages_module "gitea.dev/modules/packages"
 	container_module "gitea.dev/modules/packages/container"
-	"gitea.dev/modules/util"
 	notify_service "gitea.dev/services/notify"
 	packages_service "gitea.dev/services/packages"
 	container_service "gitea.dev/services/packages/container"
@@ -58,6 +55,19 @@ func processManifest(ctx context.Context, mci *manifestCreationInfo, buf *packag
 			return "", errManifestInvalid.WithMessage("MediaType not recognized")
 		}
 	}
+	if !container_module.IsMediaTypeImageManifest(mci.MediaType) && !container_module.IsMediaTypeImageIndex(mci.MediaType) {
+		return "", errManifestInvalid
+	}
+	if err := packages_model.WithAuthenticatedOwnerWrite(ctx, mci.Owner.ID, mci.Creator, func(context.Context) error { return nil }); err != nil {
+		return "", err
+	}
+	pb, err := packages_service.StagePackageBlob(ctx, buf)
+	if err != nil {
+		return "", err
+	}
+	if _, err := buf.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
 
 	// .../container/manifest.go:453:createManifestBlob() [E] Error inserting package blob: Error 1062 (23000): Duplicate entry '..........' for key 'package_blob.UQE_package_blob_md5'
 	releaser, err := globallock.Lock(ctx, containerGlobalLockKey(mci.Owner.ID, mci.Image, "manifest"))
@@ -67,27 +77,20 @@ func processManifest(ctx context.Context, mci *manifestCreationInfo, buf *packag
 	defer releaser()
 
 	if container_module.IsMediaTypeImageManifest(mci.MediaType) {
-		return processOciImageManifest(ctx, mci, buf)
+		return processOciImageManifest(ctx, mci, buf, pb)
 	} else if container_module.IsMediaTypeImageIndex(mci.MediaType) {
-		return processOciImageIndex(ctx, mci, buf)
+		return processOciImageIndex(ctx, mci, buf, pb)
 	}
 	return "", errManifestInvalid
 }
 
 type processManifestTxRet struct {
-	pv      *packages_model.PackageVersion
-	pb      *packages_model.PackageBlob
-	created bool
-	digest  string
+	pv     *packages_model.PackageVersion
+	digest string
 }
 
 func handleCreateManifestResult(ctx context.Context, err error, mci *manifestCreationInfo, txRet *processManifestTxRet) (string, error) {
 	if err != nil {
-		if txRet.created && txRet.pb != nil {
-			if err := packages_service.RemoveUnreferencedBlobContent(ctx, txRet.pb.HashSHA256); err != nil {
-				log.Error("Error deleting package blob from content store: %v", err)
-			}
-		}
 		return "", err
 	}
 	pd, err := packages_model.GetPackageDescriptor(ctx, txRet.pv)
@@ -99,7 +102,7 @@ func handleCreateManifestResult(ctx context.Context, err error, mci *manifestCre
 	return txRet.digest, nil
 }
 
-func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf *packages_module.HashedBuffer) (manifestDigest string, errRet error) {
+func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf *packages_module.HashedBuffer, pb *packages_model.PackageBlob) (manifestDigest string, errRet error) {
 	manifest, configDescriptor, metadata, err := container_service.ParseManifestMetadata(ctx, buf, mci.Owner.ID, mci.Image)
 	if err != nil {
 		return "", err
@@ -108,9 +111,8 @@ func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf
 		return "", err
 	}
 
-	contentStore := packages_module.NewContentStore()
 	var txRet processManifestTxRet
-	err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) (err error) {
+	err = packages_model.WithAuthenticatedOwnerWrite(ctx, mci.Owner.ID, mci.Creator, func(ctx context.Context) (err error) {
 		blobReferences := make([]*blobReference, 0, 1+len(manifest.Layers))
 		blobReferences = append(blobReferences, &blobReference{
 			Digest:       manifest.Config.Digest,
@@ -153,7 +155,7 @@ func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf
 			}
 		}
 		txRet.pv = pv
-		txRet.pb, txRet.created, txRet.digest, err = createManifestBlob(ctx, contentStore, mci, pv, buf)
+		txRet.digest, err = createManifestBlob(ctx, mci, pv, buf, pb)
 		if err != nil {
 			return err
 		}
@@ -163,7 +165,7 @@ func processOciImageManifest(ctx context.Context, mci *manifestCreationInfo, buf
 	return handleCreateManifestResult(ctx, err, mci, &txRet)
 }
 
-func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *packages_module.HashedBuffer) (manifestDigest string, errRet error) {
+func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *packages_module.HashedBuffer, pb *packages_model.PackageBlob) (manifestDigest string, errRet error) {
 	var index oci.Index
 	if err := json.NewDecoder(buf).Decode(&index); err != nil {
 		return "", err
@@ -172,9 +174,8 @@ func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *p
 		return "", err
 	}
 
-	contentStore := packages_module.NewContentStore()
 	var txRet processManifestTxRet
-	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) (err error) {
+	err := packages_model.WithAuthenticatedOwnerWrite(ctx, mci.Owner.ID, mci.Creator, func(ctx context.Context) (err error) {
 		metadata := &container_module.Metadata{
 			Type:      container_module.TypeOCI,
 			Manifests: make([]*container_module.Manifest, 0, len(index.Manifests)),
@@ -226,7 +227,7 @@ func processOciImageIndex(ctx context.Context, mci *manifestCreationInfo, buf *p
 		}
 
 		txRet.pv = pv
-		txRet.pb, txRet.created, txRet.digest, err = createManifestBlob(ctx, contentStore, mci, pv, buf)
+		txRet.digest, err = createManifestBlob(ctx, mci, pv, buf, pb)
 		if err != nil {
 			return err
 		}
@@ -397,29 +398,8 @@ func createFileFromBlobReference(ctx context.Context, pv, uploadVersion *package
 	return pf, nil
 }
 
-func createManifestBlob(ctx context.Context, contentStore *packages_module.ContentStore, mci *manifestCreationInfo, pv *packages_model.PackageVersion, buf *packages_module.HashedBuffer) (_ *packages_model.PackageBlob, created bool, manifestDigest string, _ error) {
-	pb, exists, err := packages_model.GetOrInsertBlob(ctx, packages_service.NewPackageBlob(buf))
-	if err != nil {
-		log.Error("Error inserting package blob: %v", err)
-		return nil, false, "", err
-	}
-	// FIXME: Workaround to be removed in v1.20
-	// https://github.com/go-gitea/gitea/issues/19586
-	if exists {
-		err = contentStore.Has(packages_module.BlobHash256Key(pb.HashSHA256))
-		if err != nil && (errors.Is(err, util.ErrNotExist) || errors.Is(err, os.ErrNotExist)) {
-			log.Debug("Package registry inconsistent: blob %s does not exist on file system", pb.HashSHA256)
-			exists = false
-		}
-	}
-	if !exists {
-		if err := contentStore.Save(packages_module.BlobHash256Key(pb.HashSHA256), buf, buf.Size()); err != nil {
-			log.Error("Error saving package blob in content store: %v", err)
-			return pb, !exists, "", err
-		}
-	}
-
-	manifestDigest = digestFromHashSummer(buf)
+func createManifestBlob(ctx context.Context, mci *manifestCreationInfo, pv *packages_model.PackageVersion, buf *packages_module.HashedBuffer, pb *packages_model.PackageBlob) (string, error) {
+	manifestDigest := digestFromHashSummer(buf)
 	pf, err := createFileFromBlobReference(ctx, pv, nil, &blobReference{
 		Digest:       digest.Digest(manifestDigest),
 		MediaType:    mci.MediaType,
@@ -429,7 +409,7 @@ func createManifestBlob(ctx context.Context, contentStore *packages_module.Conte
 		IsLead:       true,
 	})
 	if err != nil {
-		return pb, !exists, "", err
+		return "", err
 	}
 
 	oldManifestFiles, _, err := packages_model.SearchFiles(ctx, &packages_model.PackageFileSearchOptions{
@@ -439,15 +419,15 @@ func createManifestBlob(ctx context.Context, contentStore *packages_module.Conte
 		Query:       container_module.ManifestFilename,
 	})
 	if err != nil {
-		return pb, !exists, "", err
+		return "", err
 	}
 	for _, oldManifestFile := range oldManifestFiles {
 		if oldManifestFile.ID != pf.ID && oldManifestFile.IsLead {
 			err = packages_model.UpdateFile(ctx, &packages_model.PackageFile{ID: oldManifestFile.ID, IsLead: false}, []string{"is_lead"})
 			if err != nil {
-				return pb, !exists, "", err
+				return "", err
 			}
 		}
 	}
-	return pb, !exists, manifestDigest, err
+	return manifestDigest, nil
 }

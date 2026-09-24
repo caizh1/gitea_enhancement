@@ -248,9 +248,10 @@ func (r *artifactV4Routes) verifySignature(ctx *ArtifactContext, endp string) (*
 		ctx.HTTPError(http.StatusInternalServerError, "Error runner api getting task by ID")
 		return nil, "", false
 	}
-	if task.Status != actions_model.StatusRunning {
+	valid, validErr := actions.TaskCredentialValid(ctx, task)
+	if validErr != nil || !valid || task.Status != actions_model.StatusRunning {
 		log.Error("Error runner api getting task: task is not running")
-		ctx.HTTPError(http.StatusInternalServerError, "Error runner api getting task: task is not running")
+		ctx.HTTPError(http.StatusUnauthorized, "Error runner api getting task: task is not authorized")
 		return nil, "", false
 	}
 	if err := task.LoadJob(ctx); err != nil {

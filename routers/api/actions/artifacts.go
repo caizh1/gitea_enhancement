@@ -154,9 +154,10 @@ func ArtifactContexter() func(next http.Handler) http.Handler {
 					ctx.HTTPError(http.StatusInternalServerError, "Error runner api getting task by ID")
 					return
 				}
-				if task.Status != actions.StatusRunning {
+				valid, validErr := actions_service.TaskCredentialValid(req.Context(), task)
+				if validErr != nil || !valid || task.Status != actions.StatusRunning {
 					log.Error("Error runner api getting task: task is not running")
-					ctx.HTTPError(http.StatusInternalServerError, "Error runner api getting task: task is not running")
+					ctx.HTTPError(http.StatusUnauthorized, "Error runner api getting task: task is not authorized")
 					return
 				}
 			} else {
@@ -165,8 +166,17 @@ func ArtifactContexter() func(next http.Handler) http.Handler {
 
 				task, err = actions.GetRunningTaskByToken(req.Context(), authToken)
 				if err != nil {
+					if errors.Is(err, util.ErrNotExist) {
+						ctx.HTTPError(http.StatusUnauthorized, "Error runner api getting task: task is not authorized")
+						return
+					}
 					log.Error("Error runner api getting task: %v", err)
 					ctx.HTTPError(http.StatusInternalServerError, "Error runner api getting task")
+					return
+				}
+				valid, validErr := actions_service.TaskCredentialValid(req.Context(), task)
+				if validErr != nil || !valid {
+					ctx.HTTPError(http.StatusUnauthorized, "Error runner api getting task: task is not authorized")
 					return
 				}
 			}

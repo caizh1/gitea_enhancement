@@ -24,6 +24,7 @@ import (
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/utils"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
 	pull_service "gitea.dev/services/pull"
@@ -70,6 +71,12 @@ func Branches(ctx *context.Context) {
 	if err != nil {
 		ctx.ServerError("LoadBranches", err)
 		return
+	}
+	for _, statuses := range commitStatuses {
+		if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, statuses); err != nil {
+			ctx.ServerError("RedactScopedCommitStatusContexts", err)
+			return
+		}
 	}
 	if !ctx.Repo.Permission.CanRead(unit.TypeActions) {
 		for key := range commitStatuses {

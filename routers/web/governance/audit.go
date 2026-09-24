@@ -23,7 +23,7 @@ import (
 func respondError(ctx *context.Context, err error) {
 	switch {
 	case errors.Is(err, governance_model.ErrNotFound), errors.Is(err, governance_model.ErrForbidden):
-		ctx.HTTPError(http.StatusNotFound)
+		ctx.NotFound(nil)
 	case errors.Is(err, governance_model.ErrInvalid):
 		ctx.HTTPError(http.StatusBadRequest, err.Error())
 	case errors.Is(err, governance_model.ErrConflict):

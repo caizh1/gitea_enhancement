@@ -1,5 +1,23 @@
 {{template "org/settings/layout_head" (dict "pageClass" "organization settings webhooks")}}
 			<div class="org-setting-content">
 				{{template "repo/settings/webhook/base_list" .}}
+				{{if .AncestorHookSources}}
+					<div class="ui segment">
+						<h4>继承的 Webhook 来源</h4>
+						<p>祖先组织已启用 Hook；仅其订阅且属于本期范围的仓库事件按 Hook ID 独立投递。配置、历史和重投由来源组织管理。</p>
+						<div class="flex-divided-list">
+							{{range .AncestorHookSources}}
+								<div class="item tw-flex tw-items-center tw-justify-between tw-gap-3 tw-flex-wrap">
+									{{if .CanRead}}
+										<span>{{.Path}} · {{.Count}} 个已启用 Hook</span>
+										{{if .CanManage}}<a href="{{.URL}}">查看来源设置与历史</a>{{end}}
+									{{else}}
+										<span>受限祖先来源（群组 ID {{.ID}}）</span>
+									{{end}}
+								</div>
+							{{end}}
+						</div>
+					</div>
+				{{end}}
 			</div>
 {{template "org/settings/layout_footer" .}}

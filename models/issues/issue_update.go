@@ -433,6 +433,29 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 	if opts.Issue.ID > 0 {
 		return errors.New("issue exist")
 	}
+	var labels []*Label
+	if len(opts.LabelIDs) > 0 {
+		if err = opts.Repo.LoadOwner(ctx); err != nil {
+			return err
+		}
+		labels, err = GetLabelsInRepoOrAncestorsByIDs(ctx, opts.Repo.ID, opts.Repo.OwnerID, opts.Repo.Owner.IsOrganization(), opts.LabelIDs)
+		if err != nil {
+			return fmt.Errorf("find scoped labels [label_ids: %v]: %w", opts.LabelIDs, err)
+		}
+		found := make(map[int64]*Label, len(labels))
+		for _, label := range labels {
+			found[label.ID] = label
+		}
+		ordered := make([]*Label, 0, len(opts.LabelIDs))
+		for _, id := range opts.LabelIDs {
+			label := found[id]
+			if label == nil {
+				return ErrLabelNotExist{LabelID: id}
+			}
+			ordered = append(ordered, label)
+		}
+		labels = RemoveDuplicateExclusiveLabels(ordered)
+	}
 
 	if _, err := e.Insert(opts.Issue); err != nil {
 		return err
@@ -462,23 +485,11 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 	}
 
 	if len(opts.LabelIDs) > 0 {
-		// During the session, SQLite3 driver cannot handle retrieve objects after update something.
-		// So we have to get all needed labels first.
-		labels := make([]*Label, 0, len(opts.LabelIDs))
-		if err = e.In("id", opts.LabelIDs).Find(&labels); err != nil {
-			return fmt.Errorf("find all labels [label_ids: %v]: %w", opts.LabelIDs, err)
-		}
-
 		if err = opts.Issue.LoadPoster(ctx); err != nil {
 			return err
 		}
 
 		for _, label := range labels {
-			// Silently drop invalid labels.
-			if label.RepoID != opts.Repo.ID && label.OrgID != opts.Repo.OwnerID {
-				continue
-			}
-
 			if err = newIssueLabel(ctx, opts.Issue, label, opts.Issue.Poster); err != nil {
 				return fmt.Errorf("addLabel [id: %d]: %w", label.ID, err)
 			}

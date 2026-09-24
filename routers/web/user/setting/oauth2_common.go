@@ -4,10 +4,13 @@
 package setting
 
 import (
+	stdctx "context"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"gitea.dev/models/auth"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
@@ -21,6 +24,34 @@ type OAuth2CommonHandlers struct {
 	BasePathList       string            // the base URL for the application list page, eg: "/user/setting/applications"
 	BasePathEditPrefix string            // the base URL for the application edit page, will be appended with app id, eg: "/user/setting/applications/oauth2"
 	TplAppEdit         templates.TplName // the template for the application edit page
+	AuthorizeWrite     func(stdctx.Context, bool) error
+}
+
+func (oa *OAuth2CommonHandlers) authorizeWrite(revoke bool) func(stdctx.Context) error {
+	if oa.AuthorizeWrite == nil {
+		return nil
+	}
+	return func(ctx stdctx.Context) error { return oa.AuthorizeWrite(ctx, revoke) }
+}
+
+func (oa *OAuth2CommonHandlers) mutationError(ctx *context.Context, name string, err error, jsonResponse bool) {
+	switch {
+	case auth.IsErrOAuthApplicationNotFound(err), errors.Is(err, governance_model.ErrNotFound):
+		if jsonResponse {
+			ctx.JSONErrorNotFound()
+		} else {
+			ctx.NotFound(nil)
+		}
+	case errors.Is(err, governance_model.ErrConflict):
+		if jsonResponse {
+			ctx.JSON(http.StatusConflict, map[string]any{"errorMessage": ctx.Tr("settings.oauth2_application_write_busy"), "renderFormat": "text"})
+		} else {
+			ctx.Flash.Error(ctx.Tr("settings.oauth2_application_group_unavailable"))
+			ctx.Redirect(oa.BasePathList)
+		}
+	default:
+		ctx.ServerError(name, err)
+	}
 }
 
 func (oa *OAuth2CommonHandlers) renderEditPage(ctx *context.Context) {
@@ -47,26 +78,29 @@ func (oa *OAuth2CommonHandlers) AddApp(ctx *context.Context) {
 		return
 	}
 
+	clientSecret, secretHash, err := auth.NewOAuth2ClientSecret()
+	if err != nil {
+		ctx.ServerError("NewOAuth2ClientSecret", err)
+		return
+	}
 	app, err := auth.CreateOAuth2Application(ctx, auth.CreateOAuth2ApplicationOptions{
 		Name:                       form.Name,
 		RedirectURIs:               util.SplitTrimSpace(form.RedirectURIs, "\n"),
 		UserID:                     oa.OwnerID,
 		ConfidentialClient:         form.ConfidentialClient,
 		SkipSecondaryAuthorization: form.SkipSecondaryAuthorization,
+		ClientSecretHash:           secretHash,
+		Authorize:                  oa.authorizeWrite(false),
 	})
 	if err != nil {
-		ctx.ServerError("CreateOAuth2Application", err)
+		oa.mutationError(ctx, "CreateOAuth2Application", err, false)
 		return
 	}
 
 	// render the edit page with secret
 	ctx.Flash.Success(ctx.Tr("settings.create_oauth2_application_success"), true)
 	ctx.Data["App"] = app
-	ctx.Data["ClientSecret"], err = app.GenerateClientSecret(ctx)
-	if err != nil {
-		ctx.ServerError("GenerateClientSecret", err)
-		return
-	}
+	ctx.Data["ClientSecret"] = clientSecret
 
 	oa.renderEditPage(ctx)
 }
@@ -122,8 +156,9 @@ func (oa *OAuth2CommonHandlers) EditSave(ctx *context.Context) {
 		UserID:                     oa.OwnerID,
 		ConfidentialClient:         form.ConfidentialClient,
 		SkipSecondaryAuthorization: form.SkipSecondaryAuthorization,
+		Authorize:                  oa.authorizeWrite(false),
 	}); err != nil {
-		ctx.ServerError("UpdateOAuth2Application", err)
+		oa.mutationError(ctx, "UpdateOAuth2Application", err, false)
 		return
 	}
 	ctx.Flash.Success(ctx.Tr("settings.update_oauth2_application_success"))
@@ -146,9 +181,9 @@ func (oa *OAuth2CommonHandlers) RegenerateSecret(ctx *context.Context) {
 		return
 	}
 	ctx.Data["App"] = app
-	ctx.Data["ClientSecret"], err = app.GenerateClientSecret(ctx)
+	ctx.Data["ClientSecret"], err = app.GenerateClientSecret(ctx, oa.authorizeWrite(false))
 	if err != nil {
-		ctx.ServerError("GenerateClientSecret", err)
+		oa.mutationError(ctx, "GenerateClientSecret", err, false)
 		return
 	}
 	ctx.Flash.Success(ctx.Tr("settings.update_oauth2_application_success"), true)
@@ -157,8 +192,8 @@ func (oa *OAuth2CommonHandlers) RegenerateSecret(ctx *context.Context) {
 
 // DeleteApp deletes the given oauth2 application
 func (oa *OAuth2CommonHandlers) DeleteApp(ctx *context.Context) {
-	if err := auth.DeleteOAuth2Application(ctx, ctx.PathParamInt64("id"), oa.OwnerID); err != nil {
-		ctx.ServerError("DeleteOAuth2Application", err)
+	if err := auth.DeleteOAuth2Application(ctx, ctx.PathParamInt64("id"), oa.OwnerID, oa.authorizeWrite(true)); err != nil {
+		oa.mutationError(ctx, "DeleteOAuth2Application", err, true)
 		return
 	}
 

@@ -385,9 +385,13 @@ func ViewProject(ctx *context.Context) {
 	}
 
 	// TODO: Add option to filter also by repository specific labels
-	labels, err := issues_model.GetLabelsByOrgID(ctx, project.OwnerID, "", db.ListOptions{})
+	labels, err := issues_model.GetLabelsByAncestorOrgID(ctx, project.OwnerID, "")
 	if err != nil {
-		ctx.ServerError("GetLabelsByOrgID", err)
+		ctx.ServerError("GetLabelsByAncestorOrgID", err)
+		return
+	}
+	if err := issue.PopulateLabelSources(ctx, labels); err != nil {
+		ctx.ServerError("PopulateLabelSources", err)
 		return
 	}
 

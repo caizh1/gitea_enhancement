@@ -13,6 +13,7 @@ import (
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/gitrepo"
+	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/timeutil"
 )
@@ -22,6 +23,24 @@ type SyncResult struct {
 	RefName     git.RefName
 	OldCommitID git.RefName
 	NewCommitID git.RefName
+}
+
+type branchSyncContextKey struct{}
+
+// WithBranchSync serializes branch-table synchronization without holding a DB transaction during Git reads.
+func WithBranchSync(ctx context.Context, repoID int64, f func(context.Context) error) error {
+	if held, ok := ctx.Value(branchSyncContextKey{}).(int64); ok && held == repoID {
+		return f(ctx)
+	}
+	if db.InTransaction(ctx) {
+		return fmt.Errorf("branch sync for repository %d cannot wait inside a DB transaction", repoID)
+	}
+	release, err := globallock.Lock(ctx, fmt.Sprintf("branch_sync_%d", repoID))
+	if err != nil {
+		return err
+	}
+	defer release()
+	return f(context.WithValue(ctx, branchSyncContextKey{}, repoID))
 }
 
 // SyncRepoBranches synchronizes branch table with repository branches
@@ -45,6 +64,17 @@ func SyncRepoBranches(ctx context.Context, repoID, doerID int64) (int64, error) 
 }
 
 func SyncRepoBranchesWithRepo(ctx context.Context, repo *repo_model.Repository, gitRepo *git.Repository, doerID int64) (int64, []*SyncResult, error) {
+	var count int64
+	var results []*SyncResult
+	err := WithBranchSync(ctx, repo.ID, func(ctx context.Context) error {
+		var err error
+		count, results, err = syncRepoBranchesWithRepo(ctx, repo, gitRepo, doerID)
+		return err
+	})
+	return count, results, err
+}
+
+func syncRepoBranchesWithRepo(ctx context.Context, repo *repo_model.Repository, gitRepo *git.Repository, doerID int64) (int64, []*SyncResult, error) {
 	objFmt, err := gitRepo.GetObjectFormat()
 	if err != nil {
 		return 0, nil, fmt.Errorf("GetObjectFormat: %w", err)

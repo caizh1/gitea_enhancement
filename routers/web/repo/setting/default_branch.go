@@ -4,9 +4,11 @@
 package setting
 
 import (
+	"errors"
 	"net/http"
 
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/routers/web/repo"
@@ -36,6 +38,9 @@ func SetDefaultBranchPost(ctx *context.Context) {
 		branch := ctx.FormString("branch")
 		if err := repo_service.SetRepoDefaultBranch(ctx, ctx.Repo.Repository, branch); err != nil {
 			switch {
+			case errors.Is(err, repo_service.ErrRequiredWorkflowDefaultBranch), errors.Is(err, governance_model.ErrConflict):
+				ctx.Flash.Error(err.Error())
+				ctx.Redirect(setting.AppSubURL + ctx.Req.URL.EscapedPath())
 			case git_model.IsErrBranchNotExist(err):
 				ctx.Status(http.StatusNotFound)
 			default:

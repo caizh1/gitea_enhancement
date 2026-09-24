@@ -940,6 +940,8 @@ func handleSettingsPostTransfer(ctx *context.Context) {
 			ctx.JSONError(ctx.TrN(limit, "repo.form.reach_limit_of_creation_1", "repo.form.reach_limit_of_creation_n", limit))
 		} else if errors.Is(err, user_model.ErrBlockedUser) {
 			ctx.JSONError(ctx.Tr("repo.settings.transfer.blocked_user"))
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.JSONError(err.Error())
 		} else {
 			ctx.ServerError("TransferOwnership", err)
 		}
@@ -1076,7 +1078,11 @@ func handleSettingsPostUnarchive(ctx *context.Context) {
 
 	if err := governance_service.SetRepositoryArchived(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), repo, false); err != nil {
 		log.Error("Tried to unarchive a repo: %s", err)
-		ctx.Flash.Error(ctx.Tr("repo.settings.unarchive.error"))
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.Flash.Error(ctx.Tr("repo.settings.unarchive.error_restricted"))
+		} else {
+			ctx.Flash.Error(ctx.Tr("repo.settings.unarchive.error"))
+		}
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings")
 		return
 	}

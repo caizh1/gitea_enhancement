@@ -20,6 +20,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/gitrepo"
+	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
@@ -77,10 +78,22 @@ func TestGovernanceGroupDeletionRealGit(t *testing.T) {
 		response = MakeRequest(t, NewRequestWithJSON(t, "POST", endpoint+"/deletion", governance_service.GroupDeletionOption{Revision: root.Revision, ConfirmationPath: root.FullPath}).AddTokenAuth(token), http.StatusOK)
 		root = DecodeJSON(t, response, &governance_service.GroupState{})
 		option = governance_service.GroupDeletionOption{Revision: root.Revision, ConfirmationPath: root.FullPath}
-		_, err = db.GetEngine(ctx).Exec("CREATE TRIGGER governance_group_delete_fail BEFORE INSERT ON governance_audit_event WHEN NEW.type = 'resource.deletion_committed' BEGIN SELECT RAISE(ABORT, '群组删除事务审计故障'); END")
+		createTrigger := "CREATE TRIGGER governance_group_delete_fail BEFORE INSERT ON governance_audit_event WHEN NEW.type = 'resource.deletion_committed' BEGIN SELECT RAISE(ABORT, '群组删除事务审计故障'); END"
+		dropTrigger := "DROP TRIGGER IF EXISTS governance_group_delete_fail"
+		if setting.Database.Type.IsPostgreSQL() {
+			_, err = db.GetEngine(ctx).Exec("CREATE FUNCTION governance_group_delete_fail_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type = 'resource.deletion_committed' THEN RAISE EXCEPTION '群组删除事务审计故障'; END IF; RETURN NEW; END $$")
+			require.NoError(t, err)
+			defer func() {
+				_, err := db.GetEngine(context.WithoutCancel(ctx)).Exec("DROP FUNCTION IF EXISTS governance_group_delete_fail_fn() CASCADE")
+				require.NoError(t, err)
+			}()
+			createTrigger = "CREATE TRIGGER governance_group_delete_fail BEFORE INSERT ON governance_audit_event FOR EACH ROW EXECUTE FUNCTION governance_group_delete_fail_fn()"
+			dropTrigger += " ON governance_audit_event"
+		}
+		_, err = db.GetEngine(ctx).Exec(createTrigger)
 		require.NoError(t, err)
 		defer func() {
-			_, err := db.GetEngine(context.WithoutCancel(ctx)).Exec("DROP TRIGGER IF EXISTS governance_group_delete_fail")
+			_, err := db.GetEngine(context.WithoutCancel(ctx)).Exec(dropTrigger)
 			require.NoError(t, err)
 		}()
 		MakeRequest(t, NewRequestWithJSON(t, "POST", endpoint+"/delete-permanently", option).AddTokenAuth(token), http.StatusInternalServerError)
@@ -91,7 +104,7 @@ func TestGovernanceGroupDeletionRealGit(t *testing.T) {
 		require.True(t, exists)
 		_, err = packages_model.GetPackageByID(ctx, pkg.ID)
 		require.NoError(t, err, "删除审计失败也要恢复软件包")
-		_, err = db.GetEngine(ctx).Exec("DROP TRIGGER governance_group_delete_fail")
+		_, err = db.GetEngine(ctx).Exec(dropTrigger)
 		require.NoError(t, err)
 		MakeRequest(t, NewRequestWithJSON(t, "POST", endpoint+"/delete-permanently", option).AddTokenAuth(token), http.StatusNoContent)
 		MakeRequest(t, NewRequest(t, "GET", endpoint).AddTokenAuth(token), http.StatusNotFound)

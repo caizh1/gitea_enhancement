@@ -116,6 +116,42 @@ func TestAccessRequestIdentityAndPrivateWithdrawal(t *testing.T) {
 	unittest.AssertCount(t, &governance_model.AccessRequest{ID: request.ID}, 0)
 }
 
+func TestAccessRequestKeepsSubmittedPathAfterPrivateGroupMove(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	owner := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}
+	applicant := governance_model.Actor{ID: 4, Name: "user4", Kind: "user", Transport: "api"}
+	group, err := CreateGroup(ctx, owner, GroupOption{Path: "request-before", Visibility: 0})
+	require.NoError(t, err)
+	request, err := RequestAccess(ctx, applicant, "group", group.ID)
+	require.NoError(t, err)
+	require.Equal(t, "request-before", request.ScopePath)
+	secondRequest, err := RequestAccess(ctx, governance_model.Actor{ID: 5, Name: "user5", Kind: "user", Transport: "api"}, "group", group.ID)
+	require.NoError(t, err)
+
+	_, err = db.GetEngine(ctx).ID(group.ID).Cols("visibility").Update(&governance_model.Namespace{Visibility: 2})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(group.ID).Cols("visibility").Update(&user_model.User{Visibility: structs.VisibleTypePrivate})
+	require.NoError(t, err)
+	_, err = CheckGroupAccess(ctx, applicant.ID, group.ID, governance_model.ReadGroup)
+	require.ErrorIs(t, err, governance_model.ErrNotFound)
+	_, err = MoveGroup(ctx, owner, group.ID, GroupOption{Path: "request-after-private", Revision: group.Revision})
+	require.NoError(t, err)
+
+	requests, err := OwnAccessRequests(ctx, applicant.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	require.Equal(t, request.ID, requests[0].ID)
+	require.Equal(t, "request-before", requests[0].ScopePath)
+	state, err := GetAccessRequestState(ctx, owner.ID, "group", group.ID, 0)
+	require.NoError(t, err)
+	require.Equal(t, "request-after-private", state.FullPath)
+	require.NoError(t, DecideAccessRequest(ctx, owner, "group", group.ID, secondRequest.ID, GroupMemberOption{Role: governance_model.Developer, Revision: state.Revision}, true))
+	unittest.AssertExistsAndLoadBean(t, &governance_model.Membership{ScopeType: "group", ScopeID: group.ID, UserID: 5, Role: governance_model.Developer})
+	require.NoError(t, WithdrawOwnAccessRequest(ctx, applicant, request.ID))
+}
+
 func TestProjectAccessRequestApproval(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	ctx := t.Context()

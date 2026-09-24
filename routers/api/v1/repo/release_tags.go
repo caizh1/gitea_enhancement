@@ -124,7 +124,7 @@ func DeleteReleaseByTag(ctx *context.APIContext) {
 			ctx.APIError(http.StatusUnprocessableEntity, "user not allowed to delete protected tag")
 			return
 		}
-		ctx.APIErrorInternal(err)
+		releaseMutationError(ctx, err)
 		return
 	}
 

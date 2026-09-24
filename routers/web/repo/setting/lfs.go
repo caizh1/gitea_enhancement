@@ -5,16 +5,22 @@ package setting
 
 import (
 	"bytes"
+	stdcontext "context"
+	"errors"
 	"fmt"
 	gotemplate "html/template"
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"strconv"
 	"strings"
 
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
+	access_model "gitea.dev/models/perm/access"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/charset"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/git"
@@ -30,6 +36,7 @@ import (
 	"gitea.dev/modules/typesniffer"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 )
 
 const (
@@ -336,16 +343,48 @@ func LFSDelete(ctx *context.Context) {
 		return
 	}
 
-	count, err := git_model.RemoveLFSMetaObjectByOid(ctx, ctx.Repo.Repository.ID, oid)
+	var count int64
+	err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", ctx.Repo.Repository.ID)}, func(lockCtx stdcontext.Context) error {
+		if err := governance_service.CheckRepositoryContentWrite(lockCtx, ctx.Doer, ctx.Repo.Repository.ID, unit.TypeCode); err != nil {
+			return err
+		}
+		repo, err := repo_model.GetRepositoryByID(lockCtx, ctx.Repo.Repository.ID)
+		if err != nil {
+			return err
+		}
+		doer, err := user_model.GetUserByID(lockCtx, ctx.Doer.ID)
+		if err != nil {
+			return err
+		}
+		permission, err := access_model.GetDoerRepoPermission(lockCtx, repo, doer)
+		if err != nil {
+			return err
+		}
+		permission = permission.ForMutation()
+		if !permission.IsAdmin() {
+			return governance_model.ErrForbidden
+		}
+		count, err = git_model.RemoveLFSMetaObjectByOid(lockCtx, ctx.Repo.Repository.ID, oid)
+		return err
+	})
 	if err != nil {
-		ctx.ServerError("LFSDelete", err)
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusLocked)
+		} else if errors.Is(err, governance_model.ErrForbidden) {
+			ctx.HTTPError(http.StatusForbidden)
+		} else {
+			ctx.ServerError("LFSDelete", err)
+		}
 		return
 	}
-	// FIXME: Warning: the LFS store is not locked - and can't be locked - there could be a race condition here
-	// Please note a similar condition happens in models/repo.go DeleteRepository
 	if count == 0 {
-		oidPath := path.Join(oid[0:2], oid[2:4], oid[4:])
-		err = storage.LFS.Delete(oidPath)
+		err = governance_model.WithLFSContentLocks(ctx, []string{oid}, func(lockCtx stdcontext.Context) error {
+			linked, err := git_model.ExistsLFSObject(lockCtx, oid)
+			if err != nil || linked {
+				return err
+			}
+			return storage.LFS.Delete(p.RelativePath())
+		})
 		if err != nil {
 			ctx.ServerError("LFSDelete", err)
 			return

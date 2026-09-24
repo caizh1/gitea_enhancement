@@ -63,7 +63,7 @@ func (opts FindNotificationOptions) ToConds() builder.Cond {
 }
 
 func (opts FindNotificationOptions) ToOrders() string {
-	return "notification.updated_unix DESC"
+	return "notification.updated_unix DESC, notification.id DESC"
 }
 
 // CreateOrUpdateIssueNotifications creates an issue notification
@@ -179,6 +179,114 @@ func (nl NotificationList) LoadAttributes(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// CanReadWithPermission checks the unit that owns the notification subject.
+func (n *Notification) CanReadWithPermission(perm access_model.Permission) bool {
+	switch n.Source {
+	case NotificationSourceIssue, NotificationSourcePullRequest:
+		return n.Issue != nil && n.Issue.ID == n.IssueID && n.Issue.RepoID == n.RepoID && perm.CanReadIssuesOrPulls(n.Issue.IsPull)
+	case NotificationSourceCommit:
+		return perm.CanRead(unit.TypeCode)
+	case NotificationSourceRepository:
+		return perm.HasAnyUnitAccessOrPublicAccess()
+	default:
+		return false
+	}
+}
+
+// CanUserReadNotification checks current access, including the issue's actual unit.
+func CanUserReadNotification(ctx context.Context, n *Notification, user *user_model.User) (bool, error) {
+	if user == nil || n == nil {
+		return false, nil
+	}
+	repo, err := n.GetRepo(ctx)
+	if err != nil {
+		return false, err
+	}
+	if n.Source == NotificationSourceIssue || n.Source == NotificationSourcePullRequest {
+		if _, err := n.GetIssue(ctx); err != nil {
+			return false, err
+		}
+	}
+	perm, err := access_model.GetIndividualUserRepoPermission(ctx, repo, user)
+	if err != nil {
+		return false, err
+	}
+	return n.CanReadWithPermission(perm), nil
+}
+
+// FilterByAccess removes notifications whose subjects are no longer readable.
+func (nl NotificationList) FilterByAccess(ctx context.Context, user *user_model.User) (NotificationList, []int, error) {
+	return nl.filterByAccess(ctx, user, make(map[int64]access_model.Permission))
+}
+
+func (nl NotificationList) filterByAccess(ctx context.Context, user *user_model.User, permissions map[int64]access_model.Permission) (NotificationList, []int, error) {
+	if _, _, err := nl.LoadRepos(ctx); err != nil {
+		return nil, nil, err
+	}
+	if _, err := nl.LoadIssues(ctx); err != nil {
+		return nil, nil, err
+	}
+	failures := make([]int, 0)
+	for i, n := range nl {
+		if n.Repository == nil || user == nil {
+			failures = append(failures, i)
+			continue
+		}
+		perm, ok := permissions[n.RepoID]
+		if !ok {
+			var err error
+			perm, err = access_model.GetIndividualUserRepoPermission(ctx, n.Repository, user)
+			if err != nil {
+				return nil, nil, err
+			}
+			permissions[n.RepoID] = perm
+		}
+		if !n.CanReadWithPermission(perm) {
+			failures = append(failures, i)
+		}
+	}
+	return nl.Without(failures), failures, nil
+}
+
+// FindVisibleNotifications paginates after access checks so totals and pages agree.
+func FindVisibleNotifications(ctx context.Context, user *user_model.User, opts FindNotificationOptions) (NotificationList, int64, error) {
+	return findVisibleNotifications(ctx, user, opts, true)
+}
+
+// CountVisibleNotifications counts only notifications the user can currently read.
+func CountVisibleNotifications(ctx context.Context, user *user_model.User, opts FindNotificationOptions) (int64, error) {
+	_, total, err := findVisibleNotifications(ctx, user, opts, false)
+	return total, err
+}
+
+func findVisibleNotifications(ctx context.Context, user *user_model.User, opts FindNotificationOptions, collect bool) (NotificationList, int64, error) {
+	page, pageSize := opts.Page, opts.PageSize
+	opts.ListOptions = db.ListOptions{PageSize: 256}
+	var visible NotificationList
+	var total int64
+	permissions := make(map[int64]access_model.Permission)
+	for batch := 1; ; batch++ {
+		opts.Page = batch
+		rows, err := db.Find[Notification](ctx, opts)
+		if err != nil {
+			return nil, 0, err
+		}
+		filtered, _, err := NotificationList(rows).filterByAccess(ctx, user, permissions)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, n := range filtered {
+			if collect && (pageSize == 0 || (total >= int64(max(page-1, 0)*pageSize) && len(visible) < pageSize)) {
+				visible = append(visible, n)
+			}
+			total++
+		}
+		if len(rows) < opts.PageSize {
+			return visible, total, nil
+		}
+	}
 }
 
 func (nl NotificationList) getPendingRepoIDs() []int64 {

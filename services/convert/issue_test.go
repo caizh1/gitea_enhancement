@@ -26,11 +26,23 @@ func TestLabel_ToLabel(t *testing.T) {
 	label := unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 1})
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: label.RepoID})
 	assert.Equal(t, &api.Label{
-		ID:    label.ID,
-		Name:  label.Name,
-		Color: "abcdef",
-		URL:   fmt.Sprintf("%sapi/v1/repos/user2/repo1/labels/%d", setting.AppURL, label.ID),
+		ID:         label.ID,
+		Name:       label.Name,
+		Color:      "abcdef",
+		URL:        fmt.Sprintf("%sapi/v1/repos/user2/repo1/labels/%d", setting.AppURL, label.ID),
+		SourceType: "repository",
+		SourceID:   label.RepoID,
 	}, ToLabel(label, repo, nil))
+}
+
+func TestInheritedLabelUsesEffectiveRepositoryURL(t *testing.T) {
+	label := &issues_model.Label{ID: 42, OrgID: 4, Name: "shared"}
+	repo := &repo_model.Repository{ID: 7, OwnerID: 3, OwnerName: "child", Name: "example"}
+	owner := &user_model.User{ID: 3, Name: "child"}
+	converted := ToLabel(label, repo, owner)
+	assert.Equal(t, "organization", converted.SourceType)
+	assert.EqualValues(t, 4, converted.SourceID)
+	assert.Equal(t, fmt.Sprintf("%s/labels/%d", repo.APIURL(), label.ID), converted.URL)
 }
 
 func TestMilestone_APIFormat(t *testing.T) {

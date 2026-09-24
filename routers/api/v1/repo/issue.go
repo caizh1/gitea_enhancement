@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -338,7 +339,7 @@ func ListIssues(ctx *context.APIContext) {
 
 	var labelIDs []int64
 	if splitted := strings.Split(ctx.FormString("labels"), ","); len(splitted) > 0 {
-		labelIDs, err = issues_model.GetLabelIDsInRepoByNames(ctx, ctx.Repo.Repository.ID, splitted)
+		labelIDs, err = issues_model.GetLabelIDsInRepoOrAncestorsByNames(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), splitted)
 		if err != nil {
 			ctx.APIErrorInternal(err)
 			return
@@ -620,11 +621,26 @@ func CreateIssue(ctx *context.APIContext) {
 		// setting labels is not allowed if user is not a writer
 		form.Labels = make([]int64, 0)
 	}
+	if len(form.Labels) > 0 {
+		labels, labelErr := issues_model.GetLabelsInRepoOrAncestorsByIDs(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), form.Labels)
+		if labelErr != nil {
+			ctx.APIErrorInternal(labelErr)
+			return
+		}
+		for _, id := range form.Labels {
+			if !slices.ContainsFunc(labels, func(label *issues_model.Label) bool { return label.ID == id }) {
+				ctx.APIErrorNotFound()
+				return
+			}
+		}
+	}
 
 	if err := issue_service.NewIssue(ctx, ctx.Repo.Repository, issue, form.Labels, nil, assigneeIDs, form.Projects); err != nil {
 		if errors.Is(err, user_model.ErrBlockedUser) {
 			ctx.APIError(http.StatusForbidden, err.Error())
-		} else if errors.Is(err, util.ErrPermissionDenied) || errors.Is(err, util.ErrNotExist) {
+		} else if errors.Is(err, util.ErrNotExist) {
+			ctx.APIErrorNotFound()
+		} else if errors.Is(err, util.ErrPermissionDenied) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
 		} else {
 			ctx.APIErrorInternal(err)

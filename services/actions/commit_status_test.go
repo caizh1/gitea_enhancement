@@ -414,11 +414,42 @@ jobs:
 	// so the two stay distinct (and have different hashes) despite the same `name:`.
 	repoStatuses := findCommitStatusesForContext(t, consumer.ID, branch.CommitID, "ci / build (push)")
 	require.Len(t, repoStatuses, 1)
-	scopedStatuses := findCommitStatusesForContext(t, consumer.ID, branch.CommitID, source.FullName()+": ci / build (push)")
+	scopedStatuses := findCommitStatusesForContext(t, consumer.ID, branch.CommitID, actions_model.ScopedStatusContextPrefix(t.Context(), source.ID)+": ci / build (push)")
 	require.Len(t, scopedStatuses, 1)
 
 	assert.NotEqual(t, repoStatuses[0].ContextHash, scopedStatuses[0].ContextHash,
 		"scoped status must not collide with the same-named repo-level workflow")
+}
+
+func TestRedactScopedCommitStatusContexts(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	consumer := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	source := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 3})
+	require.NoError(t, actions_model.AddScopedWorkflowSource(t.Context(), 0, source.ID))
+	legacy := source.FullName() + ": CI / build (push)"
+	statuses := []*git_model.CommitStatus{{RepoID: consumer.ID, CreatorID: user_model.ActionsUserID, Context: legacy}}
+	require.NoError(t, RedactScopedCommitStatusContexts(t.Context(), nil, consumer, statuses))
+	assert.Equal(t, actions_model.ScopedStatusContextPrefix(t.Context(), source.ID)+": CI / build (push)", statuses[0].Context)
+
+	admin := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	statuses[0].Context = legacy
+	require.NoError(t, RedactScopedCommitStatusContexts(t.Context(), admin, consumer, statuses))
+	assert.Equal(t, legacy, statuses[0].Context)
+
+	run := &actions_model.ActionRun{RepoID: consumer.ID, Repo: consumer, WorkflowRepoID: source.ID, IsScopedRun: true}
+	require.NoError(t, db.Insert(t.Context(), run))
+	statuses[0].TargetURL = run.Link() + "/jobs/1"
+	_, err := db.GetEngine(t.Context()).ID(source.ID).Cols("name", "lower_name").Update(&repo_model.Repository{Name: "renamed", LowerName: "renamed"})
+	require.NoError(t, err)
+	statuses[0].Context = legacy
+	require.NoError(t, RedactScopedCommitStatusContexts(t.Context(), nil, consumer, statuses))
+	assert.Equal(t, actions_model.ScopedStatusContextPrefix(t.Context(), source.ID)+": CI / build (push)", statuses[0].Context, "a renamed source remains identifiable through its run")
+
+	_, err = db.GetEngine(t.Context()).ID(source.ID).Delete(new(repo_model.Repository))
+	require.NoError(t, err)
+	statuses[0].Context = legacy
+	require.NoError(t, RedactScopedCommitStatusContexts(t.Context(), nil, consumer, statuses))
+	assert.Equal(t, actions_model.ScopedStatusContextPrefix(t.Context(), source.ID)+": CI / build (push)", statuses[0].Context, "a deleted source remains identifiable through its run")
 }
 
 func findCommitStatusesForContext(t *testing.T, repoID int64, sha, context string) []*git_model.CommitStatus {

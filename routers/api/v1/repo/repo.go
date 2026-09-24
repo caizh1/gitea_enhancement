@@ -743,30 +743,20 @@ func updateBasicProperties(ctx *context.APIContext, opts api.EditRepoOption) err
 	}
 
 	// Default branch only updated if changed and exist or the repository is empty
-	updateRepoLicense := false
 	if opts.DefaultBranch != nil && repo.DefaultBranch != *opts.DefaultBranch && (repo.IsEmpty || gitrepo.IsBranchExist(ctx, ctx.Repo.Repository, *opts.DefaultBranch)) {
-		repo.DefaultBranch = *opts.DefaultBranch
-		if !repo.IsEmpty {
-			if err := gitrepo.SetDefaultBranch(ctx, repo, repo.DefaultBranch); err != nil {
+		if err := repo_service.SetRepoDefaultBranch(ctx, repo, *opts.DefaultBranch); err != nil {
+			if errors.Is(err, repo_service.ErrRequiredWorkflowDefaultBranch) || errors.Is(err, governance_model.ErrConflict) {
+				ctx.APIError(http.StatusConflict, err.Error())
+			} else {
 				ctx.APIErrorInternal(err)
-				return err
 			}
-			updateRepoLicense = true
+			return err
 		}
 	}
 
 	if err := repo_service.UpdateRepository(ctx, repo, visibilityChanged); err != nil {
 		ctx.APIErrorInternal(err)
 		return err
-	}
-
-	if updateRepoLicense {
-		if err := repo_service.AddRepoToLicenseUpdaterQueue(&repo_service.LicenseUpdaterOptions{
-			RepoID: ctx.Repo.Repository.ID,
-		}); err != nil {
-			ctx.APIErrorInternal(err)
-			return err
-		}
 	}
 
 	log.Trace("Repository basic settings updated: %s/%s", owner.Name, repo.Name)

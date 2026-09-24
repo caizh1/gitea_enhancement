@@ -522,6 +522,8 @@ func RenameBranch(ctx *context.APIContext) {
 	msg, err := repo_service.RenameBranch(ctx, repo, ctx.Doer, oldName, opt.Name)
 	if err != nil {
 		switch {
+		case errors.Is(err, repo_service.ErrRequiredWorkflowDefaultBranch), errors.Is(err, governance_model.ErrConflict):
+			ctx.APIError(http.StatusConflict, err.Error())
 		case repo_model.IsErrUserDoesNotHaveAccessToRepo(err):
 			ctx.APIError(http.StatusForbidden, "User must be a repo or site admin to rename default or protected branches.")
 		case errors.Is(err, git_model.ErrBranchIsProtected):

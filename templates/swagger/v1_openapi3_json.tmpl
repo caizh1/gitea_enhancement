@@ -3665,9 +3665,10 @@
             "x-go-name": "ID"
           },
           "max_sequence": {
+            "description": "MaxSequence 表示授权筛选范围内、导出快照上界以内的最大事件序号；无匹配事件时为 0。",
             "format": "int64",
             "type": "integer",
-            "x-go-name": "MaxID"
+            "x-go-name": "MaxSequence"
           },
           "rows": {
             "format": "int64",
@@ -5615,6 +5616,11 @@
             "description": "Description of the secret to update",
             "type": "string",
             "x-go-name": "Description"
+          },
+          "protected": {
+            "description": "Restricts the secret to trusted protected branches. Omitted keeps the existing setting when updating.",
+            "type": "boolean",
+            "x-go-name": "Protected"
           }
         },
         "required": [
@@ -12273,6 +12279,11 @@
             "description": "the secret's name",
             "type": "string",
             "x-go-name": "Name"
+          },
+          "protected": {
+            "description": "whether the secret is only available to trusted protected branches",
+            "type": "boolean",
+            "x-go-name": "Protected"
           }
         },
         "type": "object",

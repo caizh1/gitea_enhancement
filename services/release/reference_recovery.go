@@ -12,6 +12,8 @@ import (
 	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/json"
@@ -20,6 +22,7 @@ import (
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context/upload"
+	governance_service "gitea.dev/services/governance"
 )
 
 type releaseReferencePayload struct {
@@ -41,7 +44,7 @@ func appendReleaseReferenceEnv(env []string, id, operation, tag string) []string
 	return append(env, repo_module.EnvReferenceOperationID+"="+id, repo_module.EnvReferenceOperation+"="+operation, repo_module.EnvReferenceOldBranch+"="+tag)
 }
 
-func planReleaseTagCreate(ctx context.Context, rel *repo_model.Release, payload *releaseReferencePayload) (string, error) {
+func planReleaseTagCreate(ctx context.Context, rel *repo_model.Release, doer *user_model.User, payload *releaseReferencePayload) (string, error) {
 	payload.Release = *rel
 	payload.Release.Repo, payload.Release.Publisher, payload.Release.Attachments = nil, nil, nil
 	payload.Release.RenderedNote, payload.Release.TargetBehind = "", ""
@@ -56,13 +59,22 @@ func planReleaseTagCreate(ctx context.Context, rel *repo_model.Release, payload 
 		return "", err
 	}
 	op := &governance_model.ReferenceTransaction{RepoID: rel.RepoID, BusinessOperation: "release_tag_create", BusinessOldBranch: rel.TagName, Actor: actor, ObjectPath: rel.Repo.FullPath(), AncestorIDs: ancestors, BusinessPayload: raw, Changes: []governance_model.ReferenceChange{{Ref: string(git.RefNameFromTag(rel.TagName)), Old: zero, New: zero}}}
-	if err := governance_model.PlanReferenceBusinessOperation(ctx, op); err != nil {
+	unitType := unit.TypeReleases
+	if rel.IsTag {
+		unitType = unit.TypeCode
+	}
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", rel.RepoID)}, func(ctx context.Context) error {
+		if err := governance_service.CheckRepositoryContentWrite(ctx, doer, rel.RepoID, unitType); err != nil {
+			return err
+		}
+		return governance_model.PlanReferenceBusinessOperation(ctx, op)
+	}); err != nil {
 		return "", err
 	}
 	return op.BusinessOperationID, nil
 }
 
-func planReleaseTagDelete(ctx context.Context, repo *repo_model.Repository, rel *repo_model.Release, old string) (string, error) {
+func planReleaseTagDelete(ctx context.Context, repo *repo_model.Repository, rel *repo_model.Release, doer *user_model.User, old string) (string, error) {
 	payload := &releaseReferencePayload{Action: "delete", Release: *rel, DeleteTag: true}
 	payload.Release.Repo, payload.Release.Publisher, payload.Release.Attachments = nil, nil, nil
 	payload.Release.RenderedNote, payload.Release.TargetBehind = "", ""
@@ -77,7 +89,19 @@ func planReleaseTagDelete(ctx context.Context, repo *repo_model.Repository, rel 
 		return "", err
 	}
 	op := &governance_model.ReferenceTransaction{RepoID: repo.ID, BusinessOperation: "release_tag_delete", BusinessOldBranch: rel.TagName, Actor: actor, ObjectPath: repo.FullPath(), AncestorIDs: ancestors, BusinessPayload: raw, Changes: []governance_model.ReferenceChange{{Ref: string(git.RefNameFromTag(rel.TagName)), Old: old, New: zero}}}
-	if err := governance_model.PlanReferenceBusinessOperation(ctx, op); err != nil {
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		if err := governance_service.CheckRepositoryContentWrite(ctx, doer, repo.ID, unit.TypeCode); err != nil {
+			return err
+		}
+		current, err := repo_model.GetReleaseByID(ctx, rel.ID)
+		if err != nil {
+			return err
+		}
+		if current.RepoID != repo.ID || current.TagName != rel.TagName || !current.IsTag {
+			return governance_model.ErrConflict
+		}
+		return governance_model.PlanReferenceBusinessOperation(ctx, op)
+	}); err != nil {
 		return "", err
 	}
 	return op.BusinessOperationID, nil

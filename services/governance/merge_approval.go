@@ -19,7 +19,7 @@ import (
 )
 
 // AuthorizePullMerge 仅为已接入两端引用事务的 PR 创建授权；候选合并先计算，锁内不执行 Git。
-func AuthorizePullMerge(ctx context.Context, actor governance_model.Actor, pr *issues_model.PullRequest, expectedHead, oldTarget, newTarget string, check func(context.Context, *issues_model.PullRequest) error) (authorization *governance_model.MergeAuthorization, err error) {
+func AuthorizePullMerge(ctx context.Context, actor governance_model.Actor, pr *issues_model.PullRequest, expectedHead, oldTarget, newTarget string, check func(context.Context, *issues_model.PullRequest) ([]string, error)) (authorization *governance_model.MergeAuthorization, err error) {
 	ctx = governance_model.WithAuditActor(ctx, actor)
 	defer func() {
 		if errors.Is(err, governance_model.ErrForbidden) || errors.Is(err, governance_model.ErrConflict) || errors.Is(err, governance_model.ErrNotFound) {
@@ -100,14 +100,15 @@ func AuthorizePullMerge(ctx context.Context, actor governance_model.Actor, pr *i
 		if !result.VersionReady || !result.State.Satisfied {
 			return fmt.Errorf("%w：当前审批要求尚未满足", governance_model.ErrForbidden)
 		}
-		if err := check(ctx, fresh); err != nil {
+		sourceDependencies, err := check(ctx, fresh)
+		if err != nil {
 			return err
 		}
 		operation.ApprovalProof, err = json.Marshal(result)
 		if err != nil {
 			return err
 		}
-		dependencies := []string{governance_model.Resource("repository", head.ID), governance_model.Resource("instance", 0)}
+		dependencies := append([]string{governance_model.Resource("repository", head.ID), governance_model.Resource("instance", 0)}, sourceDependencies...)
 		chain, err := governance_model.Ancestors(ctx, base.OwnerID)
 		if err != nil {
 			return err

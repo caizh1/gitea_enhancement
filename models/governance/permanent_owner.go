@@ -24,7 +24,7 @@ func (*permanentOwnerUser) TableName() string { return "user" }
 func EnsurePermanentGroupOwner(ctx context.Context, groupID, excludingUserID int64) error {
 	chain, err := Ancestors(ctx, groupID)
 	if err == ErrNotFound {
-		query := db.GetEngine(ctx).Table("team_user").Alias("tu").Join("INNER", []string{"team", "t"}, "t.id = tu.team_id").Join("INNER", []string{"user", "u"}, "u.id = tu.uid").Where("t.org_id = ? AND t.lower_name = ? AND u.is_active = ? AND u.prohibit_login = ?", groupID, "owners", true, false)
+		query := db.GetEngine(ctx).Table("team_user").Alias("tu").Join("INNER", []string{"team", "t"}, "t.id = tu.team_id").Join("INNER", []string{"user", "u"}, "u.id = tu.uid").Where("t.org_id = ? AND t.lower_name = ? AND u.is_active = ? AND u.prohibit_login = ? AND u.type = ?", groupID, "owners", true, false, 0)
 		if excludingUserID > 0 {
 			query = query.And("u.id <> ?", excludingUserID)
 		}
@@ -59,7 +59,7 @@ func EnsurePermanentGroupOwner(ctx context.Context, groupID, excludingUserID int
 		candidates = append(candidates, native...)
 	}
 	if len(candidates) > 0 {
-		query := db.GetEngine(ctx).Where("is_active = ? AND prohibit_login = ?", true, false).In("id", candidates)
+		query := db.GetEngine(ctx).Where("is_active = ? AND prohibit_login = ? AND type = ?", true, false, 0).In("id", candidates)
 		if excludingUserID > 0 {
 			query = query.And("id <> ?", excludingUserID)
 		}

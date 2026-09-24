@@ -33,7 +33,7 @@ func ToNotificationThread(ctx context.Context, n *activities_model.Notification)
 		return result
 	}
 	// if the user has been revoked access to the repo, do not leak repo or subject info
-	if !perm.HasAnyUnitAccessOrPublicAccess() {
+	if !n.CanReadWithPermission(perm) {
 		return result
 	}
 	result.Repository = ToRepo(ctx, n.Repository, perm)

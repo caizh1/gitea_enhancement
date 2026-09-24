@@ -69,3 +69,23 @@ func TestInheritedPermanentOwnerAllowsRemovingLastNativeOwner(t *testing.T) {
 	require.NoError(t, RemoveTeamMember(ctx, team, user2))
 	unittest.AssertNotExistsBean(t, &organization.TeamUser{TeamID: team.ID, UID: user2.ID})
 }
+
+func TestOwnerTeamRenameCannotRemoveLastOwner(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 1})
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	team.Name = "renamed-owners"
+	err := UpdateTeam(ctx, team, false, false)
+	if err == nil {
+		renamed := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: team.ID})
+		removeErr := RemoveTeamMember(ctx, renamed, user)
+		require.Error(t, removeErr, "改名不得绕过最后 Owner 保护")
+	}
+	require.ErrorIs(t, err, governance_model.ErrConflict)
+	require.ErrorIs(t, err, ErrRenameOwnerTeam)
+	unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: team.ID, Name: organization.OwnerTeamName})
+	unittest.AssertExistsAndLoadBean(t, &organization.TeamUser{TeamID: team.ID, UID: user.ID})
+	require.NoError(t, governance_model.EnsurePermanentGroupOwner(ctx, team.OrgID, 0))
+}

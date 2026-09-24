@@ -159,6 +159,7 @@ type Repository struct {
 	GovernanceStorageName  string `xorm:"VARCHAR(100) NOT NULL DEFAULT ''"`
 	OwnerName              string
 	OwnerNamespace         string             `xorm:"VARCHAR(2048) NOT NULL DEFAULT ''"`
+	ActionsScopeRevision   int64              `xorm:"NOT NULL DEFAULT 0"`
 	Owner                  *user_model.User   `xorm:"-"`
 	LowerName              string             `xorm:"UNIQUE(s) INDEX NOT NULL"`
 	Name                   string             `xorm:"INDEX NOT NULL"`

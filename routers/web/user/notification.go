@@ -4,7 +4,6 @@
 package user
 
 import (
-	stdCtx "context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,10 +12,8 @@ import (
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
-	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
-	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/base"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/log"
@@ -55,12 +52,15 @@ func prepareUserNotificationsData(ctx *context.Context) {
 	perPage := util.IfZero(ctx.FormInt("perPage"), 20) // this value is never used or exposed ....
 	queryStatus := util.Iif(pageType == "read", activities_model.NotificationStatusRead, activities_model.NotificationStatusUnread)
 
-	total, err := db.Count[activities_model.Notification](ctx, activities_model.FindNotificationOptions{
-		UserID: ctx.Doer.ID,
-		Status: []activities_model.NotificationStatus{queryStatus},
-	})
+	statuses := []activities_model.NotificationStatus{queryStatus, activities_model.NotificationStatusPinned}
+	opts := activities_model.FindNotificationOptions{
+		ListOptions: db.ListOptions{PageSize: perPage, Page: page},
+		UserID:      ctx.Doer.ID,
+		Status:      statuses,
+	}
+	notifications, total, err := activities_model.FindVisibleNotifications(ctx, ctx.Doer, opts)
 	if err != nil {
-		ctx.ServerError("ErrGetNotificationCount", err)
+		ctx.ServerError("FindVisibleNotifications", err)
 		return
 	}
 
@@ -69,23 +69,13 @@ func prepareUserNotificationsData(ctx *context.Context) {
 		// use the last page if the requested page is more than total pages
 		page = pager.Paginater.Current()
 		pager = context.NewPagination(total, perPage, page, 5)
+		opts.Page = page
+		notifications, _, err = activities_model.FindVisibleNotifications(ctx, ctx.Doer, opts)
+		if err != nil {
+			ctx.ServerError("FindVisibleNotifications", err)
+			return
+		}
 	}
-
-	statuses := []activities_model.NotificationStatus{queryStatus, activities_model.NotificationStatusPinned}
-	nls, err := db.Find[activities_model.Notification](ctx, activities_model.FindNotificationOptions{
-		ListOptions: db.ListOptions{
-			PageSize: perPage,
-			Page:     page,
-		},
-		UserID: ctx.Doer.ID,
-		Status: statuses,
-	})
-	if err != nil {
-		ctx.ServerError("db.Find[activities_model.Notification]", err)
-		return
-	}
-
-	notifications := activities_model.NotificationList(nls)
 
 	failCount := 0
 
@@ -100,13 +90,6 @@ func prepareUserNotificationsData(ctx *context.Context) {
 		return
 	}
 	failCount += len(failures)
-	notifications, failures, err = filterNotificationsByRepoAccess(ctx, ctx.Doer, notifications)
-	if err != nil {
-		ctx.ServerError("filterNotificationsByRepoAccess", err)
-		return
-	}
-	failCount += len(failures)
-
 	failures, err = notifications.LoadIssues(ctx)
 	if err != nil {
 		ctx.ServerError("LoadIssues", err)
@@ -142,23 +125,6 @@ func prepareUserNotificationsData(ctx *context.Context) {
 	pager.AddParamFromRequest(ctx.Req)
 	pager.RemoveParam(container.SetOf("div-only", "sequence-number"))
 	ctx.Data["Page"] = pager
-}
-
-func filterNotificationsByRepoAccess(ctx stdCtx.Context, doer *user_model.User, notifications activities_model.NotificationList) (activities_model.NotificationList, []int, error) {
-	failures := make([]int, 0)
-	for i, notification := range notifications {
-		if notification.Repository == nil {
-			continue
-		}
-		perm, err := access_model.GetIndividualUserRepoPermission(ctx, notification.Repository, doer)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !perm.HasAnyUnitAccessOrPublicAccess() {
-			failures = append(failures, i)
-		}
-	}
-	return notifications.Without(failures), failures, nil
 }
 
 // NotificationStatusPost is a route for changing the status of a notification
@@ -412,12 +378,12 @@ func NotificationWatching(ctx *context.Context) {
 
 // NewAvailable returns the notification counts
 func NewAvailable(ctx *context.Context) {
-	total, err := db.Count[activities_model.Notification](ctx, activities_model.FindNotificationOptions{
+	total, err := activities_model.CountVisibleNotifications(ctx, ctx.Doer, activities_model.FindNotificationOptions{
 		UserID: ctx.Doer.ID,
 		Status: []activities_model.NotificationStatus{activities_model.NotificationStatusUnread},
 	})
 	if err != nil {
-		log.Error("db.Count[activities_model.Notification]", err)
+		log.Error("CountVisibleNotifications: %v", err)
 		ctx.JSON(http.StatusOK, structs.NotificationCount{New: 0})
 		return
 	}

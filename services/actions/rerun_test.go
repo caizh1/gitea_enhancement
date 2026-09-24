@@ -7,9 +7,16 @@ import (
 	"testing"
 
 	actions_model "gitea.dev/models/actions"
+	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/util"
+	governance_service "gitea.dev/services/governance"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,6 +123,77 @@ func TestRerunValidation(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, util.ErrInvalidArgument)
 	})
+}
+
+func TestRerunRejectsWorkflowCreatedBeforeGroupMove(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	creator := governance_model.Actor{ID: 1, Kind: "user", Name: "user1", Transport: "api"}
+	group, err := governance_service.CreateGroup(ctx, creator, governance_service.GroupOption{Path: "rerun-before-move", ParentID: 3, Visibility: 2})
+	require.NoError(t, err)
+	repo := &repo_model.Repository{OwnerID: group.ID, OwnerName: group.InternalName, Name: "workflow", LowerName: "workflow", DefaultBranch: "main", Status: repo_model.RepositoryReady}
+	require.NoError(t, db.Insert(ctx, repo))
+	const scheduledCommit = "c2d72f548424103f01ee1dc02889c1e2bff816b0"
+	require.NoError(t, db.Insert(ctx, &git_model.Branch{RepoID: repo.ID, Name: repo.DefaultBranch, CommitID: scheduledCommit}))
+	repo.OwnerNamespace, err = governance_model.RegisterNativeRepository(ctx, repo.ID, group.ID, repo.Name)
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(repo.ID).Cols("owner_namespace").Update(repo)
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: repo.ID, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	preparedRepo, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+	require.NoError(t, err)
+	oldSchedule := &actions_model.ActionSchedule{RepoID: repo.ID, OwnerID: group.ID, ScopeRevision: preparedRepo.ActionsScopeRevision, TriggerUserID: user_model.ActionsUserID, WorkflowID: "scheduled.yaml"}
+	require.NoError(t, db.Insert(ctx, oldSchedule))
+	oldSpec := &actions_model.ActionScheduleSpec{RepoID: repo.ID, ScheduleID: oldSchedule.ID, Spec: "* * * * *"}
+	require.NoError(t, db.Insert(ctx, oldSpec))
+	run := &actions_model.ActionRun{RepoID: repo.ID, OwnerID: group.ID, WorkflowID: "old.yaml", Index: 9920, TriggerUserID: 1, Status: actions_model.StatusSuccess}
+	require.NoError(t, db.Insert(ctx, run))
+	_, err = governance_service.MoveGroup(ctx, governance_model.Actor{ID: 2, Kind: "user", Name: "user2", Transport: "api"}, group.ID, governance_service.GroupOption{Path: "rerun-before-move", Revision: group.Revision})
+	require.NoError(t, err)
+	unittest.AssertNotExistsBean(t, &actions_model.ActionSchedule{ID: oldSchedule.ID})
+	unittest.AssertNotExistsBean(t, &actions_model.ActionScheduleSpec{ID: oldSpec.ID})
+	currentRepo, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+	require.NoError(t, err)
+	currentRun, err := actions_model.GetRunByRepoAndID(ctx, repo.ID, run.ID)
+	require.NoError(t, err)
+	require.True(t, currentRun.ScopeInvalidated)
+	trigger, err := user_model.GetUserByID(ctx, 1)
+	require.NoError(t, err)
+	require.ErrorIs(t, validateRerun(ctx, currentRun, currentRepo, trigger, nil), governance_model.ErrConflict)
+	newRun := &actions_model.ActionRun{RepoID: repo.ID, OwnerID: group.ID, WorkflowID: "new.yaml", Index: 9921, TriggerUserID: 1, Status: actions_model.StatusSuccess}
+	require.NoError(t, db.Insert(ctx, newRun))
+	require.NoError(t, validateRerun(ctx, newRun, currentRepo, trigger, nil))
+	moved, err := governance_model.GetNamespace(ctx, group.ID)
+	require.NoError(t, err)
+	_, err = governance_service.MoveGroup(ctx, creator, group.ID, governance_service.GroupOption{Path: "rerun-before-move", ParentID: 3, Revision: moved.Revision})
+	require.NoError(t, err)
+	currentRepo, err = repo_model.GetRepositoryByID(ctx, repo.ID)
+	require.NoError(t, err)
+	for _, old := range []*actions_model.ActionRun{run, newRun} {
+		old, err = actions_model.GetRunByRepoAndID(ctx, repo.ID, old.ID)
+		require.NoError(t, err)
+		require.ErrorIs(t, validateRerun(ctx, old, currentRepo, trigger, nil), governance_model.ErrConflict)
+	}
+	freshRun := &actions_model.ActionRun{RepoID: repo.ID, OwnerID: group.ID, WorkflowID: "fresh.yaml", Index: 9922, TriggerUserID: 1, Status: actions_model.StatusSuccess}
+	require.NoError(t, db.Insert(ctx, freshRun))
+	require.NoError(t, validateRerun(ctx, freshRun, currentRepo, trigger, nil))
+	require.Greater(t, currentRepo.ActionsScopeRevision, preparedRepo.ActionsScopeRevision)
+	stalePreparedRun := &actions_model.ActionRun{RepoID: repo.ID, Repo: preparedRepo, OwnerID: group.ID, WorkflowID: "stale-prepared.yaml", TriggerUserID: 1, Ref: "refs/heads/main", CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0", Event: "push", TriggerEvent: "push", WorkflowRepoID: repo.ID, WorkflowCommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0"}
+	content := []byte("on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n")
+	oldScheduledRun := &actions_model.ActionRun{RepoID: repo.ID, Repo: currentRepo, OwnerID: group.ID, WorkflowID: "scheduled.yaml", TriggerUserID: user_model.ActionsUserID, ScheduleID: oldSchedule.ID, Ref: "refs/heads/main", CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0", Event: "schedule", TriggerEvent: "schedule", WorkflowRepoID: repo.ID, WorkflowCommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0"}
+	require.ErrorIs(t, PrepareRunAndInsert(ctx, content, oldScheduledRun, nil), governance_model.ErrConflict)
+	unittest.AssertNotExistsBean(t, &actions_model.ActionRun{ID: oldScheduledRun.ID})
+	require.ErrorIs(t, PrepareRunAndInsert(ctx, content, stalePreparedRun, nil), governance_model.ErrConflict)
+	has, err := db.GetEngine(ctx).ID(stalePreparedRun.ID).Exist(new(actions_model.ActionRun))
+	require.NoError(t, err)
+	require.False(t, has)
+	freshPreparedRun := &actions_model.ActionRun{RepoID: repo.ID, Repo: currentRepo, OwnerID: group.ID, WorkflowID: "fresh-prepared.yaml", TriggerUserID: 1, Ref: "refs/heads/main", CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0", Event: "push", TriggerEvent: "push", WorkflowRepoID: repo.ID, WorkflowCommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0"}
+	require.NoError(t, PrepareRunAndInsert(ctx, content, freshPreparedRun, nil))
+	freshSchedule := &actions_model.ActionSchedule{RepoID: repo.ID, OwnerID: group.ID, ScopeRevision: currentRepo.ActionsScopeRevision, TriggerUserID: user_model.ActionsUserID, WorkflowID: "scheduled.yaml", Ref: "refs/heads/main", CommitSHA: scheduledCommit}
+	require.NoError(t, db.Insert(ctx, freshSchedule))
+	freshScheduledRun := &actions_model.ActionRun{RepoID: repo.ID, Repo: currentRepo, OwnerID: group.ID, WorkflowID: "scheduled.yaml", TriggerUserID: user_model.ActionsUserID, ScheduleID: freshSchedule.ID, Ref: "refs/heads/main", CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0", Event: "schedule", TriggerEvent: "schedule", WorkflowRepoID: repo.ID, WorkflowCommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0"}
+	require.NoError(t, PrepareRunAndInsert(ctx, content, freshScheduledRun, nil))
 }
 
 func TestRerunPlan(t *testing.T) {

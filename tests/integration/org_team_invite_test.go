@@ -7,18 +7,105 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
+	governance_service "gitea.dev/services/governance"
+	org_service "gitea.dev/services/org"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestOrgTeamInviteRevokedInviterCannotGrantOwner(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+
+	ctx := t.Context()
+	owners := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 1})
+	inviter := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	replacement := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	invitee := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	invite, err := organization.CreateTeamInvite(ctx, inviter, owners, invitee.Email)
+	require.NoError(t, err)
+	require.NoError(t, org_service.AddTeamMember(ctx, owners, replacement))
+	require.NoError(t, org_service.RemoveTeamMember(ctx, owners, inviter))
+	owner, err := organization.IsOrganizationOwner(ctx, owners.OrgID, inviter.ID)
+	require.NoError(t, err)
+	require.False(t, owner)
+
+	session := loginUser(t, invitee.Name)
+	session.MakeRequest(t, NewRequest(t, "POST", "/org/invite/"+invite.Token), http.StatusNotFound)
+	member, err := organization.IsTeamMember(ctx, owners.OrgID, owners.ID, invitee.ID)
+	require.NoError(t, err)
+	require.False(t, member)
+}
+
+func TestOrgTeamInviteRevokedGovernanceOwnerCannotGrantNativeOwner(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	actor := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}
+	require.NoError(t, governance_service.SetGroupMember(ctx, actor, 3, governance_service.GroupMemberOption{UserID: 4, Role: governance_model.Owner, Revision: 1}, false))
+	owner, err := organization.IsOrganizationOwner(ctx, 3, 4)
+	require.NoError(t, err)
+	require.True(t, owner)
+
+	team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 1})
+	invitee := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	issuer := loginUser(t, "user4")
+	teamURL := "/org/org3/teams/" + team.Name
+	issuer.MakeRequest(t, NewRequestWithValues(t, "POST", teamURL+"/action/add", map[string]string{"uname": invitee.Email}), http.StatusSeeOther)
+	invites, err := organization.GetInvitesByTeamID(ctx, team.ID)
+	require.NoError(t, err)
+	require.Len(t, invites, 1)
+	require.Equal(t, int64(4), invites[0].InviterID)
+
+	require.NoError(t, governance_service.SetGroupMember(ctx, actor, 3, governance_service.GroupMemberOption{UserID: 4, Revision: 2}, true))
+	owner, err = organization.IsOrganizationOwner(ctx, 3, 4)
+	require.NoError(t, err)
+	require.False(t, owner)
+
+	recipient := loginUser(t, invitee.Name)
+	recipient.MakeRequest(t, NewRequest(t, "POST", "/org/invite/"+invites[0].Token), http.StatusNotFound)
+	member, err := organization.IsTeamMember(ctx, team.OrgID, team.ID, invitee.ID)
+	require.NoError(t, err)
+	require.False(t, member)
+}
+
+func TestOrgTeamInviteArchivedGroupRejectsNewGrantButAllowsRevocation(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 1})
+	inviter := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	invitee := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+	invite, err := organization.CreateTeamInvite(ctx, inviter, team, invitee.Email)
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(team.OrgID).Cols("archived").Update(&governance_model.Namespace{Archived: true})
+	require.NoError(t, err)
+
+	recipient := loginUser(t, invitee.Name)
+	recipient.MakeRequest(t, NewRequest(t, "POST", "/org/invite/"+invite.Token), http.StatusConflict)
+	member, err := organization.IsTeamMember(ctx, team.OrgID, team.ID, invitee.ID)
+	require.NoError(t, err)
+	require.False(t, member)
+
+	issuer := loginUser(t, inviter.Name)
+	teamURL := "/org/org3/teams/" + team.Name
+	issuer.MakeRequest(t, NewRequestWithValues(t, "POST", teamURL+"/action/add", map[string]string{"uname": "new@example.invalid"}), http.StatusConflict)
+	issuer.MakeRequest(t, NewRequestWithValues(t, "POST", teamURL+"/action/remove_invite", map[string]string{"iid": strconv.FormatInt(invite.ID, 10)}), http.StatusSeeOther)
+	_, err = organization.GetInviteByToken(ctx, invite.Token)
+	require.True(t, organization.IsErrTeamInviteNotFound(err))
+}
 
 func TestOrgTeamEmailInvite(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()

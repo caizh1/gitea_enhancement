@@ -9,6 +9,8 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -70,7 +72,7 @@ jobs:
 	run := &actions_model.ActionRun{
 		Title:             "before parse",
 		RepoID:            4,
-		OwnerID:           1,
+		OwnerID:           5,
 		WorkflowID:        "expr-runid.yaml",
 		TriggerUserID:     1,
 		Ref:               "refs/heads/master",
@@ -94,6 +96,90 @@ jobs:
 	// Rerun reads raw_concurrency from the DB to re-evaluate the group;
 	// see services/actions/rerun.go. Must survive the insert.
 	assert.NotEmpty(t, persisted.RawConcurrency)
+}
+
+func TestPrepareRunAndInsertOrganizationTriggerCannotQueue(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	require.NoError(t, actions_model.AddScopedWorkflowSource(ctx, 3, 3))
+	require.NoError(t, actions_model.SetScopedWorkflowSourceConfigs(ctx, 3, 3, map[string]*actions_model.ScopedWorkflowConfig{
+		"deploy-key.yaml": {Required: true},
+	}))
+	const commit = "c2d72f548424103f01ee1dc02889c1e2bff816b0"
+	run := &actions_model.ActionRun{
+		RepoID: 3, OwnerID: 3, WorkflowRepoID: 3, WorkflowID: "deploy-key.yaml",
+		IsScopedRun:   true,
+		TriggerUserID: 3, Ref: "refs/heads/master", CommitSHA: commit,
+		WorkflowCommitSHA: commit, Event: "push", TriggerEvent: "push", EventPayload: "{}",
+	}
+	content := []byte("on: push\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n")
+	require.NoError(t, PrepareRunAndInsert(ctx, content, run, nil))
+	stored := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{ID: run.ID})
+	assert.Equal(t, actions_model.StatusCancelled, stored.Status)
+	attempt := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunAttempt{ID: stored.LatestAttemptID})
+	assert.Equal(t, actions_model.StatusCancelled, attempt.Status)
+	jobs, err := actions_model.GetRunJobsByRunAndAttemptID(ctx, run.ID, attempt.ID)
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, actions_model.StatusCancelled, jobs[0].Status)
+	assert.Zero(t, jobs[0].TaskID)
+
+	repo, err := repo_model.GetRepositoryByID(ctx, run.RepoID)
+	require.NoError(t, err)
+	require.NoError(t, repo.LoadUnits(ctx))
+	human, err := user_model.GetUserByID(ctx, 1)
+	require.NoError(t, err)
+	rerunAttempt, err := RerunWorkflowRunJobs(ctx, repo, stored, human, nil)
+	require.NoError(t, err)
+	assert.Equal(t, human.ID, rerunAttempt.TriggerUserID)
+	assert.Equal(t, actions_model.StatusWaiting, rerunAttempt.Status)
+	rerunJobs, err := actions_model.GetRunJobsByRunAndAttemptID(ctx, run.ID, rerunAttempt.ID)
+	require.NoError(t, err)
+	require.Len(t, rerunJobs, 1)
+	assert.Equal(t, actions_model.StatusWaiting, rerunJobs[0].Status)
+
+	humanRun := &actions_model.ActionRun{
+		RepoID: 3, OwnerID: 3, WorkflowRepoID: 3, WorkflowID: "human.yaml",
+		TriggerUserID: human.ID, Ref: "refs/heads/master", CommitSHA: commit,
+		WorkflowCommitSHA: commit, Event: "push", TriggerEvent: "push", EventPayload: "{}",
+	}
+	require.NoError(t, PrepareRunAndInsert(ctx, content, humanRun, nil))
+	assert.Equal(t, actions_model.StatusWaiting, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{ID: humanRun.ID}).Status)
+
+	_, err = db.GetEngine(ctx).Table("branch").Where("repo_id = ? AND name = ?", repo.ID, repo.DefaultBranch).
+		Cols("commit_id").Update(&struct{ CommitID string }{CommitID: commit})
+	require.NoError(t, err)
+	schedule := &actions_model.ActionSchedule{RepoID: 3, OwnerID: 3, ScopeRevision: repo.ActionsScopeRevision, TriggerUserID: user_model.ActionsUserID, WorkflowID: "schedule.yaml", Ref: "refs/heads/master", CommitSHA: commit}
+	require.NoError(t, db.Insert(ctx, schedule))
+	scheduledRun := &actions_model.ActionRun{
+		RepoID: 3, OwnerID: 3, WorkflowRepoID: 3, WorkflowID: "schedule.yaml", ScheduleID: schedule.ID,
+		TriggerUserID: user_model.ActionsUserID, Ref: "refs/heads/master", CommitSHA: commit,
+		WorkflowCommitSHA: commit, Event: "schedule", TriggerEvent: "schedule", EventPayload: "{}",
+	}
+	require.NoError(t, PrepareRunAndInsert(ctx, content, scheduledRun, nil))
+	assert.Equal(t, actions_model.StatusWaiting, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRun{ID: scheduledRun.ID}).Status)
+}
+
+func TestPrepareRunAndInsertRejectsChangedScopedSource(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	ctx := t.Context()
+	require.NoError(t, actions_model.AddScopedWorkflowSource(ctx, 2, 1))
+	_, err := db.GetEngine(ctx).ID(1).Incr("actions_scope_revision").Update(new(repo_model.Repository))
+	require.NoError(t, err)
+	run := &actions_model.ActionRun{
+		RepoID: 2, OwnerID: 2, WorkflowRepoID: 1, IsScopedRun: true,
+		WorkflowID: "source.yaml", WorkflowSourceScopeRevision: 0,
+		TriggerUserID: 2, Ref: "refs/heads/master", Event: "push", TriggerEvent: "push",
+		CommitSHA: "c2d72f548424103f01ee1dc02889c1e2bff816b0", EventPayload: "{}",
+	}
+	err = PrepareRunAndInsert(ctx, []byte("on: push\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"), run, nil)
+	require.ErrorIs(t, err, governance_model.ErrConflict)
+	if run.ID != 0 {
+		exists, err := db.ExistByID[actions_model.ActionRun](ctx, run.ID)
+		require.NoError(t, err)
+		require.False(t, exists)
+	}
 }
 
 func TestComputeReusableCallerOutputs(t *testing.T) {
@@ -390,4 +476,27 @@ func TestGenerateGiteaContext_NilAttempt(t *testing.T) {
 	assert.Equal(t, actor.Name, gitCtx["actor"])
 	assert.Equal(t, triggerer.Name, gitCtx["triggering_actor"])
 	assert.Equal(t, "3", gitCtx["run_attempt"])
+}
+
+func TestGenerateGiteaContextProtectedRefUsesCurrentRules(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 4})
+	require.NoError(t, repo.LoadOwner(ctx))
+	actor := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	run := &actions_model.ActionRun{
+		RepoID: repo.ID, Repo: repo, OwnerID: repo.OwnerID, TriggerUser: actor,
+		Ref: "refs/heads/protected-demo", CommitSHA: "synthetic-commit", TriggerEvent: actions_module.GithubEventPush,
+	}
+	assert.Equal(t, false, GenerateGiteaContext(ctx, run, nil, nil)["ref_protected"])
+	rule := &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "protected-demo"}
+	require.NoError(t, db.Insert(ctx, rule))
+	require.NoError(t, db.Insert(ctx, &git_model.Branch{RepoID: repo.ID, Name: "protected-demo", CommitID: "synthetic-commit"}))
+	protected, err := git_model.IsBranchProtected(ctx, repo.ID, "protected-demo")
+	require.NoError(t, err)
+	require.True(t, protected)
+	assert.Equal(t, true, GenerateGiteaContext(ctx, run, nil, nil)["ref_protected"])
+	run.TriggerEvent = actions_module.GithubEventPullRequestTarget
+	assert.Equal(t, false, GenerateGiteaContext(ctx, run, nil, nil)["ref_protected"])
 }

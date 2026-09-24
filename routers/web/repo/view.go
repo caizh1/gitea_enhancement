@@ -37,6 +37,7 @@ import (
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/typesniffer"
 	"gitea.dev/modules/util"
+	actions_service "gitea.dev/services/actions"
 	asymkey_service "gitea.dev/services/asymkey"
 	"gitea.dev/services/context"
 	repo_service "gitea.dev/services/repository"
@@ -142,6 +143,10 @@ func loadLatestCommitData(ctx *context.Context, latestCommit *git.Commit) bool {
 		statuses, err := git_model.GetLatestCommitStatus(ctx, ctx.Repo.Repository.ID, latestCommit.ID.String(), db.ListOptionsAll)
 		if err != nil {
 			log.Error("GetLatestCommitStatus: %v", err)
+		}
+		if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, statuses); err != nil {
+			ctx.ServerError("RedactScopedCommitStatusContexts", err)
+			return false
 		}
 		if !ctx.Repo.Permission.CanRead(unit_model.TypeActions) {
 			git_model.CommitStatusesHideActionsURL(ctx, statuses)

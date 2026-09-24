@@ -65,7 +65,8 @@ func CheckTaskIsRunning(ctx context.Context, taskID int64) bool {
 	}
 
 	// Verify that it's running
-	return task.Status == actions_model.StatusRunning
+	valid, err := actions.TaskCredentialValid(ctx, task)
+	return err == nil && valid && task.Status == actions_model.StatusRunning
 }
 
 // OAuth2 implements the Auth interface and authenticates requests
@@ -116,6 +117,7 @@ func (o *OAuth2) userFromToken(ctx context.Context, tokenSHA string, store DataS
 			if CheckTaskIsRunning(ctx, taskID) {
 				return user_model.NewActionsUserWithTaskID(taskID), nil
 			}
+			return nil, util.ErrNotExist
 		}
 
 		// Otherwise, check if this is an OAuth access token
@@ -131,8 +133,10 @@ func (o *OAuth2) userFromToken(ctx context.Context, tokenSHA string, store DataS
 		if errors.Is(err, util.ErrNotExist) {
 			// check task token
 			if task, err := actions_model.GetRunningTaskByToken(ctx, tokenSHA); err == nil {
-				log.Trace("Basic Authorization: Valid AccessToken for task[%d]", task.ID)
-				return user_model.NewActionsUserWithTaskID(task.ID), nil
+				if valid, validErr := actions.TaskCredentialValid(ctx, task); validErr == nil && valid {
+					log.Trace("Basic Authorization: Valid AccessToken for task[%d]", task.ID)
+					return user_model.NewActionsUserWithTaskID(task.ID), nil
+				}
 			}
 		}
 		return nil, err

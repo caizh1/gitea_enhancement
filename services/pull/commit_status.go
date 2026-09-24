@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
@@ -75,20 +76,21 @@ func IsPullCommitStatusPass(ctx context.Context, pr *issues_model.PullRequest) (
 	if err != nil {
 		return false, fmt.Errorf("GetFirstMatchProtectedBranchRule: %w", err)
 	}
-	if pb == nil {
-		return true, nil
-	}
-	if !pb.EnableStatusCheck {
-		// The branch's own status check is off, but required scoped checks (mandated by the owner or instance admin) still gate the merge.
+	if pb == nil || !pb.EnableStatusCheck {
 		if err := pr.LoadBaseRepo(ctx); err != nil {
 			return false, err
 		}
-		required, err := EffectiveRequiredContexts(ctx, pr.BaseRepo, pb)
+		sources, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, pr.BaseRepo.OwnerID)
 		if err != nil {
 			return false, err
 		}
-		if len(required) == 0 {
-			// With none in effect there is nothing to enforce, so don't block
+		required := false
+		for _, source := range sources {
+			for _, cfg := range source.WorkflowConfigs {
+				required = required || cfg != nil && cfg.Required
+			}
+		}
+		if !required {
 			return true, nil
 		}
 	}
@@ -139,27 +141,38 @@ func GetPullRequestCommitStatusState(ctx context.Context, pr *issues_model.PullR
 		return "", fmt.Errorf("LoadBaseRepo: %w", err)
 	}
 
-	commitStatuses, err := git_model.GetLatestCommitStatus(ctx, pr.BaseRepo.ID, sha, db.ListOptionsAll)
-	if err != nil {
-		return "", fmt.Errorf("GetLatestCommitStatus: %w", err)
-	}
-
 	pb, err := git_model.GetFirstMatchProtectedBranchRule(ctx, pr.BaseRepoID, pr.BaseBranch)
 	if err != nil {
 		return "", fmt.Errorf("LoadProtectedBranch: %w", err)
 	}
-	requiredContexts, err := EffectiveRequiredContexts(ctx, pr.BaseRepo, pb)
+	scopedSnapshot, err := captureRequiredScopedSourceSnapshot(ctx, pr.BaseRepo)
 	if err != nil {
+		if errors.Is(err, ErrNotReadyToMerge) {
+			return commitstatus.CommitStatusPending, nil
+		}
 		return "", err
 	}
-
-	return MergeRequiredContextsCommitStatus(commitStatuses, requiredContexts), nil
+	if _, err := checkRequiredScopedRunsAtSnapshot(ctx, pr.BaseRepo, sha, scopedSnapshot); err != nil {
+		if errors.Is(err, ErrNotReadyToMerge) {
+			return commitstatus.CommitStatusPending, nil
+		}
+		return "", err
+	}
+	if pb == nil || !pb.EnableStatusCheck {
+		return commitstatus.CommitStatusSuccess, nil
+	}
+	commitStatuses, err := git_model.GetLatestCommitStatus(ctx, pr.BaseRepo.ID, sha, db.ListOptionsAll)
+	if err != nil {
+		return "", fmt.Errorf("GetLatestCommitStatus: %w", err)
+	}
+	return MergeRequiredContextsCommitStatus(commitStatuses, pb.StatusCheckContexts), nil
 }
 
-// EffectiveRequiredContexts returns the required status-check contexts to enforce, drawn from:
-//  1. every required scoped workflow's status-check patterns effective for the repo (always)
+// EffectiveRequiredContexts returns contexts for status display and scoped workflow filtering, drawn from:
+//  1. every required scoped workflow's configured job patterns
 //  2. each given protected branch rule's own configured contexts, only when that rule's status check is enabled
 //
+// Final merge authorization checks scoped runs directly; these patterns are not proof of a run.
 // Passing no rule or a single nil rule yields nothing, not even scoped patterns.
 // A single rule yields that rule's effective contexts.
 // Passing several rules unions their effective contexts; this is used when the governing rule is not yet known.
@@ -176,14 +189,21 @@ func EffectiveRequiredContexts(ctx context.Context, repo *repo_model.Repository,
 
 	required := make(container.Set[string])
 
-	// Every required scoped workflow's admin-authored status-check patterns, matched must-present-and-pass:
-	// a required scoped check that posts no matching status blocks the merge.
+	// Keep scoped patterns for filtered-workflow status creation and settings previews.
 	for _, source := range sources {
 		for _, cfg := range source.WorkflowConfigs {
-			if !cfg.Required {
+			if cfg == nil || !cfg.Required {
 				continue
 			}
-			required.AddMultiple(cfg.Patterns...)
+			legacyPrefix := actions_model.LegacyScopedStatusContextPrefix(ctx, source.SourceRepoID)
+			if legacyPrefix == "" {
+				required.Add(actions_model.ScopedStatusContextPrefix(ctx, source.SourceRepoID) + ": unavailable")
+				continue
+			}
+			for _, pattern := range cfg.Patterns {
+				pattern = strings.ReplaceAll(pattern, legacyPrefix, actions_model.ScopedStatusContextPrefix(ctx, source.SourceRepoID))
+				required.Add(pattern)
+			}
 		}
 	}
 

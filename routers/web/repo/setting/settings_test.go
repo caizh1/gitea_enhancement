@@ -201,6 +201,7 @@ func TestCollaborationPost_NonExistentUser(t *testing.T) {
 func TestAddTeamPost(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	ctx, _ := contexttest.MockContext(t, "org26/repo43")
+	ctx.Doer = unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
 
 	ctx.Req.Form.Set("team", "team11")
 
@@ -269,6 +270,7 @@ func TestAddTeamPost_NotAllowed(t *testing.T) {
 func TestAddTeamPost_AddTeamTwice(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	ctx, _ := contexttest.MockContext(t, "org26/repo43")
+	ctx.Doer = unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
 
 	ctx.Req.Form.Set("team", "team11")
 
@@ -343,6 +345,7 @@ func TestAddTeamPost_NonExistentTeam(t *testing.T) {
 func TestDeleteTeam(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	ctx, _ := contexttest.MockContext(t, "org3/team1/repo3")
+	ctx.Doer = unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
 
 	ctx.Req.Form.Set("id", "2")
 

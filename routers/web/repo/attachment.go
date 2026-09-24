@@ -4,6 +4,7 @@
 package repo
 
 import (
+	stdcontext "context"
 	"net/http"
 
 	auth_model "gitea.dev/models/auth"
@@ -41,7 +42,9 @@ func UploadIssueAttachment(ctx *context.Context) {
 
 // UploadReleaseAttachment response for uploading release attachments
 func UploadReleaseAttachment(ctx *context.Context) {
-	uploadAttachment(ctx, ctx.Repo.Repository.ID, attachment.UploadAttachmentForRelease)
+	uploadAttachment(ctx, ctx.Repo.Repository.ID, func(uploadCtx stdcontext.Context, file *attachment.UploaderFile, attach *repo_model.Attachment) (*repo_model.Attachment, error) {
+		return attachment.UploadAttachmentForRelease(uploadCtx, file, attach, ctx.Doer)
+	})
 }
 
 // UploadAttachment response for uploading attachments
@@ -81,6 +84,14 @@ func uploadAttachment(ctx *context.Context, repoID int64, uploadFunc attachment.
 
 // DeleteAttachment response for deleting issue's attachment
 func DeleteAttachment(ctx *context.Context) {
+	deleteAttachment(ctx, false)
+}
+
+func DeleteReleaseAttachment(ctx *context.Context) {
+	deleteAttachment(ctx, true)
+}
+
+func deleteAttachment(ctx *context.Context, release bool) {
 	file := ctx.FormString("file")
 	attach, err := repo_model.GetAttachmentByUUID(ctx, file)
 	if err != nil {
@@ -122,7 +133,11 @@ func DeleteAttachment(ctx *context.Context) {
 		}
 	}
 
-	err = repo_model.DeleteAttachment(ctx, attach, true)
+	if release {
+		err = attachment.DeleteReleaseAttachment(ctx, ctx.Doer, ctx.Repo.Repository.ID, attach)
+	} else {
+		err = repo_model.DeleteAttachment(ctx, attach, true)
+	}
 	if err != nil {
 		ctx.ServerError("DeleteAttachment", err)
 		return

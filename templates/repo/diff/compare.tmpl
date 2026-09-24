@@ -15,14 +15,14 @@
 		</h2>
 		{{template "base/alert" .}}
 		{{$BaseCompareName := $.Repository.FullPath -}}
-		{{$HeadCompareName := $.HeadRepo.FullName -}}
+		{{$HeadCompareName := $.HeadRepo.FullPath -}}
 		{{$OwnForkCompareName := "" -}}
 		{{if $.OwnForkRepo -}}
-			{{$OwnForkCompareName = $.OwnForkRepo.FullName -}}
+			{{$OwnForkCompareName = $.OwnForkRepo.FullPath -}}
 		{{end -}}
 		{{$RootRepoCompareName := "" -}}
 		{{if $.RootRepo -}}
-			{{$RootRepoCompareName = $.RootRepo.FullName -}}
+			{{$RootRepoCompareName = $.RootRepo.FullPath -}}
 		{{end -}}
 
 		<div class="ui segment choose branch">

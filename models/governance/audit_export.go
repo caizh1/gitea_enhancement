@@ -27,14 +27,24 @@ type AuditExport struct {
 	AncestorIDs []int64     `xorm:"JSON TEXT" json:"-"`
 	CreatedAt   time.Time   `xorm:"NOT NULL" json:"created_at"`
 	ExpiresAt   time.Time   `xorm:"INDEX NOT NULL" json:"expires_at"`
-	MaxID       int64       `json:"max_sequence"`
-	SegmentFrom time.Time   `json:"-"`
-	CursorID    int64       `json:"-"`
-	Chunks      int64       `json:"-"`
-	Rows        int64       `json:"rows"`
+	MaxID       int64       `json:"-"`
+	// MaxSequence 表示授权筛选范围内、导出快照上界以内的最大事件序号；无匹配事件时为 0。
+	MaxSequence int64     `xorm:"-" json:"max_sequence"`
+	SegmentFrom time.Time `json:"-"`
+	CursorID    int64     `json:"-"`
+	Chunks      int64     `json:"-"`
+	Rows        int64     `json:"rows"`
 }
 
 func (*AuditExport) TableName() string { return "governance_audit_export" }
+
+// SetResponseMaxSequence 必须在调用者的授权事务内使用；全局快照上界不对外返回。
+func (job *AuditExport) SetResponseMaxSequence(ctx context.Context) error {
+	var latest AuditEvent
+	_, err := db.GetEngine(ctx).Where(auditCondition(ctx, job.Filter)).And(builder.Lte{"id": job.MaxID}).Cols("id").Desc("id").Get(&latest)
+	job.MaxSequence = latest.ID
+	return err
+}
 
 type AuditExportChunk struct {
 	ID       int64         `xorm:"pk autoincr"`
@@ -101,6 +111,9 @@ func CreateAuditExport(ctx context.Context, actor Actor, filter AuditFilter, for
 			return err
 		}
 		job.MaxID = latest.ID
+		if err := job.SetResponseMaxSequence(ctx); err != nil {
+			return err
+		}
 		if err := db.Insert(ctx, job); err != nil {
 			return err
 		}

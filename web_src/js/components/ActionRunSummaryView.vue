@@ -113,6 +113,7 @@ onBeforeUnmount(() => {
         <span class="action-run-summary-stat-value">{{ artifactsDisplay }}</span>
       </div>
     </div>
+    <div v-if="run.cancellationReason" class="ui warning message">{{ run.cancellationReason }}</div>
     <WorkflowGraph
       v-if="topLevelJobs.length > 0"
       :store="store"

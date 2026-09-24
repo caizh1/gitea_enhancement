@@ -230,6 +230,19 @@ func TestAPITeam(t *testing.T) {
 	unittest.AssertNotExistsBean(t, &organization.Team{ID: teamID})
 }
 
+func TestAPIOwnerTeamRenameConflict(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	owner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 1})
+	session := loginUser(t, owner.Name)
+	token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteOrganization)
+	req := NewRequestWithJSON(t, http.MethodPatch, fmt.Sprintf("/api/v1/teams/%d", team.ID), &api.EditTeamOption{Name: "renamed-owners"}).AddTokenAuth(token)
+	resp := MakeRequest(t, req, http.StatusConflict)
+	assert.Contains(t, resp.Body.String(), "原生 Owners 团队不能改名")
+	unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: team.ID, Name: organization.OwnerTeamName})
+	unittest.AssertExistsAndLoadBean(t, &organization.TeamUser{TeamID: team.ID, UID: owner.ID})
+}
+
 func checkTeamResponse(t *testing.T, testName string, apiTeam *api.Team, name, description string, includesAllRepositories bool, permission api.AccessLevelName, units []string, unitsMap map[string]string) {
 	t.Run(testName, func(t *testing.T) {
 		assert.Equal(t, name, apiTeam.Name, "name")

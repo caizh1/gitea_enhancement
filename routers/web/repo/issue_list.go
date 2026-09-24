@@ -16,6 +16,7 @@ import (
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -28,6 +29,7 @@ import (
 	"gitea.dev/routers/common"
 	"gitea.dev/routers/web/shared/issue"
 	shared_user "gitea.dev/routers/web/shared/user"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	issue_service "gitea.dev/services/issue"
@@ -576,6 +578,12 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 		ctx.ServerError("GetIssuesAllCommitStatus", err)
 		return
 	}
+	for _, statuses := range commitStatuses {
+		if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, statuses); err != nil {
+			ctx.ServerError("RedactScopedCommitStatusContexts", err)
+			return
+		}
+	}
 	if !ctx.Repo.Permission.CanRead(unit.TypeActions) {
 		for key := range commitStatuses {
 			git_model.CommitStatusesHideActionsURL(ctx, commitStatuses[key])
@@ -592,7 +600,7 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 	ctx.Data["CommitStatuses"] = commitStatuses
 
 	// Get assignees.
-	assigneeUsers, err := repo_model.GetRepoAssignees(ctx, repo)
+	assigneeUsers, err := access_model.GetRepoAssignees(ctx, repo)
 	if err != nil {
 		ctx.ServerError("GetRepoAssignees", err)
 		return

@@ -722,7 +722,7 @@ func TestPackageCleanup(t *testing.T) {
 					pv, err := packages_model.GetVersionByNameAndVersion(t.Context(), user.ID, packages_model.TypeGeneric, "package", v.Version)
 					if v.ShouldExist {
 						assert.NoError(t, err)
-						err = packages_service.DeletePackageVersionAndReferences(t.Context(), pv)
+						err = packages_service.DeletePackageVersionAndReferencesForCleanup(t.Context(), pv)
 						assert.NoError(t, err)
 					} else {
 						assert.ErrorIs(t, err, packages_model.ErrPackageNotExist, v.Version)

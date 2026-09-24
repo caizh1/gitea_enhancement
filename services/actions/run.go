@@ -6,11 +6,16 @@ package actions
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/actions/jobparser"
 	"gitea.dev/modules/log"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
 	act_model "gitea.com/gitea/runner/act/model"
@@ -59,6 +64,23 @@ func PrepareRunAndInsert(ctx context.Context, content []byte, run *actions_model
 // InsertRun inserts a run
 // The title will be cut off at 255 characters if it's longer than 255 characters.
 func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte, vars map[string]string, inputs map[string]any, wfRawConcurrency *act_model.RawConcurrency) error {
+	var organizationTrigger bool
+	if run.TriggerUserID > 0 {
+		trigger, err := user_model.GetUserByID(ctx, run.TriggerUserID)
+		if err != nil {
+			return err
+		}
+		organizationTrigger = trigger.IsOrganization()
+	}
+	preparedRepo := run.Repo
+	if preparedRepo == nil {
+		var err error
+		preparedRepo, err = repo_model.GetRepositoryByID(ctx, run.RepoID)
+		if err != nil {
+			return err
+		}
+	}
+	ownerID, ownerNamespace, scopeRevision := preparedRepo.OwnerID, preparedRepo.OwnerNamespace, preparedRepo.ActionsScopeRevision
 	var cancelledConcurrencyJobs []*actions_model.ActionRunJob
 	var needPostCommitEmit bool
 	if err := db.WithTx(ctx, func(ctx context.Context) error {
@@ -69,6 +91,22 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 		run.Index = index
 		run.Title = util.EllipsisDisplayString(run.Title, 255)
 		run.Status = actions_model.StatusWaiting
+		if organizationTrigger {
+			run.Status = actions_model.StatusCancelled
+			run.Stopped = timeutil.TimeStampNow()
+		}
+		if run.IsScopedRun {
+			sources, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, run.OwnerID)
+			if err != nil {
+				return err
+			}
+			run.ScopedConfigRevisions = make(map[string]int64)
+			for _, source := range sources {
+				if source.SourceRepoID == run.WorkflowRepoID && source.SourceScopeRevision == run.WorkflowSourceScopeRevision {
+					run.ScopedConfigRevisions[strconv.FormatInt(source.ID, 10)] = source.ConfigRevision
+				}
+			}
+		}
 
 		if wfRawConcurrency != nil {
 			rawConcurrency, err := yaml.Marshal(wfRawConcurrency)
@@ -94,18 +132,24 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 			TriggerUserID: run.TriggerUserID,
 			Status:        actions_model.StatusWaiting,
 		}
+		if organizationTrigger {
+			runAttempt.Status = actions_model.StatusCancelled
+			runAttempt.Stopped = run.Stopped
+		}
 
 		if wfRawConcurrency != nil {
-			if err := EvaluateRunConcurrencyFillModel(ctx, run, runAttempt, wfRawConcurrency, vars, inputs); err != nil {
-				return fmt.Errorf("EvaluateRunConcurrencyFillModel: %w", err)
+			if !organizationTrigger {
+				if err := EvaluateRunConcurrencyFillModel(ctx, run, runAttempt, wfRawConcurrency, vars, inputs); err != nil {
+					return fmt.Errorf("EvaluateRunConcurrencyFillModel: %w", err)
+				}
+				// check run (workflow-level) concurrency
+				var jobsToCancel []*actions_model.ActionRunJob
+				runAttempt.Status, jobsToCancel, err = PrepareToStartRunWithConcurrency(ctx, runAttempt)
+				if err != nil {
+					return err
+				}
+				cancelledConcurrencyJobs = append(cancelledConcurrencyJobs, jobsToCancel...)
 			}
-			// check run (workflow-level) concurrency
-			var jobsToCancel []*actions_model.ActionRunJob
-			runAttempt.Status, jobsToCancel, err = PrepareToStartRunWithConcurrency(ctx, runAttempt)
-			if err != nil {
-				return err
-			}
-			cancelledConcurrencyJobs = append(cancelledConcurrencyJobs, jobsToCancel...)
 		}
 
 		if err := db.Insert(ctx, runAttempt); err != nil {
@@ -134,7 +178,7 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 		runJobs := make([]*actions_model.ActionRunJob, 0, len(jobs))
 		var hasWaitingJobs bool
 		for _, v := range jobs {
-			runJob, jobsToCancel, jobNeedsPostCommitEmit, err := insertRunJob(ctx, run, runAttempt, v, vars, inputs)
+			runJob, jobsToCancel, jobNeedsPostCommitEmit, err := insertRunJob(ctx, run, runAttempt, v, vars, inputs, organizationTrigger)
 			if err != nil {
 				return err
 			}
@@ -145,7 +189,9 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 			runJobs = append(runJobs, runJob)
 		}
 
-		runAttempt.Status = actions_model.AggregateJobStatus(runJobs)
+		if !organizationTrigger || len(runJobs) > 0 {
+			runAttempt.Status = actions_model.AggregateJobStatus(runJobs)
+		}
 		if err := actions_model.UpdateRunAttempt(ctx, runAttempt, "status"); err != nil {
 			return err
 		}
@@ -160,7 +206,34 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 			return err
 		}
 
-		return nil
+		return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+			freshRepo, err := repo_model.GetRepositoryByID(ctx, run.RepoID)
+			if err != nil {
+				return err
+			}
+			if freshRepo.OwnerID != ownerID || run.OwnerID != ownerID || freshRepo.OwnerNamespace != ownerNamespace || freshRepo.ActionsScopeRevision != scopeRevision || freshRepo.IsArchived {
+				return fmt.Errorf("%w：工作流准备期间仓库归属或生命周期已变化，请重新触发", governance_model.ErrConflict)
+			}
+			if run.IsScopedRun {
+				valid, err := actions_model.ScopedWorkflowRunValid(ctx, run)
+				if err != nil {
+					return err
+				}
+				if !valid {
+					return fmt.Errorf("%w：工作流来源已失效，请重新触发", governance_model.ErrConflict)
+				}
+			}
+			if run.ScheduleID != 0 {
+				valid, err := actions_model.ScheduledRunValidForWrite(ctx, run, freshRepo)
+				if err != nil {
+					return err
+				}
+				if !valid {
+					return fmt.Errorf("%w：定时计划的仓库范围已变化，请重新检测并触发工作流", governance_model.ErrConflict)
+				}
+			}
+			return nil
+		})
 	}); err != nil {
 		return err
 	}
@@ -183,7 +256,7 @@ func InsertRun(ctx context.Context, run *actions_model.ActionRun, content []byte
 // inline-expands (or skips) it. It returns the inserted job, any jobs cancelled by
 // job concurrency, and whether a post-commit emitter pass is needed to resolve the
 // caller's dependents.
-func insertRunJob(ctx context.Context, run *actions_model.ActionRun, runAttempt *actions_model.ActionRunAttempt, workflowJob *jobparser.SingleWorkflow, vars map[string]string, inputs map[string]any) (*actions_model.ActionRunJob, []*actions_model.ActionRunJob, bool, error) {
+func insertRunJob(ctx context.Context, run *actions_model.ActionRun, runAttempt *actions_model.ActionRunAttempt, workflowJob *jobparser.SingleWorkflow, vars map[string]string, inputs map[string]any, organizationTrigger bool) (*actions_model.ActionRunJob, []*actions_model.ActionRunJob, bool, error) {
 	id, job := workflowJob.Job()
 	needs := job.Needs()
 	if err := workflowJob.SetJob(id, job.EraseNeeds()); err != nil {
@@ -219,6 +292,10 @@ func insertRunJob(ctx context.Context, run *actions_model.ActionRun, runAttempt 
 		WorkflowSourceCommitSHA: run.WorkflowCommitSHA,
 		ContinueOnError:         job.GetContinueOnError(),
 	}
+	if organizationTrigger {
+		runJob.Status = actions_model.StatusCancelled
+		runJob.Stopped = runAttempt.Stopped
+	}
 	// Parse workflow/job permissions (no clamping here)
 	if perms := ExtractJobPermissionsFromWorkflow(workflowJob, job); perms != nil {
 		runJob.TokenPermissions = perms
@@ -239,7 +316,7 @@ func insertRunJob(ctx context.Context, run *actions_model.ActionRun, runAttempt 
 		runJob.RawConcurrency = string(rawConcurrency)
 
 		// do not evaluate job concurrency when it requires `needs`, the jobs with `needs` will be evaluated later by job emitter
-		if len(needs) == 0 {
+		if len(needs) == 0 && !organizationTrigger {
 			if err := EvaluateJobConcurrencyFillModel(ctx, run, runAttempt, runJob, vars, inputs); err != nil {
 				return nil, nil, false, fmt.Errorf("evaluate job concurrency: %w", err)
 			}

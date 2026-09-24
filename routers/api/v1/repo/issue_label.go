@@ -6,6 +6,7 @@ package repo
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"reflect"
 
@@ -110,7 +111,7 @@ func AddIssueLabels(ctx *context.APIContext) {
 	}
 
 	if err = issue_service.AddLabels(ctx, issue, ctx.Doer, labels); err != nil {
-		ctx.APIErrorInternal(err)
+		ctx.APIErrorAuto(err)
 		return
 	}
 
@@ -239,7 +240,7 @@ func ReplaceIssueLabels(ctx *context.APIContext) {
 	}
 
 	if err := issue_service.ReplaceLabels(ctx, issue, ctx.Doer, labels); err != nil {
-		ctx.APIErrorInternal(err)
+		ctx.APIErrorAuto(err)
 		return
 	}
 
@@ -331,6 +332,10 @@ func prepareForReplaceOrAdd(ctx *context.APIContext, form api.IssueLabelsOption)
 		rv := reflect.ValueOf(label)
 		switch rv.Kind() {
 		case reflect.Float64:
+			if rv.Float() <= 0 || rv.Float() >= math.Exp2(53) || math.Trunc(rv.Float()) != rv.Float() {
+				ctx.APIError(http.StatusBadRequest, "a label ID must be a positive integer")
+				return nil, nil, errors.New("invalid label ID")
+			}
 			labelIDs = append(labelIDs, int64(rv.Float()))
 		case reflect.String:
 			labelNames = append(labelNames, rv.String())
@@ -344,26 +349,29 @@ func prepareForReplaceOrAdd(ctx *context.APIContext, form api.IssueLabelsOption)
 		return nil, nil, errors.New("invalid labels")
 	}
 	if len(labelNames) > 0 {
-		repoLabelIDs, err := issues_model.GetLabelIDsInRepoByNames(ctx, ctx.Repo.Repository.ID, labelNames)
+		labelIDs, err = issues_model.GetLabelIDsInRepoOrAncestorsByNames(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), labelNames)
 		if err != nil {
 			ctx.APIErrorInternal(err)
 			return nil, nil, err
 		}
-		labelIDs = append(labelIDs, repoLabelIDs...)
-		if ctx.Repo.Owner.IsOrganization() {
-			orgLabelIDs, err := issues_model.GetLabelIDsInOrgByNames(ctx, ctx.Repo.Owner.ID, labelNames)
-			if err != nil {
-				ctx.APIErrorInternal(err)
-				return nil, nil, err
-			}
-			labelIDs = append(labelIDs, orgLabelIDs...)
-		}
 	}
 
-	labels, err := issues_model.GetLabelsByIDs(ctx, labelIDs, "id", "repo_id", "org_id", "name", "exclusive")
+	labels, err := issues_model.GetLabelsInRepoOrAncestorsByIDs(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), labelIDs)
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return nil, nil, err
+	}
+	if len(labelNames) == 0 {
+		found := make(map[int64]bool, len(labels))
+		for _, label := range labels {
+			found[label.ID] = true
+		}
+		for _, id := range labelIDs {
+			if !found[id] {
+				ctx.APIErrorNotFound()
+				return nil, nil, errors.New("label is outside repository scope")
+			}
+		}
 	}
 
 	return issue, labels, err

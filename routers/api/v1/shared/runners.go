@@ -14,8 +14,10 @@ import (
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
+	governance_service "gitea.dev/services/governance"
 )
 
 // RegistrationToken is response related to registration token
@@ -25,11 +27,13 @@ type RegistrationToken struct {
 }
 
 func GetRegistrationToken(ctx *context.APIContext, ownerID, repoID int64) {
-	token, err := actions_model.GetLatestRunnerToken(ctx, ownerID, repoID)
-	if errors.Is(err, util.ErrNotExist) || (token != nil && !token.IsActive) {
-		token, err = actions_model.NewRunnerToken(ctx, ownerID, repoID)
-	}
+	actor := governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr())
+	token, err := actions_service.GetRunnerRegistrationToken(ctx, actor, ownerID, repoID, false)
 	if err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.APIError(http.StatusForbidden, err.Error())
+			return
+		}
 		ctx.APIErrorInternal(err)
 		return
 	}

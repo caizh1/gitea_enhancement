@@ -13,6 +13,7 @@ import (
 	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	access_model "gitea.dev/models/perm/access"
 	secret_model "gitea.dev/models/secret"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/log"
@@ -31,6 +32,16 @@ func taskPickLimiter() chan struct{} {
 		taskPickSem = make(chan struct{}, setting.Actions.MaxConcurrentTaskPicks)
 	})
 	return taskPickSem
+}
+
+// TaskCredentialValid also checks whether the triggerer still has source
+// repository access when a private workflow was issued from that identity.
+func TaskCredentialValid(ctx context.Context, task *actions_model.ActionTask) (bool, error) {
+	valid, err := actions_model.TaskCredentialValid(ctx, task)
+	if err != nil || !valid {
+		return valid, err
+	}
+	return access_model.TaskTriggererCanReadSource(ctx, task)
 }
 
 // TryPickTask attempts to assign a task to the runner, bounding the number of
@@ -92,7 +103,18 @@ func PickTask(ctx context.Context, runner *actions_model.ActionRunner) (*runnerv
 		}
 	}
 
-	t, ok, err := actions_model.CreateTaskForRunner(ctx, runner)
+	t, ok, err := actions_model.CreateTaskForRunnerWithPayload(ctx, runner, func(ctx context.Context, t *actions_model.ActionTask) error {
+		valid, authErr := TaskCredentialValid(ctx, t)
+		if authErr != nil {
+			return authErr
+		}
+		if !valid {
+			return actions_model.ErrTaskIneligible
+		}
+		var buildErr error
+		task, job, buildErr = buildRunnerTask(ctx, t)
+		return buildErr
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("CreateTaskForRunner: %w", err)
 	}
@@ -100,14 +122,6 @@ func PickTask(ctx context.Context, runner *actions_model.ActionRunner) (*runnerv
 		return nil, false, nil
 	}
 
-	task, job, err = buildRunnerTask(ctx, t)
-	if err != nil {
-		// The job was already claimed but assembling its payload failed; release the
-		// claim so the job returns to the waiting queue instead of being stranded in
-		// running state with no runner ever executing it.
-		releaseTaskForRunnerCleanup(t)
-		return nil, false, err
-	}
 	actionTask = t
 
 	CreateCommitStatusForRunJobs(ctx, job.Run, job)
@@ -129,7 +143,7 @@ func PickTask(ctx context.Context, runner *actions_model.ActionRunner) (*runnerv
 }
 
 // buildRunnerTask assembles the runner-facing task payload for an already-claimed
-// task. All operations are read-only; on error the caller releases the claim.
+// task. All operations are read-only; an error rolls back the claim transaction.
 func buildRunnerTask(ctx context.Context, t *actions_model.ActionTask) (*runnerv1.Task, *actions_model.ActionRunJob, error) {
 	if err := t.LoadAttributes(ctx); err != nil {
 		return nil, nil, fmt.Errorf("task LoadAttributes: %w", err)

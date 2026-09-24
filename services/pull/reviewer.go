@@ -6,15 +6,12 @@ package pull
 import (
 	"context"
 
-	"gitea.dev/models/db"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
-	"gitea.dev/modules/container"
-
-	"xorm.io/builder"
 )
 
 // GetReviewers get all users can be requested to review:
@@ -23,50 +20,17 @@ import (
 // - For repository under organization, users under the teams which have read permission or higher of pull request unit
 // - Owner will be listed if it's not an organization, not the poster and not in the list of reviewers
 func GetReviewers(ctx context.Context, repo *repo_model.Repository, doerID, posterID int64) ([]*user_model.User, error) {
-	if err := repo.LoadOwner(ctx); err != nil {
+	users, err := access_model.GetRepoReviewers(ctx, repo)
+	if err != nil {
 		return nil, err
 	}
-
-	e := db.GetEngine(ctx)
-	uniqueUserIDs := make(container.Set[int64])
-
-	collaboratorIDs := make([]int64, 0, 10)
-	if err := e.Table("collaboration").Where("repo_id=?", repo.ID).
-		And("mode >= ?", perm.AccessModeRead).
-		Select("user_id").
-		Find(&collaboratorIDs); err != nil {
-		return nil, err
-	}
-	uniqueUserIDs.AddMultiple(collaboratorIDs...)
-
-	if repo.Owner.IsOrganization() {
-		additionalUserIDs, err := organization.GetTeamUserIDsWithAccessToAnyRepoUnit(ctx, repo.OwnerID, repo.ID, perm.AccessModeRead, unit.TypePullRequests)
-		if err != nil {
-			return nil, err
-		}
-		uniqueUserIDs.AddMultiple(additionalUserIDs...)
-	}
-
-	uniqueUserIDs.Remove(posterID) // posterID should not be in the list of reviewers
-
-	// Leave a seat for owner itself to append later, but if owner is an organization
-	// and just waste 1 unit is cheaper than re-allocate memory once.
-	users := make([]*user_model.User, 0, len(uniqueUserIDs)+1)
-	if len(uniqueUserIDs) > 0 {
-		if err := e.In("id", uniqueUserIDs.Values()).
-			Where(builder.Eq{"`user`.is_active": true}).
-			OrderBy(user_model.GetOrderByName()).
-			Find(&users); err != nil {
-			return nil, err
+	filtered := users[:0]
+	for _, user := range users {
+		if user.ID != posterID {
+			filtered = append(filtered, user)
 		}
 	}
-
-	// add owner after all users are loaded because we can avoid load owner twice
-	if repo.OwnerID != posterID && !repo.Owner.IsOrganization() && !uniqueUserIDs.Contains(repo.OwnerID) {
-		users = append(users, repo.Owner)
-	}
-
-	return users, nil
+	return filtered, nil
 }
 
 // GetReviewerTeams get all teams can be requested to review

@@ -25,6 +25,7 @@ export type ActionsRun = {
   duration: string,
   triggeredAt: number,
   triggerEvent: string,
+  cancellationReason?: string,
   pullRequest?: {
     index: string,
     link: string,

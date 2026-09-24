@@ -6,6 +6,8 @@ package governance
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -24,11 +26,12 @@ import (
 )
 
 type GroupOption struct {
-	Name       string `json:"name"`
-	Path       string `json:"path"`
-	ParentID   int64  `json:"parent_id"`
-	Visibility int    `json:"visibility"`
-	Revision   int64  `json:"revision"`
+	Name              string `json:"name"`
+	Path              string `json:"path"`
+	ParentID          int64  `json:"parent_id"`
+	Visibility        int    `json:"visibility"`
+	Revision          int64  `json:"revision"`
+	ImpactFingerprint string `json:"impact_fingerprint,omitempty"`
 }
 
 type GroupState struct {
@@ -40,25 +43,29 @@ type GroupState struct {
 }
 
 type GroupMoveImpact struct {
-	OldPath                       string   `json:"old_path"`
-	NewPath                       string   `json:"new_path"`
-	Groups                        int      `json:"groups"`
-	Repositories                  int      `json:"repositories"`
-	RemovedAncestorPaths          []string `json:"removed_ancestor_paths"`
-	AddedAncestorPaths            []string `json:"added_ancestor_paths"`
-	RemovedMembershipSources      int64    `json:"removed_membership_sources"`
-	AddedMembershipSources        int64    `json:"added_membership_sources"`
-	RemovedShareSources           int64    `json:"removed_share_sources"`
-	AddedShareSources             int64    `json:"added_share_sources"`
-	RemovedApprovalPolicies       int64    `json:"removed_approval_policies"`
-	AddedApprovalPolicies         int64    `json:"added_approval_policies"`
-	RemovedApprovalSettings       int64    `json:"removed_approval_settings"`
-	AddedApprovalSettings         int64    `json:"added_approval_settings"`
-	RemovedAuditStreams           int64    `json:"removed_audit_streams"`
-	AddedAuditStreams             int64    `json:"added_audit_streams"`
-	CustomRoleMembershipsRemapped int64    `json:"custom_role_memberships_remapped"`
-	CustomRoleInvitationsRemapped int64    `json:"custom_role_invitations_remapped"`
-	CompatibilityAliasRetained    bool     `json:"compatibility_alias_retained"`
+	OldPath                       string                  `json:"old_path"`
+	NewPath                       string                  `json:"new_path"`
+	Groups                        int                     `json:"groups"`
+	Repositories                  int                     `json:"repositories"`
+	RemovedAncestorPaths          []string                `json:"removed_ancestor_paths"`
+	AddedAncestorPaths            []string                `json:"added_ancestor_paths"`
+	ImpactFingerprint             string                  `json:"impact_fingerprint"`
+	RemovedLifecycleSources       []LifecycleSourceImpact `json:"removed_lifecycle_sources"`
+	AddedLifecycleSources         []LifecycleSourceImpact `json:"added_lifecycle_sources"`
+	Runtime                       GroupMoveRuntimeImpact  `json:"runtime"`
+	RemovedMembershipSources      int64                   `json:"removed_membership_sources"`
+	AddedMembershipSources        int64                   `json:"added_membership_sources"`
+	RemovedShareSources           int64                   `json:"removed_share_sources"`
+	AddedShareSources             int64                   `json:"added_share_sources"`
+	RemovedApprovalPolicies       int64                   `json:"removed_approval_policies"`
+	AddedApprovalPolicies         int64                   `json:"added_approval_policies"`
+	RemovedApprovalSettings       int64                   `json:"removed_approval_settings"`
+	AddedApprovalSettings         int64                   `json:"added_approval_settings"`
+	RemovedAuditStreams           int64                   `json:"removed_audit_streams"`
+	AddedAuditStreams             int64                   `json:"added_audit_streams"`
+	CustomRoleMembershipsRemapped int64                   `json:"custom_role_memberships_remapped"`
+	CustomRoleInvitationsRemapped int64                   `json:"custom_role_invitations_remapped"`
+	CompatibilityAliasRetained    bool                    `json:"compatibility_alias_retained"`
 }
 
 func activeActor(ctx context.Context, actorID int64) (*user_model.User, error) {
@@ -256,8 +263,19 @@ func MoveGroup(ctx context.Context, actor governance_model.Actor, id int64, opti
 	}
 	var result *GroupState
 	var crossRoot bool
+	var parentChanged bool
 	var oldRootID, newRootID int64
+	var deactivatedRunnerTokens int64
 	err := withActorWrite(ctx, actor, nil, func(ctx context.Context) error {
+		if option.ImpactFingerprint != "" {
+			preview, err := previewGroupMove(ctx, actor.EffectiveUserID(), id, option)
+			if err != nil {
+				return err
+			}
+			if preview.ImpactFingerprint != option.ImpactFingerprint {
+				return fmt.Errorf("%w：移动影响已变化，请重新预览", governance_model.ErrConflict)
+			}
+		}
 		err := governance_model.MoveNamespace(ctx, id, option.ParentID, option.Revision, option.Path, actor, func(ctx context.Context, source, target *governance_model.Namespace) error {
 			var err error
 			result, err = CheckGroupAccess(ctx, actor.EffectiveUserID(), source.ID, governance_model.ManageGroup)
@@ -296,6 +314,13 @@ func MoveGroup(ctx context.Context, actor governance_model.Actor, id int64, opti
 				oldRootID, newRootID = sourceChain[len(sourceChain)-1].ID, source.ID
 				crossRoot = oldRootID != newRootID
 			}
+			if source.ParentID != option.ParentID {
+				parentChanged = true
+				deactivatedRunnerTokens, err = prepareActionsForGroupMove(ctx, source)
+				if err != nil {
+					return err
+				}
+			}
 			return nil
 		})
 		if err != nil {
@@ -304,6 +329,11 @@ func MoveGroup(ctx context.Context, actor governance_model.Actor, id int64, opti
 		root, err := governance_model.GetNamespace(ctx, id)
 		if err != nil {
 			return err
+		}
+		if parentChanged {
+			if err := checkMovedGroupLabels(ctx, root); err != nil {
+				return err
+			}
 		}
 		if crossRoot {
 			memberships, invitations, rolesCreated, err := remapMovedCustomRoles(ctx, actor, root, oldRootID, newRootID)
@@ -316,7 +346,12 @@ func MoveGroup(ctx context.Context, actor governance_model.Actor, id int64, opti
 				}
 			}
 		}
-		if err := syncMovedRequestPaths(ctx, root); err != nil {
+		if deactivatedRunnerTokens > 0 {
+			if err := groupAudit(ctx, actor, root, "group.updated", map[string]any{"runner_tokens_deactivated_on_move": deactivatedRunnerTokens}); err != nil {
+				return err
+			}
+		}
+		if err := syncMovedInvitationPaths(ctx, root); err != nil {
 			return err
 		}
 		var namespaces []*governance_model.Namespace
@@ -348,6 +383,16 @@ func MoveGroup(ctx context.Context, actor governance_model.Actor, id int64, opti
 
 // PreviewGroupMove 汇总移动后会切换的继承范围；实际移动仍在事务内重新校验权限和修订号。
 func PreviewGroupMove(ctx context.Context, actorID, id int64, option GroupOption) (*GroupMoveImpact, error) {
+	var impact *GroupMoveImpact
+	err := governance_model.WithStableRead(ctx, func(ctx context.Context) error {
+		var err error
+		impact, err = previewGroupMove(ctx, actorID, id, option)
+		return err
+	})
+	return impact, err
+}
+
+func previewGroupMove(ctx context.Context, actorID, id int64, option GroupOption) (*GroupMoveImpact, error) {
 	if err := validateGroupPath(option.Path); err != nil {
 		return nil, err
 	}
@@ -421,6 +466,23 @@ func PreviewGroupMove(ctx context.Context, actorID, id int64, option GroupOption
 	if err := fillMoveScopeImpact(ctx, impact, removed, added); err != nil {
 		return nil, err
 	}
+	var oldLifecycle, newLifecycle string
+	impact.RemovedLifecycleSources, oldLifecycle, err = LifecycleSourceImpacts(ctx, actorID, removed)
+	if err != nil {
+		return nil, err
+	}
+	impact.AddedLifecycleSources, newLifecycle, err = LifecycleSourceImpacts(ctx, actorID, added)
+	if err != nil {
+		return nil, err
+	}
+	impact.RemovedAncestorPaths = LifecycleSourcePaths(impact.RemovedLifecycleSources)
+	impact.AddedAncestorPaths = LifecycleSourcePaths(impact.AddedLifecycleSources)
+	if source.ParentID != option.ParentID {
+		impact.Runtime, err = groupMoveRuntimeImpact(ctx, source.Namespace, targetChain)
+		if err != nil {
+			return nil, err
+		}
+	}
 	oldRootID, newRootID := oldChain[len(oldChain)-1].ID, id
 	if len(targetChain) > 0 {
 		newRootID = targetChain[len(targetChain)-1].ID
@@ -436,6 +498,25 @@ func PreviewGroupMove(ctx context.Context, actorID, id int64, option GroupOption
 			return nil, err
 		}
 	}
+	repositoryIDs, err := canonicalResourceIDs(ctx, "repository", source.LowerPath, prefix)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(struct {
+		Impact        *GroupMoveImpact
+		OldChain      []*governance_model.Namespace
+		TargetChain   []*governance_model.Namespace
+		MovedGroups   []*governance_model.Namespace
+		RepositoryIDs []int64
+		OldLifecycle  string
+		NewLifecycle  string
+		Runtime       string
+	}{impact, oldChain, targetChain, movedGroups, repositoryIDs, oldLifecycle, newLifecycle, impact.Runtime.Fingerprint})
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(payload)
+	impact.ImpactFingerprint = hex.EncodeToString(sum[:])
 	return impact, nil
 }
 
@@ -629,7 +710,7 @@ func findOrCreateTransferredRole(ctx context.Context, actor governance_model.Act
 	return role.ID, true, nil
 }
 
-// RemapTransferredRepositoryCustomRoles 保留跨根项目的显式自定义角色，并同步邀请与申请路径。
+// RemapTransferredRepositoryCustomRoles 保留跨根项目的显式自定义角色，并同步邀请路径。
 func RemapTransferredRepositoryCustomRoles(ctx context.Context, actor governance_model.Actor, repositoryID, oldOwnerID, newOwnerID int64, newPath string) error {
 	oldChain, err := governance_model.Ancestors(ctx, oldOwnerID)
 	if errors.Is(err, governance_model.ErrNotFound) {
@@ -677,11 +758,10 @@ func RemapTransferredRepositoryCustomRoles(ctx context.Context, actor governance
 	if _, err := db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "repository", repositoryID).Cols("scope_path").Update(&governance_model.Invitation{ScopePath: newPath}); err != nil {
 		return err
 	}
-	_, err = db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "repository", repositoryID).Cols("scope_path").Update(&governance_model.AccessRequest{ScopePath: newPath})
-	return err
+	return nil
 }
 
-func syncMovedRequestPaths(ctx context.Context, root *governance_model.Namespace) error {
+func syncMovedInvitationPaths(ctx context.Context, root *governance_model.Namespace) error {
 	prefix := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(root.LowerPath) + "/%"
 	var groups []*governance_model.Namespace
 	if err := db.GetEngine(ctx).Where("lower_path = ? OR lower_path LIKE ? ESCAPE '!'", root.LowerPath, prefix).Find(&groups); err != nil {
@@ -691,9 +771,6 @@ func syncMovedRequestPaths(ctx context.Context, root *governance_model.Namespace
 		if _, err := db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "group", group.ID).Cols("scope_path").Update(&governance_model.Invitation{ScopePath: group.FullPath}); err != nil {
 			return err
 		}
-		if _, err := db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "group", group.ID).Cols("scope_path").Update(&governance_model.AccessRequest{ScopePath: group.FullPath}); err != nil {
-			return err
-		}
 	}
 	var repositories []*governance_model.ResourcePath
 	if err := db.GetEngine(ctx).Where("kind = ? AND alias = ?", "repository", false).And(builder.Expr("path = ? OR path LIKE ? ESCAPE '!'", root.LowerPath, prefix)).Find(&repositories); err != nil {
@@ -701,9 +778,6 @@ func syncMovedRequestPaths(ctx context.Context, root *governance_model.Namespace
 	}
 	for _, repository := range repositories {
 		if _, err := db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "repository", repository.ResourceID).Cols("scope_path").Update(&governance_model.Invitation{ScopePath: repository.Path}); err != nil {
-			return err
-		}
-		if _, err := db.GetEngine(ctx).Where("scope_type = ? AND scope_id = ?", "repository", repository.ResourceID).Cols("scope_path").Update(&governance_model.AccessRequest{ScopePath: repository.Path}); err != nil {
 			return err
 		}
 	}

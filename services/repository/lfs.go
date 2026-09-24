@@ -10,6 +10,7 @@ import (
 	"time"
 
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/gitrepo"
@@ -97,19 +98,31 @@ func GarbageCollectLFSMetaObjectsForRepo(ctx context.Context, repo *repo_model.R
 			return nil
 		}
 		// Non-existent pointer file
-		_, err = git_model.RemoveLFSMetaObjectByOidFn(ctx, repo.ID, metaObject.Oid, func(count int64) error {
-			if count > 0 {
-				return nil
-			}
-
-			if err := store.Delete(metaObject.RelativePath()); err != nil {
-				log.Error("Unable to remove lfs metaobject %s from store: %v", metaObject.Oid, err)
-			}
-			deleted++
-			return nil
+		var references int64
+		err = governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+			var err error
+			references, err = git_model.RemoveLFSMetaObjectByOid(ctx, repo.ID, metaObject.Oid)
+			return err
 		})
 		if err != nil {
 			return fmt.Errorf("unable to remove meta-object %s in %s: %w", metaObject.Oid, repo.FullName(), err)
+		}
+		if references == 0 {
+			err = governance_model.WithLFSContentLocks(ctx, []string{metaObject.Oid}, func(ctx context.Context) error {
+				linked, err := git_model.ExistsLFSObject(ctx, metaObject.Oid)
+				if err != nil || linked {
+					return err
+				}
+				if err := store.Delete(metaObject.RelativePath()); err != nil {
+					log.Error("Unable to remove lfs metaobject %s from store: %v", metaObject.Oid, err)
+					return nil
+				}
+				deleted++
+				return nil
+			})
+			if err != nil {
+				return err
+			}
 		}
 		collected++
 

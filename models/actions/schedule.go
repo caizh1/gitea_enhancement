@@ -11,6 +11,8 @@ import (
 	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 	webhook_module "gitea.dev/modules/webhook"
@@ -24,6 +26,7 @@ type ActionSchedule struct {
 	RepoID        int64                  `xorm:"index"`
 	Repo          *repo_model.Repository `xorm:"-"`
 	OwnerID       int64                  `xorm:"index"`
+	ScopeRevision int64                  `xorm:"NOT NULL DEFAULT 0"`
 	WorkflowID    string
 	TriggerUserID int64
 	TriggerUser   *user_model.User `xorm:"-"`
@@ -36,8 +39,62 @@ type ActionSchedule struct {
 	Updated       timeutil.TimeStamp `xorm:"updated"`
 }
 
+type scheduleBranchState struct {
+	RepoID    int64
+	Name      string
+	CommitID  string
+	IsDeleted bool
+}
+
+func (*scheduleBranchState) TableName() string { return "branch" }
+
 func init() {
 	db.RegisterModel(new(ActionSchedule))
+}
+
+// ScheduleBranchCurrent checks the persisted default branch used by a schedule.
+func ScheduleBranchCurrent(ctx context.Context, repo *repo_model.Repository, ref, sha string) (bool, error) {
+	if sha == "" || ref != git.RefNameFromBranch(repo.DefaultBranch).String() {
+		return false, nil
+	}
+	if db.InTransaction(ctx) || !setting.Database.Type.IsSQLite3() {
+		return LockScheduleBranchCurrent(ctx, repo, ref, sha)
+	}
+	return readScheduleBranch(ctx, repo, sha)
+}
+
+func readScheduleBranch(ctx context.Context, repo *repo_model.Repository, sha string) (bool, error) {
+	var branch scheduleBranchState
+	has, err := db.GetEngine(ctx).Where("repo_id = ? AND name = ?", repo.ID, repo.DefaultBranch).Get(&branch)
+	if err != nil || !has {
+		return false, err
+	}
+	return !branch.IsDeleted && branch.CommitID == sha, nil
+}
+
+// LockScheduleBranchCurrent serializes a schedule write with branch updates.
+// Call only inside the transaction that replaces plans, inserts a run, or claims a job.
+func LockScheduleBranchCurrent(ctx context.Context, repo *repo_model.Repository, ref, sha string) (bool, error) {
+	if sha == "" || ref != git.RefNameFromBranch(repo.DefaultBranch).String() {
+		return false, nil
+	}
+	if setting.Database.Type.IsSQLite3() {
+		// SQLite's write lock serializes the following read with post-receive updates.
+		if _, err := db.GetEngine(ctx).Where("repo_id = ? AND name = ? AND commit_id = ? AND is_deleted = ?", repo.ID, repo.DefaultBranch, sha, false).
+			Cols("commit_id").Update(&scheduleBranchState{CommitID: sha}); err != nil {
+			return false, err
+		}
+		return readScheduleBranch(ctx, repo, sha)
+	}
+	engine := db.GetEngine(ctx).Context(ctx).Engine()
+	table := engine.Quote(engine.TableName(new(scheduleBranchState), true))
+	query := fmt.Sprintf("SELECT commit_id, is_deleted FROM %s WHERE repo_id = ? AND name = ? FOR UPDATE", table)
+	if setting.Database.Type.IsMSSQL() {
+		query = fmt.Sprintf("SELECT commit_id, is_deleted FROM %s WITH (UPDLOCK, ROWLOCK) WHERE repo_id = ? AND name = ?", table)
+	}
+	var branch scheduleBranchState
+	has, err := db.GetEngine(ctx).SQL(query, repo.ID, repo.DefaultBranch).Get(&branch)
+	return has && !branch.IsDeleted && branch.CommitID == sha, err
 }
 
 // GetSchedulesMapByIDs returns the schedules by given id slice.

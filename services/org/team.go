@@ -86,6 +86,8 @@ func NewTeam(ctx context.Context, t *organization.Team) (err error) {
 	})
 }
 
+var ErrRenameOwnerTeam = fmt.Errorf("%w：原生 Owners 团队不能改名", governance_model.ErrConflict)
+
 // UpdateTeam updates information of team.
 func UpdateTeam(ctx context.Context, t *organization.Team, authChanged, includeAllChanged bool) (err error) {
 	if len(t.Name) == 0 {
@@ -97,6 +99,16 @@ func UpdateTeam(ctx context.Context, t *organization.Team, authChanged, includeA
 	}
 
 	return governance_model.WithWrite(ctx, []string{governance_model.Resource("group", t.OrgID), governance_model.Resource("team", t.ID)}, func(ctx context.Context) error {
+		current, err := organization.GetTeamByID(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if current.OrgID != t.OrgID {
+			return governance_model.ErrConflict
+		}
+		if current.IsOwnerTeam() && t.Name != current.Name {
+			return ErrRenameOwnerTeam
+		}
 		t.LowerName = strings.ToLower(t.Name)
 		has, err := db.Exist[organization.Team](ctx, builder.Eq{
 			"org_id":     t.OrgID,

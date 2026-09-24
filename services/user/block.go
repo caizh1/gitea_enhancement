@@ -5,16 +5,30 @@ package user
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	org_model "gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/json"
+	governance_service "gitea.dev/services/governance"
 	repo_service "gitea.dev/services/repository"
 )
 
 func CanBlockUser(ctx context.Context, doer, blocker, blockee *user_model.User) bool {
+	var err error
+	doer, blocker, blockee, err = currentBlockUsers(ctx, doer, blocker, blockee)
+	if err != nil {
+		return false
+	}
+	return canBlockCurrent(ctx, doer, blocker, blockee)
+}
+
+func canBlockCurrent(ctx context.Context, doer, blocker, blockee *user_model.User) bool {
 	if blocker.ID == blockee.ID {
 		return false
 	}
@@ -32,13 +46,11 @@ func CanBlockUser(ctx context.Context, doer, blocker, blockee *user_model.User) 
 
 	if blocker.IsOrganization() {
 		org := org_model.OrgFromUser(blocker)
-		if isMember, _ := org.IsOrgMember(ctx, blockee.ID); isMember {
+		if isMember, err := org.IsOrgMember(ctx, blockee.ID); err != nil || isMember {
 			return false
 		}
-		if isAdmin, _ := org.IsOwnedBy(ctx, doer.ID); !isAdmin && !doer.IsAdmin {
-			return false
-		}
-	} else if !doer.IsAdmin && doer.ID != blocker.ID {
+	}
+	if !canManageBlocker(ctx, doer, blocker) {
 		return false
 	}
 
@@ -46,6 +58,15 @@ func CanBlockUser(ctx context.Context, doer, blocker, blockee *user_model.User) 
 }
 
 func CanUnblockUser(ctx context.Context, doer, blocker, blockee *user_model.User) bool {
+	var err error
+	doer, blocker, blockee, err = currentBlockUsers(ctx, doer, blocker, blockee)
+	if err != nil {
+		return false
+	}
+	return canUnblockCurrent(ctx, doer, blocker, blockee)
+}
+
+func canUnblockCurrent(ctx context.Context, doer, blocker, blockee *user_model.User) bool {
 	if doer.ID == blockee.ID {
 		return false
 	}
@@ -54,28 +75,112 @@ func CanUnblockUser(ctx context.Context, doer, blocker, blockee *user_model.User
 		return false
 	}
 
+	if !canManageBlocker(ctx, doer, blocker) {
+		return false
+	}
 	if blocker.IsOrganization() {
-		org := org_model.OrgFromUser(blocker)
-		if isAdmin, _ := org.IsOwnedBy(ctx, doer.ID); !isAdmin && !doer.IsAdmin {
+		if checkBlockerLifecycle(ctx, blocker.ID) != nil {
 			return false
 		}
-	} else if !doer.IsAdmin && doer.ID != blocker.ID {
-		return false
 	}
 
 	return true
 }
 
+func canManageBlocker(ctx context.Context, doer, blocker *user_model.User) bool {
+	if doer.IsAdmin {
+		return true
+	}
+	if !blocker.IsOrganization() {
+		return doer.ID == blocker.ID
+	}
+	owned, err := org_model.OrgFromUser(blocker).IsOwnedBy(ctx, doer.ID)
+	return err == nil && owned
+}
+
+func currentBlockUsers(ctx context.Context, doer, blocker, blockee *user_model.User) (*user_model.User, *user_model.User, *user_model.User, error) {
+	if doer == nil || blocker == nil || blockee == nil {
+		return nil, nil, nil, user_model.ErrCanNotBlock
+	}
+	currentDoer, err := user_model.GetUserByID(ctx, doer.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !currentDoer.IsActive || currentDoer.ProhibitLogin || currentDoer.IsOrganization() || currentDoer.IsGiteaActions() || currentDoer.IsGhost() {
+		return nil, nil, nil, user_model.ErrCanNotBlock
+	}
+	currentBlocker, err := user_model.GetUserByID(ctx, blocker.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	currentBlockee, err := user_model.GetUserByID(ctx, blockee.ID)
+	return currentDoer, currentBlocker, currentBlockee, err
+}
+
+func checkBlockerLifecycle(ctx context.Context, groupID int64) error {
+	ancestors, err := governance_model.Ancestors(ctx, groupID)
+	if errors.Is(err, governance_model.ErrNotFound) {
+		return nil // 原生旧组织可能尚无治理命名空间。
+	}
+	if err != nil {
+		return err
+	}
+	if ancestors[0].Kind != "group" {
+		return governance_model.ErrNotFound
+	}
+	for _, ancestor := range ancestors {
+		if ancestor.Archived || ancestor.DeleteAfter != 0 {
+			return governance_model.ErrConflict
+		}
+	}
+	return nil
+}
+
+func withBlockWrite(ctx context.Context, doer, blocker, blockee *user_model.User, write func(context.Context) error) error {
+	actor := governance_model.AuditActor(ctx)
+	if actor.EffectiveUserID() > 0 && actor.EffectiveUserID() != doer.ID {
+		return governance_model.ErrForbidden
+	}
+	return governance_service.WithActorWrite(ctx, actor, []string{governance_model.Resource("group", blocker.ID), governance_model.Resource("user", doer.ID), governance_model.Resource("user", blockee.ID)}, write)
+}
+
+func appendBlockAudit(ctx context.Context, blocker, blockee *user_model.User, eventType string, before, after, noteChanged bool) error {
+	scopeType := "user"
+	var ancestors []int64
+	if blocker.IsOrganization() {
+		scopeType = "group"
+		chain, err := governance_model.Ancestors(ctx, blocker.ID)
+		if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+			return err
+		}
+		for _, group := range chain {
+			ancestors = append(ancestors, group.ID)
+		}
+	}
+	details, err := json.Marshal(map[string]any{"blocked_before": before, "blocked_after": after, "note_changed": noteChanged})
+	if err != nil {
+		return err
+	}
+	return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{
+		Type: eventType, Actor: governance_model.AuditActor(ctx), ScopeType: scopeType, ScopeID: blocker.ID,
+		AncestorIDs: ancestors, ObjectType: "user", ObjectID: blockee.ID, ObjectPath: blockee.Name,
+		Result: "success", Details: details,
+	})
+}
+
 func BlockUser(ctx context.Context, doer, blocker, blockee *user_model.User, note string) error {
+	if doer == nil || blocker == nil || blockee == nil {
+		return user_model.ErrCanNotBlock
+	}
 	if blockee.IsOrganization() {
 		return user_model.ErrBlockOrganization
 	}
-
-	if !CanBlockUser(ctx, doer, blocker, blockee) {
-		return user_model.ErrCanNotBlock
-	}
-
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return withBlockWrite(ctx, doer, blocker, blockee, func(ctx context.Context) error {
+		var err error
+		doer, blocker, blockee, err = currentBlockUsers(ctx, doer, blocker, blockee)
+		if err != nil || !canBlockCurrent(ctx, doer, blocker, blockee) {
+			return user_model.ErrCanNotBlock
+		}
 		// unfollow each other
 		if err := user_model.UnfollowUser(ctx, blocker.ID, blockee.ID); err != nil {
 			return err
@@ -124,15 +229,19 @@ func BlockUser(ctx context.Context, doer, blocker, blockee *user_model.User, not
 			return err
 		}
 
-		return db.Insert(ctx, &user_model.Blocking{
+		if err := db.Insert(ctx, &user_model.Blocking{
 			BlockerID: blocker.ID,
 			BlockeeID: blockee.ID,
 			Note:      note,
-		})
+		}); err != nil {
+			return err
+		}
+		return appendBlockAudit(ctx, blocker, blockee, "user.blocked", false, true, false)
 	})
 }
 
 func unstarRepos(ctx context.Context, starrer, repoOwner *user_model.User) error {
+	seen := make(map[int64]bool)
 	opts := &repo_model.StarredReposOptions{
 		ListOptions: db.ListOptions{
 			Page:     1,
@@ -153,16 +262,19 @@ func unstarRepos(ctx context.Context, starrer, repoOwner *user_model.User) error
 		}
 
 		for _, repo := range repos {
+			if seen[repo.ID] {
+				return fmt.Errorf("starring repository %d did not advance", repo.ID)
+			}
+			seen[repo.ID] = true
 			if err := repo_model.StarRepo(ctx, starrer, repo, false); err != nil {
 				return err
 			}
 		}
-
-		opts.Page++
 	}
 }
 
 func unwatchRepos(ctx context.Context, watcher, repoOwner *user_model.User) error {
+	seen := make(map[int64]bool)
 	opts := &repo_model.WatchedReposOptions{
 		ListOptions: db.ListOptions{
 			Page:     1,
@@ -183,12 +295,14 @@ func unwatchRepos(ctx context.Context, watcher, repoOwner *user_model.User) erro
 		}
 
 		for _, repo := range repos {
+			if seen[repo.ID] {
+				return fmt.Errorf("watching repository %d did not advance", repo.ID)
+			}
+			seen[repo.ID] = true
 			if err := repo_model.WatchRepo(ctx, watcher, repo, false); err != nil {
 				return err
 			}
 		}
-
-		opts.Page++
 	}
 }
 
@@ -211,6 +325,7 @@ func cancelRepositoryTransfers(ctx context.Context, doer, sender, recipient *use
 }
 
 func unassignIssues(ctx context.Context, assignee, repoOwner *user_model.User) error {
+	seen := make(map[int64]bool)
 	opts := &issues_model.AssignedIssuesOptions{
 		ListOptions: db.ListOptions{
 			Page:     1,
@@ -231,6 +346,10 @@ func unassignIssues(ctx context.Context, assignee, repoOwner *user_model.User) e
 		}
 
 		for _, issue := range issues {
+			if seen[issue.ID] {
+				return fmt.Errorf("assigned issue %d did not advance", issue.ID)
+			}
+			seen[issue.ID] = true
 			if err := issue.LoadAssignees(ctx); err != nil {
 				return err
 			}
@@ -239,12 +358,11 @@ func unassignIssues(ctx context.Context, assignee, repoOwner *user_model.User) e
 				return err
 			}
 		}
-
-		opts.Page++
 	}
 }
 
 func removeCollaborations(ctx context.Context, repoOwner, collaborator *user_model.User) error {
+	seen := make(map[int64]bool)
 	opts := &repo_model.FindCollaborationOptions{
 		ListOptions: db.ListOptions{
 			Page:     1,
@@ -265,6 +383,10 @@ func removeCollaborations(ctx context.Context, repoOwner, collaborator *user_mod
 		}
 
 		for _, collaboration := range collaborations {
+			if seen[collaboration.Collaboration.ID] {
+				return fmt.Errorf("collaboration %d did not advance", collaboration.Collaboration.ID)
+			}
+			seen[collaboration.Collaboration.ID] = true
 			repo, err := repo_model.GetRepositoryByID(ctx, collaboration.Collaboration.RepoID)
 			if err != nil {
 				return err
@@ -274,29 +396,71 @@ func removeCollaborations(ctx context.Context, repoOwner, collaborator *user_mod
 				return err
 			}
 		}
-
-		opts.Page++
 	}
 }
 
 func UnblockUser(ctx context.Context, doer, blocker, blockee *user_model.User) error {
+	if doer == nil || blocker == nil || blockee == nil {
+		return user_model.ErrCanNotUnblock
+	}
 	if blockee.IsOrganization() {
 		return user_model.ErrBlockOrganization
 	}
-
-	if !CanUnblockUser(ctx, doer, blocker, blockee) {
-		return user_model.ErrCanNotUnblock
-	}
-
-	return db.WithTx(ctx, func(ctx context.Context) error {
+	return withBlockWrite(ctx, doer, blocker, blockee, func(ctx context.Context) error {
+		var err error
+		doer, blocker, blockee, err = currentBlockUsers(ctx, doer, blocker, blockee)
+		if err != nil {
+			return user_model.ErrCanNotUnblock
+		}
+		if !canManageBlocker(ctx, doer, blocker) {
+			return user_model.ErrCanNotUnblock
+		}
+		if blocker.IsOrganization() {
+			if err := checkBlockerLifecycle(ctx, blocker.ID); err != nil {
+				return err
+			}
+		}
+		if !canUnblockCurrent(ctx, doer, blocker, blockee) {
+			return user_model.ErrCanNotUnblock
+		}
 		block, err := user_model.GetBlocking(ctx, blocker.ID, blockee.ID)
 		if err != nil {
 			return err
 		}
 		if block != nil {
-			_, err = db.DeleteByID[user_model.Blocking](ctx, block.ID)
-			return err
+			deleted, err := db.DeleteByID[user_model.Blocking](ctx, block.ID)
+			if err != nil {
+				return err
+			}
+			if deleted == 0 {
+				return user_model.ErrCanNotUnblock
+			}
+			return appendBlockAudit(ctx, blocker, blockee, "user.unblocked", true, false, false)
 		}
 		return nil
+	})
+}
+
+// UpdateBlockingNote updates an existing record after checking current blocker ownership.
+func UpdateBlockingNote(ctx context.Context, doer, blocker, blockee *user_model.User, note string) error {
+	if doer == nil || blocker == nil || blockee == nil {
+		return user_model.ErrCanNotBlock
+	}
+	return withBlockWrite(ctx, doer, blocker, blockee, func(ctx context.Context) error {
+		doer, blocker, blockee, err := currentBlockUsers(ctx, doer, blocker, blockee)
+		if err != nil || !canManageBlocker(ctx, doer, blocker) {
+			return user_model.ErrCanNotBlock
+		}
+		block, err := user_model.GetBlocking(ctx, blocker.ID, blockee.ID)
+		if err != nil {
+			return err
+		}
+		if block.Note == note {
+			return nil
+		}
+		if err := user_model.UpdateBlockingNote(ctx, block.ID, note); err != nil {
+			return err
+		}
+		return appendBlockAudit(ctx, blocker, blockee, "user.block_note_updated", true, true, true)
 	})
 }

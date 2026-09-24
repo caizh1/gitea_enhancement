@@ -25,6 +25,7 @@
 				<div class="item-title">
 					{{.Name}}
 				</div>
+				<div class="item-body">{{ctx.Locale.Tr "actions.inheritance.local"}}</div>
 				<div class="item-body">
 					{{if .Description}}{{.Description}}{{else}}-{{end}}
 				</div>
@@ -60,6 +61,21 @@
 	</div>
 	{{else}}
 		{{ctx.Locale.Tr "actions.variables.none"}}
+	{{end}}
+	{{if .InheritedVariables}}
+	<h5>{{ctx.Locale.Tr "actions.inheritance.inherited"}}</h5>
+	<div class="flex-divided-list items-with-main">
+		{{range .InheritedVariables}}
+		<div class="item tw-items-center">
+			<div class="item-main">
+				<div class="item-title">{{.Name}}</div>
+				<div class="item-body">{{ctx.Locale.Tr "actions.inheritance.source" .Source}} · {{ctx.Locale.Tr "actions.inheritance.read_only"}}{{if .Overridden}} · {{ctx.Locale.Tr "actions.inheritance.overridden"}}{{end}}</div>
+				<div class="item-body">{{if .Description}}{{.Description}}{{else}}-{{end}}</div>
+				<div class="item-body">{{.Data}}</div>
+			</div>
+		</div>
+		{{end}}
+	</div>
 	{{end}}
 </div>
 
@@ -104,4 +120,3 @@
 		{{template "base/modal_actions_confirm" (dict "ModalButtonTypes" "confirm")}}
 	</form>
 </div>
-

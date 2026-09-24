@@ -27,6 +27,9 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 	if !prInfo.MergeBoxData.hasPermToMerge {
 		return
 	}
+	if prInfo.MergeBoxData.scopedWorkflowBlocked {
+		return
+	}
 
 	prConfig := ctx.Repo.Repository.MustGetUnit(ctx, unit.TypePullRequests).PullRequestsConfig()
 

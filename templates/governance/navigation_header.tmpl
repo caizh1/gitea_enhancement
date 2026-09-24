@@ -3,8 +3,10 @@
    {{range .Navigation.Breadcrumbs}}<span aria-hidden="true">/</span>{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}<span>{{.Name}}</span>{{end}}{{end}}
   </nav>
   <div class="tw-flex tw-flex-wrap tw-items-center tw-justify-between tw-gap-4 tw-mb-6">
-   <div><h1 class="tw-flex tw-items-center tw-gap-3">{{svg "octicon-organization" 32}}{{.Navigation.Group.Name}} {{if ge .Navigation.Group.Visibility 0}}<span class="ui basic small label">{{if eq .Navigation.Group.Visibility 2}}私有{{else if eq .Navigation.Group.Visibility 1}}内部{{else}}公开{{end}}</span>{{end}}</h1><p class="text light tw-break-all">{{.Navigation.Group.FullPath}}</p>{{if .GroupDescription}}<p>{{.GroupDescription}}</p>{{end}}</div>
+   <div><h1 class="tw-flex tw-flex-wrap tw-items-center tw-gap-3">{{svg "octicon-organization" 32}}{{.Navigation.Group.Name}} {{if ge .Navigation.Group.Visibility 0}}<span class="ui basic small label">{{if eq .Navigation.Group.Visibility 2}}私有{{else if eq .Navigation.Group.Visibility 1}}内部{{else}}公开{{end}}</span>{{end}}{{if not .Navigation.RestrictedNavigation}}{{if eq .Navigation.Group.State "archived"}}<span class="ui basic small label">已归档</span>{{else if eq .Navigation.Group.State "pending_deletion"}}<span class="ui basic small label">等待删除</span>{{end}}{{end}}</h1>
+    <p class="text light tw-break-all">{{.Navigation.Group.FullPath}}</p>{{if .GroupDescription}}<p>{{.GroupDescription}}</p>{{end}}</div>
    <div class="tw-flex tw-flex-wrap tw-gap-2">
+    {{if and .IsSigned (not .Navigation.RestrictedNavigation)}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.Navigation.Group.ID}}/access-requests">访问申请与状态</a>{{end}}
     {{if .CanCreateSubgroup}}<a class="ui button" href="{{AppSubUrl}}/governance/groups/{{.Navigation.Group.ID}}?create=1">{{svg "octicon-plus"}} 创建子群组</a>{{end}}
     {{if .CanCreateRepository}}<a class="ui primary button" href="{{AppSubUrl}}/repo/create?org={{.Navigation.Group.ID}}">{{svg "octicon-plus"}} 创建仓库</a>{{end}}
    </div>
@@ -12,10 +14,20 @@
   <nav class="ui secondary pointing menu tw-flex-wrap" aria-label="群组导航">
    <a class="{{if eq .GroupTab "overview"}}active {{end}}item" href="{{.Navigation.Group.URL}}">子群组与仓库</a>
    {{if not .Navigation.RestrictedNavigation}}
+    <a class="{{if eq .GroupTab "shared_projects"}}active {{end}}item" href="{{.Navigation.Group.URL}}?tab=shared_projects">共享项目</a>
+    <a class="{{if eq .GroupTab "issues"}}active {{end}}item" href="{{.Navigation.Group.URL}}?tab=issues">Issue</a>
+    <a class="{{if eq .GroupTab "pulls"}}active {{end}}item" href="{{.Navigation.Group.URL}}?tab=pulls">PR</a>
     <a class="{{if eq .GroupTab "members"}}active {{end}}item" href="{{AppSubUrl}}/governance/groups/{{.Navigation.Group.ID}}?tab=members">成员</a>
     <a class="{{if eq .GroupTab "shares"}}active {{end}}item" href="{{AppSubUrl}}/governance/groups/{{.Navigation.Group.ID}}?tab=shares">共享</a>
     <a class="{{if eq .GroupTab "activity"}}active {{end}}item" href="{{.Navigation.Group.URL}}?tab=activity">活动</a>
     <a class="{{if eq .GroupTab "settings"}}active {{end}}item" href="{{AppSubUrl}}/governance/groups/{{.Navigation.Group.ID}}?tab=settings">设置</a>
+    {{if .CanManageGroup}}
+     {{if .EnableActions}}<a class="item" href="{{AppSubUrl}}/org/{{.Navigation.Group.FullPath|PathEscapeSegments}}/settings/actions">CI/CD</a>{{end}}
+     {{if not DisableWebhooks}}<a class="item" href="{{AppSubUrl}}/org/{{.Navigation.Group.FullPath|PathEscapeSegments}}/settings/hooks">Webhook</a>{{end}}
+     <a class="item" href="{{AppSubUrl}}/org/{{.Navigation.Group.FullPath|PathEscapeSegments}}/settings/labels">标签</a>
+     <a class="item" href="{{AppSubUrl}}/org/{{.Navigation.Group.FullPath|PathEscapeSegments}}/teams">高级团队权限</a>
+    {{end}}
+    {{if .IsPackageEnabled}}<a class="item" href="{{.Navigation.Group.URL}}/-/packages">制品</a>{{end}}
     {{if .CanManageApprovals}}<a class="item" href="{{AppSubUrl}}/org/{{.Navigation.Group.FullPath|PathEscapeSegments}}/settings/approvals">审批策略</a>{{end}}
     {{if .CanReadAudit}}<a class="item" href="{{AppSubUrl}}/governance/audit?scope_type=group&amp;scope_id={{.Navigation.Group.ID}}">审计</a>{{end}}
    {{end}}

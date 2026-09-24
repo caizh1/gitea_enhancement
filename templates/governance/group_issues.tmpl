@@ -1,0 +1,28 @@
+{{template "base/head" .}}
+<div role="main" aria-label="{{.Title}}" class="page-content organization">
+ <div class="ui container tw-py-6">
+  {{template "base/alert" .}}
+  {{template "governance/navigation_header" .}}
+  <form class="ui form tw-mb-4" method="get">
+   <input type="hidden" name="tab" value="{{.GroupTab}}">
+   <div class="fields tw-flex-wrap">
+    <div class="field"><label for="work-scope">仓库范围</label><select id="work-scope" name="scope"><option value="subtree" {{if eq .Work.Query.Scope "subtree"}}selected{{end}}>本群组与子群组</option><option value="direct" {{if eq .Work.Query.Scope "direct"}}selected{{end}}>仅本群组</option><option value="shared" {{if eq .Work.Query.Scope "shared"}}selected{{end}}>共享给本群组的项目</option></select></div>
+    <div class="field"><label for="work-repo">仓库</label><select id="work-repo" name="repo"><option value="0">全部可访问仓库</option>{{range .Work.Repositories}}<option value="{{.ID}}" {{if eq $.Work.Query.RepoID .ID}}selected{{end}}>{{.FullPath}}</option>{{end}}</select></div>
+    <div class="field"><label for="work-state">状态</label><select id="work-state" name="state"><option value="open" {{if eq .Work.Query.State "open"}}selected{{end}}>待处理</option><option value="closed" {{if eq .Work.Query.State "closed"}}selected{{end}}>已关闭</option><option value="all" {{if eq .Work.Query.State "all"}}selected{{end}}>全部</option></select></div>
+    {{if .IsSigned}}<div class="field"><label for="work-filter">与我有关</label><select id="work-filter" name="filter"><option value="">全部</option><option value="assigned" {{if eq .Work.Query.Filter "assigned"}}selected{{end}}>指派给我</option><option value="created" {{if eq .Work.Query.Filter "created"}}selected{{end}}>我创建的</option>{{if eq .GroupTab "pulls"}}<option value="review_requested" {{if eq .Work.Query.Filter "review_requested"}}selected{{end}}>请求我审查</option>{{end}}</select></div>{{end}}
+   </div>
+   <button class="ui primary button" type="submit">筛选</button>
+  </form>
+  <p class="text light">仅显示有权访问的活动仓库，共 {{.Work.Count}} 项。共享项目保留原归属及配置来源。</p>
+  <div class="flex-list">
+   {{range .Work.Issues}}
+    <div class="flex-item">
+     <div class="flex-item-leading">{{template "shared/issueicon" .}}</div>
+     <div class="flex-item-main"><div class="flex-item-title tw-break-all"><a href="{{.Link}}">{{.Title}}</a></div><div class="flex-item-body"><a href="{{.Repo.Link}}">{{.Repo.FullPath}}</a> #{{.Index}} · {{if .IsClosed}}已关闭{{else}}待处理{{end}} · {{DateUtils.TimeSince .UpdatedUnix}}</div></div>
+    </div>
+   {{else}}<div class="ui segment">没有符合条件的 {{if eq .GroupTab "pulls"}}PR{{else}}Issue{{end}}。</div>{{end}}
+  </div>
+  {{template "base/paginate" .}}
+ </div>
+</div>
+{{template "base/footer" .}}

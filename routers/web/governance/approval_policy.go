@@ -5,11 +5,11 @@
 package governance
 
 import (
-	governance_model "gitea.dev/models/governance"
-	user_model "gitea.dev/models/user"
 	"net/http"
 	"strconv"
 
+	governance_model "gitea.dev/models/governance"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/services/context"
 	governance_service "gitea.dev/services/governance"
@@ -92,6 +92,7 @@ func NativeGroupApprovalPolicies(ctx *context.Context) {
 	}
 	ApprovalPolicies(ctx)
 }
+
 func NativeInstanceApprovalPolicies(ctx *context.Context) {
 	if ctx.Doer == nil || !ctx.Doer.IsAdmin {
 		respondError(ctx, governance_model.ErrNotFound)

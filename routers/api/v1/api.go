@@ -1077,6 +1077,10 @@ func Routes() *web.Router {
 			m.Get("/groups", governance.Groups)
 			m.Post("/groups", bind(governance.GroupOption{}), governance.CreateGroup)
 			m.Get("/groups/{id}", governance.Group)
+			m.Get("/groups/{id}/branch-protections", governance.GroupBranchProtections)
+			m.Post("/groups/{id}/branch-protections", bind(governance.GroupBranchProtectionOption{}), governance.CreateGroupBranchProtection)
+			m.Put("/groups/{id}/branch-protections/{rule_id}", bind(governance.GroupBranchProtectionOption{}), governance.UpdateGroupBranchProtection)
+			m.Delete("/groups/{id}/branch-protections/{rule_id}", governance.DeleteGroupBranchProtection)
 			m.Post("/groups/{id}/deletion", bind(governance.GroupDeletionOption{}), governance.ScheduleGroupDeletion)
 			m.Post("/groups/{id}/restore", bind(governance.GroupDeletionOption{}), governance.RestoreGroupDeletion)
 			m.Post("/groups/{id}/delete-permanently", bind(governance.GroupDeletionOption{}), governance.DeletePendingGroup)
@@ -1428,6 +1432,7 @@ func Routes() *web.Router {
 					m.Put("/*", reqToken(), reqRepoWriter(unit.TypeCode), mustNotBeArchived, bind(api.UpdateBranchRepoOption{}), repo.UpdateBranch)
 					m.Patch("/*", reqToken(), reqRepoWriter(unit.TypeCode), mustNotBeArchived, bind(api.RenameBranchRepoOption{}), repo.RenameBranch)
 				}, context.ReferencesGitRepo(), reqRepoReader(unit.TypeCode))
+				m.Get("/inherited_branch_protections", reqToken(), reqAdmin(), repo.ListInheritedBranchProtections)
 				m.Group("/branch_protections", func() {
 					m.Get("", repo.ListBranchProtections)
 					m.Post("", bind(api.CreateBranchProtectionOption{}), mustNotBeArchived, repo.CreateBranchProtection)
@@ -1508,24 +1513,24 @@ func Routes() *web.Router {
 				}, reqToken())
 				m.Group("/releases", func() {
 					m.Combo("").Get(repo.ListReleases).
-						Post(reqToken(), reqRepoWriter(unit.TypeReleases), context.ReferencesGitRepo(), bind(api.CreateReleaseOption{}), repo.CreateRelease)
+						Post(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, context.ReferencesGitRepo(), bind(api.CreateReleaseOption{}), repo.CreateRelease)
 					m.Combo("/latest").Get(repo.GetLatestRelease)
 					m.Group("/{id}", func() {
 						m.Combo("").Get(repo.GetRelease).
-							Patch(reqToken(), reqRepoWriter(unit.TypeReleases), context.ReferencesGitRepo(), bind(api.EditReleaseOption{}), repo.EditRelease).
-							Delete(reqToken(), reqRepoWriter(unit.TypeReleases), repo.DeleteRelease)
+							Patch(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, context.ReferencesGitRepo(), bind(api.EditReleaseOption{}), repo.EditRelease).
+							Delete(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, repo.DeleteRelease)
 						m.Group("/assets", func() {
 							m.Combo("").Get(repo.ListReleaseAttachments).
-								Post(reqToken(), reqRepoWriter(unit.TypeReleases), repo.CreateReleaseAttachment)
+								Post(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, repo.CreateReleaseAttachment)
 							m.Combo("/{attachment_id}").Get(repo.GetReleaseAttachment).
-								Patch(reqToken(), reqRepoWriter(unit.TypeReleases), bind(api.EditAttachmentOptions{}), repo.EditReleaseAttachment).
-								Delete(reqToken(), reqRepoWriter(unit.TypeReleases), repo.DeleteReleaseAttachment)
+								Patch(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, bind(api.EditAttachmentOptions{}), repo.EditReleaseAttachment).
+								Delete(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, repo.DeleteReleaseAttachment)
 						})
 					})
 					m.Group("/tags", func() {
 						m.Combo("/{tag}").
 							Get(repo.GetReleaseByTag).
-							Delete(reqToken(), reqRepoWriter(unit.TypeReleases), repo.DeleteReleaseByTag)
+							Delete(reqToken(), reqRepoWriter(unit.TypeReleases), mustNotBeArchived, repo.DeleteReleaseByTag)
 					})
 				}, reqRepoReader(unit.TypeReleases))
 				m.Post("/mirror-sync", reqToken(), reqRepoWriter(unit.TypeCode), mustNotBeArchived, repo.MirrorSync)

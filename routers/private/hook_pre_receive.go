@@ -21,6 +21,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/gitrepo"
+	"gitea.dev/modules/glob"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/private"
 	repo_module "gitea.dev/modules/repository"
@@ -175,7 +176,7 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 		return
 	}
 
-	protectBranch, err := git_model.GetFirstMatchProtectedBranchRule(ctx, repo.ID, branchName)
+	effective, err := git_model.EvaluateEffectiveBranchProtection(ctx, repo.ID, branchName)
 	if err != nil {
 		log.Error("Unable to get protected branch: %s in %-v Error: %v", branchName, repo, err)
 		ctx.JSON(http.StatusInternalServerError, private.Response{
@@ -185,8 +186,12 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 	}
 
 	// Allow pushes to non-protected branches
-	if protectBranch == nil {
+	if !effective.IsProtected() {
 		return
+	}
+	protectBranch := effective.Native
+	if protectBranch == nil {
+		protectBranch = &git_model.ProtectedBranch{RepoID: repo.ID}
 	}
 	protectBranch.Repo = repo
 	if protectBranch.RequireGovernanceApproval {
@@ -231,7 +236,11 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 			})
 			return
 		} else if len(output) > 0 {
-			if protectBranch.CanForcePush {
+			allowForcePush := protectBranch.CanForcePush
+			for _, rule := range effective.Group {
+				allowForcePush = allowForcePush || rule.AllowForcePush
+			}
+			if allowForcePush {
 				isForcePush = true
 			} else {
 				log.Warn("Forbidden: Branch: %s in %-v is protected from force push", branchName, repo)
@@ -289,18 +298,25 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 	// 5. Check if the doer is allowed to push (and force-push if the incoming push is a force-push)
 	var canPush bool
 	if ctx.opts.DeployKeyID != 0 {
-		// This flag is only ever true if protectBranch.CanForcePush is true
-		if isForcePush {
-			canPush = !changedProtectedfiles && protectBranch.CanPush && (!protectBranch.EnableForcePushAllowlist || protectBranch.ForcePushAllowlistDeployKeys)
-		} else {
-			canPush = !changedProtectedfiles && protectBranch.CanPush && (!protectBranch.EnableWhitelist || protectBranch.WhitelistDeployKeys)
-		}
+		canPush = !changedProtectedfiles && effective.CanDeployKeyPush(isForcePush)
 	} else {
-		if isForcePush {
-			canPush = !changedProtectedfiles && protectBranch.CanUserForcePush(ctx, ctx.user)
+		var allowed bool
+		if ctx.user.ID == user_model.ActionsUserID {
+			if isForcePush {
+				allowed = protectBranch.CanUserForcePush(ctx, ctx.user)
+			} else {
+				allowed = protectBranch.CanUserPush(ctx, ctx.user)
+			}
+		} else if isForcePush {
+			allowed, err = effective.AllowsForcePush(ctx, ctx.user)
 		} else {
-			canPush = !changedProtectedfiles && protectBranch.CanUserPush(ctx, ctx.user)
+			allowed, err = effective.CanUserPush(ctx, ctx.user)
 		}
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, private.Response{Err: err.Error()})
+			return
+		}
+		canPush = !changedProtectedfiles && allowed
 	}
 
 	// 6. If we're not allowed to push directly
@@ -319,7 +335,10 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 			}
 
 			// Allow commits that only touch unprotected files
-			globs := protectBranch.GetUnprotectedFilePatterns()
+			var globs []glob.Glob
+			if len(effective.Group) == 0 {
+				globs = protectBranch.GetUnprotectedFilePatterns()
+			}
 			if len(globs) > 0 {
 				unprotectedFilesOnly, err := pull_service.CheckUnprotectedFiles(gitRepo, branchName, oldCommitID, newCommitID, globs, ctx.env)
 				if err != nil {

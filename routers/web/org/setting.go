@@ -166,6 +166,11 @@ func Webhooks(ctx *context.Context) {
 	}
 
 	ctx.Data["Webhooks"] = ws
+	ctx.Data["AncestorHookSources"], err = ancestorHookSources(ctx, ctx.Org.Organization.ID, ctx.Doer.ID)
+	if err != nil {
+		ctx.ServerError("AncestorHookSources", err)
+		return
+	}
 	ctx.HTML(http.StatusOK, tplSettingsHooks)
 }
 

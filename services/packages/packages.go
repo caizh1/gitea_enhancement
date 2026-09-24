@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"gitea.dev/models/db"
@@ -25,6 +26,7 @@ import (
 	packages_module "gitea.dev/modules/packages"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
+	"gitea.dev/modules/util"
 	notify_service "gitea.dev/services/notify"
 )
 
@@ -76,58 +78,59 @@ type PackageFileCreationInfo struct {
 
 // CreatePackageAndAddFile creates a package with a file. If the same package exists already, ErrDuplicatePackageVersion is returned
 func CreatePackageAndAddFile(ctx context.Context, pvci *PackageCreationInfo, pfci *PackageFileCreationInfo) (*packages_model.PackageVersion, *packages_model.PackageFile, error) {
-	return createPackageAndAddFile(ctx, pvci, pfci, false)
+	pb, err := preparePackageFileUpload(ctx, pvci, pfci)
+	if err != nil {
+		return nil, nil, err
+	}
+	return createPackageAndAddFile(ctx, pvci, pfci, pb, false)
 }
 
 // CreatePackageOrAddFileToExisting creates a package with a file or adds the file if the package exists already
 func CreatePackageOrAddFileToExisting(ctx context.Context, pvci *PackageCreationInfo, pfci *PackageFileCreationInfo) (pv *packages_model.PackageVersion, pf *packages_model.PackageFile, err error) {
+	pb, err := preparePackageFileUpload(ctx, pvci, pfci)
+	if err != nil {
+		return nil, nil, err
+	}
 	lockKey := fmt.Sprintf("pkg-upsert-%v-%v-%v", pvci.PackageType, pvci.Name, pvci.Version)
 	err = globallock.LockAndDo(ctx, lockKey, func(ctx context.Context) error {
-		pv, pf, err = createPackageAndAddFile(ctx, pvci, pfci, true)
+		pv, pf, err = createPackageAndAddFile(ctx, pvci, pfci, pb, true)
 		return err
 	})
 	return pv, pf, err
 }
 
-func createPackageAndAddFile(ctx context.Context, pvci *PackageCreationInfo, pfci *PackageFileCreationInfo, allowDuplicate bool) (*packages_model.PackageVersion, *packages_model.PackageFile, error) {
-	dbCtx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return nil, nil, err
+func preparePackageFileUpload(ctx context.Context, pvci *PackageCreationInfo, pfci *PackageFileCreationInfo) (*packages_model.PackageBlob, error) {
+	if err := packages_model.WithAuthenticatedOwnerWrite(ctx, pvci.Owner.ID, pvci.Creator, func(ctx context.Context) error {
+		return CheckSizeQuotaExceeded(ctx, pfci.Creator, pvci.Owner, pvci.PackageType, pfci.Data.Size())
+	}); err != nil {
+		return nil, err
 	}
-	defer committer.Close()
+	return StagePackageBlob(ctx, pfci.Data)
+}
 
-	pv, created, err := createPackageAndVersion(dbCtx, pvci, allowDuplicate)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	pf, pb, blobCreated, err := addFileToPackageVersion(dbCtx, pv, &pvci.PackageInfo, pfci)
-	removeBlob := false
-	defer func() {
-		if blobCreated && removeBlob {
-			_ = committer.Close()
-			if err := RemoveUnreferencedBlobContent(ctx, pb.HashSHA256); err != nil {
-				log.Error("Error deleting package blob from content store: %v", err)
-			}
+func createPackageAndAddFile(ctx context.Context, pvci *PackageCreationInfo, pfci *PackageFileCreationInfo, pb *packages_model.PackageBlob, allowDuplicate bool) (*packages_model.PackageVersion, *packages_model.PackageFile, error) {
+	var pv *packages_model.PackageVersion
+	var pf *packages_model.PackageFile
+	var created bool
+	err := packages_model.WithAuthenticatedOwnerWrite(ctx, pvci.Owner.ID, pvci.Creator, func(ctx context.Context) error {
+		var err error
+		pv, created, err = createPackageAndVersion(ctx, pvci, allowDuplicate)
+		if err != nil {
+			return err
 		}
-	}()
-	if err != nil {
-		removeBlob = true
-		return nil, nil, err
-	}
-	if err := packages_model.AppendFileAudit(dbCtx, pf, "package.file_added"); err != nil {
-		removeBlob = true
-		return nil, nil, err
-	}
-	if created {
-		if err := packages_model.AppendVersionAudit(dbCtx, pv, "package.version_published"); err != nil {
-			removeBlob = true
-			return nil, nil, err
+		pf, err = addFileToPackageVersion(ctx, pv, &pvci.PackageInfo, pfci, pb)
+		if err != nil {
+			return err
 		}
-	}
-
-	if err := committer.Commit(); err != nil {
-		removeBlob = true
+		if err := packages_model.AppendFileAudit(ctx, pf, "package.file_added"); err != nil {
+			return err
+		}
+		if created {
+			return packages_model.AppendVersionAudit(ctx, pv, "package.version_published")
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -212,56 +215,51 @@ func createPackageAndVersion(ctx context.Context, pvci *PackageCreationInfo, all
 
 // AddFileToExistingPackage adds a file to an existing package. If the package does not exist, ErrPackageNotExist is returned
 func AddFileToExistingPackage(ctx context.Context, pvi *PackageInfo, pfci *PackageFileCreationInfo) (*packages_model.PackageFile, error) {
-	return addFileToPackageWrapper(ctx, func(ctx context.Context) (*packages_model.PackageFile, *packages_model.PackageBlob, bool, error) {
+	if err := packages_model.WithAuthenticatedOwnerWrite(ctx, pvi.Owner.ID, pfci.Creator, func(ctx context.Context) error {
+		return CheckSizeQuotaExceeded(ctx, pfci.Creator, pvi.Owner, pvi.PackageType, pfci.Data.Size())
+	}); err != nil {
+		return nil, err
+	}
+	return addFileToPackageWrapper(ctx, pfci, pvi.Owner.ID, pfci.Creator, func(ctx context.Context, pb *packages_model.PackageBlob) (*packages_model.PackageFile, error) {
 		pv, err := packages_model.GetVersionByNameAndVersion(ctx, pvi.Owner.ID, pvi.PackageType, pvi.Name, pvi.Version)
 		if err != nil {
-			return nil, nil, false, err
+			return nil, err
 		}
 
-		return addFileToPackageVersion(ctx, pv, pvi, pfci)
+		return addFileToPackageVersion(ctx, pv, pvi, pfci, pb)
 	})
 }
 
 // AddFileToPackageVersionInternal adds a file to the package
 // This method skips quota checks and should only be used for system-managed packages.
 func AddFileToPackageVersionInternal(ctx context.Context, pv *packages_model.PackageVersion, pfci *PackageFileCreationInfo) (*packages_model.PackageFile, error) {
-	return addFileToPackageWrapper(ctx, func(ctx context.Context) (*packages_model.PackageFile, *packages_model.PackageBlob, bool, error) {
-		return addFileToPackageVersionUnchecked(ctx, pv, pfci)
+	return addFileToPackageWrapper(ctx, pfci, 0, nil, func(ctx context.Context, pb *packages_model.PackageBlob) (*packages_model.PackageFile, error) {
+		return addFileToPackageVersionUnchecked(ctx, pv, pfci, pb)
 	})
 }
 
-func addFileToPackageWrapper(ctx context.Context, fn func(ctx context.Context) (*packages_model.PackageFile, *packages_model.PackageBlob, bool, error)) (*packages_model.PackageFile, error) {
-	originalCtx := ctx
-	ctx, committer, err := db.TxContext(ctx)
+func addFileToPackageWrapper(ctx context.Context, pfci *PackageFileCreationInfo, ownerID int64, doer *user_model.User, fn func(context.Context, *packages_model.PackageBlob) (*packages_model.PackageFile, error)) (*packages_model.PackageFile, error) {
+	pb, err := StagePackageBlob(ctx, pfci.Data)
 	if err != nil {
 		return nil, err
 	}
-	defer committer.Close()
-
-	pf, pb, blobCreated, err := fn(ctx)
-	removeBlob := false
-	defer func() {
-		if removeBlob {
-			_ = committer.Close()
-			if err := RemoveUnreferencedBlobContent(originalCtx, pb.HashSHA256); err != nil {
-				log.Error("Error deleting package blob from content store: %v", err)
-			}
+	var pf *packages_model.PackageFile
+	apply := func(ctx context.Context) error {
+		var err error
+		pf, err = fn(ctx, pb)
+		if err != nil {
+			return err
 		}
-	}()
+		return packages_model.AppendFileAudit(ctx, pf, "package.file_added")
+	}
+	if ownerID > 0 {
+		err = packages_model.WithAuthenticatedOwnerWrite(ctx, ownerID, doer, apply)
+	} else {
+		err = db.WithTx(ctx, apply)
+	}
 	if err != nil {
-		removeBlob = blobCreated
 		return nil, err
 	}
-	if err := packages_model.AppendFileAudit(ctx, pf, "package.file_added"); err != nil {
-		removeBlob = blobCreated
-		return nil, err
-	}
-
-	if err := committer.Commit(); err != nil {
-		removeBlob = blobCreated
-		return nil, err
-	}
-
 	return pf, nil
 }
 
@@ -278,46 +276,54 @@ func NewPackageBlob(hsr packages_module.HashedSizeReader) *packages_model.Packag
 	}
 }
 
-func addFileToPackageVersion(ctx context.Context, pv *packages_model.PackageVersion, pvi *PackageInfo, pfci *PackageFileCreationInfo) (*packages_model.PackageFile, *packages_model.PackageBlob, bool, error) {
-	if err := CheckSizeQuotaExceeded(ctx, pfci.Creator, pvi.Owner, pvi.PackageType, pfci.Data.Size()); err != nil {
-		return nil, nil, false, err
-	}
-
-	return addFileToPackageVersionUnchecked(ctx, pv, pfci)
-}
-
-func addFileToPackageVersionUnchecked(ctx context.Context, pv *packages_model.PackageVersion, pfci *PackageFileCreationInfo) (*packages_model.PackageFile, *packages_model.PackageBlob, bool, error) {
-	log.Trace("Adding package file: %v, %s", pv.ID, pfci.Filename)
-
-	pb, exists, err := packages_model.GetOrInsertBlob(ctx, NewPackageBlob(pfci.Data))
+// StagePackageBlob 先持久化内容，再由调用者在短事务内建立文件引用。
+func StagePackageBlob(ctx context.Context, data packages_module.HashedSizeReader) (*packages_model.PackageBlob, error) {
+	pb, exists, err := packages_model.PrepareBlobUpload(ctx, NewPackageBlob(data))
 	if err != nil {
-		log.Error("Error inserting package blob: %v", err)
-		return nil, nil, false, err
+		return nil, err
 	}
-	if !exists {
-		contentStore := packages_module.NewContentStore()
-		if err := contentStore.Save(packages_module.BlobHash256Key(pb.HashSHA256), pfci.Data, pfci.Data.Size()); err != nil {
-			log.Error("Error saving package blob in content store: %v", err)
-			return nil, pb, true, err
+	store := packages_module.NewContentStore()
+	key := packages_module.BlobHash256Key(pb.HashSHA256)
+	if exists {
+		if err := store.Has(key); err == nil {
+			return pb, nil
+		} else if !errors.Is(err, util.ErrNotExist) && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
 		}
 	}
+	if err := store.Save(key, data, data.Size()); err != nil {
+		return nil, err
+	}
+	return pb, nil
+}
+
+func addFileToPackageVersion(ctx context.Context, pv *packages_model.PackageVersion, pvi *PackageInfo, pfci *PackageFileCreationInfo, pb *packages_model.PackageBlob) (*packages_model.PackageFile, error) {
+	if err := CheckSizeQuotaExceeded(ctx, pfci.Creator, pvi.Owner, pvi.PackageType, pfci.Data.Size()); err != nil {
+		return nil, err
+	}
+
+	return addFileToPackageVersionUnchecked(ctx, pv, pfci, pb)
+}
+
+func addFileToPackageVersionUnchecked(ctx context.Context, pv *packages_model.PackageVersion, pfci *PackageFileCreationInfo, pb *packages_model.PackageBlob) (*packages_model.PackageFile, error) {
+	log.Trace("Adding package file: %v, %s", pv.ID, pfci.Filename)
 
 	if pfci.OverwriteExisting {
 		pf, err := packages_model.GetFileForVersionByName(ctx, pv.ID, pfci.Filename, pfci.CompositeKey)
 		if err != nil && err != packages_model.ErrPackageFileNotExist {
-			return nil, pb, !exists, err
+			return nil, err
 		}
 		if pf != nil {
 			// Short circuit if blob is the same
 			if pf.BlobID == pb.ID {
-				return pf, pb, !exists, nil
+				return pf, nil
 			}
 
 			if err := packages_model.DeleteAllProperties(ctx, packages_model.PropertyTypeFile, pf.ID); err != nil {
-				return nil, pb, !exists, err
+				return nil, err
 			}
 			if err := packages_model.DeleteFileByID(ctx, pf.ID); err != nil {
-				return nil, pb, !exists, err
+				return nil, err
 			}
 		}
 	}
@@ -330,21 +336,22 @@ func addFileToPackageVersionUnchecked(ctx context.Context, pv *packages_model.Pa
 		CompositeKey: pfci.CompositeKey,
 		IsLead:       pfci.IsLead,
 	}
+	var err error
 	if pf, err = packages_model.TryInsertFile(ctx, pf); err != nil {
 		if err != packages_model.ErrDuplicatePackageFile {
 			log.Error("Error inserting package file: %v", err)
 		}
-		return nil, pb, !exists, err
+		return nil, err
 	}
 
 	for name, value := range pfci.Properties {
 		if _, err := packages_model.InsertProperty(ctx, packages_model.PropertyTypeFile, pf.ID, name, value); err != nil {
 			log.Error("Error setting package file property: %v", err)
-			return pf, pb, !exists, err
+			return pf, err
 		}
 	}
 
-	return pf, pb, !exists, nil
+	return pf, nil
 }
 
 // CheckCountQuotaExceeded checks if the owner has more than the allowed packages
@@ -503,13 +510,22 @@ func RemovePackageVersion(ctx context.Context, doer *user_model.User, pv *packag
 	if err != nil {
 		return err
 	}
-	if err := GetSpecManager().Get(pd.Package.Type).OnBeforeRemovePackageVersion(ctx, doer, pd); err != nil {
-		return err
-	}
 	// HINT: PACKAGE-DEFER-STORAGE-DELETE: Blobs are not deleted immediately, instead they are deleted by the cleanup_packages cron task.
 	// If there are no more versions for the package, the same task removes that as well.
 	log.Trace("Deleting package: %v", pv.ID)
-	if err := DeletePackageVersionAndReferences(ctx, pv); err != nil {
+	if err := packages_model.WithAuthenticatedOwnerWrite(ctx, pd.Package.OwnerID, doer, func(ctx context.Context) error {
+		fresh, err := packages_model.GetVersionByID(ctx, pv.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.PackageID != pd.Package.ID {
+			return governance_model.ErrConflict
+		}
+		if err := GetSpecManager().Get(pd.Package.Type).OnBeforeRemovePackageVersion(ctx, doer, pd); err != nil {
+			return err
+		}
+		return deletePackageVersionAndReferences(ctx, pv)
+	}); err != nil {
 		return err
 	}
 
@@ -522,12 +538,30 @@ func RemovePackageVersion(ctx context.Context, doer *user_model.User, pv *packag
 func RemovePackageFileAndVersionIfUnreferenced(ctx context.Context, doer *user_model.User, pf *packages_model.PackageFile) error {
 	var pd *packages_model.PackageDescriptor
 
-	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
-		if err := DeletePackageFile(ctx, pf); err != nil {
+	version, err := packages_model.GetVersionByID(ctx, pf.VersionID)
+	if err != nil {
+		return err
+	}
+	pkg, err := packages_model.GetPackageByID(ctx, version.PackageID)
+	if err != nil {
+		return err
+	}
+	if err := packages_model.WithAuthenticatedOwnerWrite(ctx, pkg.OwnerID, doer, func(ctx context.Context) error {
+		fresh, has, err := db.GetByID[packages_model.PackageFile](ctx, pf.ID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return packages_model.ErrPackageFileNotExist
+		}
+		if fresh.VersionID != version.ID {
+			return governance_model.ErrConflict
+		}
+		if err := deletePackageFile(ctx, pf); err != nil {
 			return err
 		}
 
-		has, err := packages_model.HasVersionFileReferences(ctx, pf.VersionID)
+		has, err = packages_model.HasVersionFileReferences(ctx, pf.VersionID)
 		if err != nil {
 			return err
 		}
@@ -542,7 +576,7 @@ func RemovePackageFileAndVersionIfUnreferenced(ctx context.Context, doer *user_m
 				return err
 			}
 
-			if err := DeletePackageVersionAndReferences(ctx, pv); err != nil {
+			if err := deletePackageVersionAndReferences(ctx, pv); err != nil {
 				return err
 			}
 		}
@@ -561,6 +595,43 @@ func RemovePackageFileAndVersionIfUnreferenced(ctx context.Context, doer *user_m
 
 // DeletePackageVersionAndReferences deletes the package version and its properties and files
 func DeletePackageVersionAndReferences(ctx context.Context, pv *packages_model.PackageVersion) error {
+	if ctx.Value(packageCleanupContextKey{}) != nil {
+		return DeletePackageVersionAndReferencesForCleanup(ctx, pv)
+	}
+	actor, ok := ctx.Value(governance_model.AuditActorContextKey).(governance_model.Actor)
+	if !ok {
+		return governance_model.ErrForbidden
+	}
+	version, err := packages_model.GetVersionByID(ctx, pv.ID)
+	if err != nil {
+		return err
+	}
+	pkg, err := packages_model.GetPackageByID(ctx, version.PackageID)
+	if err != nil {
+		return err
+	}
+	doer, err := user_model.GetUserByID(ctx, actor.EffectiveUserID())
+	if err != nil {
+		return err
+	}
+	return packages_model.WithAuthenticatedOwnerWrite(ctx, pkg.OwnerID, doer, func(ctx context.Context) error {
+		fresh, err := packages_model.GetVersionByID(ctx, pv.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.PackageID != pkg.ID {
+			return governance_model.ErrConflict
+		}
+		return deletePackageVersionAndReferences(ctx, pv)
+	})
+}
+
+// DeletePackageVersionAndReferencesForCleanup 是后台和账号删除使用的内部清理入口。
+func DeletePackageVersionAndReferencesForCleanup(ctx context.Context, pv *packages_model.PackageVersion) error {
+	return deletePackageVersionAndReferences(ctx, pv)
+}
+
+func deletePackageVersionAndReferences(ctx context.Context, pv *packages_model.PackageVersion) error {
 	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		fresh, err := packages_model.GetVersionByID(ctx, pv.ID)
 		if err != nil {
@@ -584,6 +655,53 @@ func DeletePackageVersionAndReferences(ctx context.Context, pv *packages_model.P
 
 // DeletePackageFile deletes the package file and its properties
 func DeletePackageFile(ctx context.Context, pf *packages_model.PackageFile) error {
+	if ctx.Value(packageCleanupContextKey{}) != nil {
+		return DeletePackageFileForCleanup(ctx, pf)
+	}
+	actor, ok := ctx.Value(governance_model.AuditActorContextKey).(governance_model.Actor)
+	if !ok {
+		return governance_model.ErrForbidden
+	}
+	version, err := packages_model.GetVersionByID(ctx, pf.VersionID)
+	if err != nil {
+		return err
+	}
+	pkg, err := packages_model.GetPackageByID(ctx, version.PackageID)
+	if err != nil {
+		return err
+	}
+	doer, err := user_model.GetUserByID(ctx, actor.EffectiveUserID())
+	if err != nil {
+		return err
+	}
+	return packages_model.WithAuthenticatedOwnerWrite(ctx, pkg.OwnerID, doer, func(ctx context.Context) error {
+		fresh, has, err := db.GetByID[packages_model.PackageFile](ctx, pf.ID)
+		if err != nil {
+			return err
+		}
+		if !has {
+			return packages_model.ErrPackageFileNotExist
+		}
+		if fresh.VersionID != version.ID {
+			return governance_model.ErrConflict
+		}
+		return deletePackageFile(ctx, pf)
+	})
+}
+
+type packageCleanupContextKey struct{}
+
+// WithPackageCleanupContext 标记由包清理任务触发的仓库索引重建。
+func WithPackageCleanupContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, packageCleanupContextKey{}, true)
+}
+
+// DeletePackageFileForCleanup 仅用于后台回收无引用的内部上传文件。
+func DeletePackageFileForCleanup(ctx context.Context, pf *packages_model.PackageFile) error {
+	return deletePackageFile(ctx, pf)
+}
+
+func deletePackageFile(ctx context.Context, pf *packages_model.PackageFile) error {
 	return governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
 		fresh, has, err := db.GetByID[packages_model.PackageFile](ctx, pf.ID)
 		if err != nil {
@@ -688,18 +806,24 @@ func RemovePackage(ctx context.Context, doer *user_model.User, p *packages_model
 	if err != nil {
 		return err
 	}
-	if err := GetSpecManager().Get(p.Type).OnBeforeRemovePackageAll(ctx, doer, p, pds); err != nil {
-		return err
-	}
-
 	// HINT: PACKAGE-DEFER-STORAGE-DELETE: Blobs are not deleted immediately, instead they are deleted by cleanup_packages cron task.
-	err = governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+	err = packages_model.WithAuthenticatedOwnerWrite(ctx, p.OwnerID, doer, func(ctx context.Context) error {
+		fresh, err := packages_model.GetPackageByID(ctx, p.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.OwnerID != p.OwnerID {
+			return governance_model.ErrConflict
+		}
+		if err := GetSpecManager().Get(p.Type).OnBeforeRemovePackageAll(ctx, doer, p, pds); err != nil {
+			return err
+		}
 		for _, pd := range pds {
 			if err := packages_model.AppendVersionAudit(ctx, pd.Version, "package.version_deleted"); err != nil {
 				return err
 			}
 		}
-		err := packages_model.DeletePropertiesByPackageID(ctx, packages_model.PropertyTypePackage, p.ID)
+		err = packages_model.DeletePropertiesByPackageID(ctx, packages_model.PropertyTypePackage, p.ID)
 		if err != nil {
 			return err
 		}
@@ -750,7 +874,7 @@ func RemoveAllPackages(ctx context.Context, userID int64) (int, error) {
 			break
 		}
 		for _, pv := range pkgVersions {
-			if err := DeletePackageVersionAndReferences(ctx, pv); err != nil {
+			if err := DeletePackageVersionAndReferencesForCleanup(ctx, pv); err != nil {
 				return count, fmt.Errorf("unable to delete package %d:%s[%d]. Error: %w", pv.PackageID, pv.Version, pv.ID, err)
 			}
 			count++

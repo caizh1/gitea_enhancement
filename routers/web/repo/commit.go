@@ -30,6 +30,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
+	actions_service "gitea.dev/services/actions"
 	asymkey_service "gitea.dev/services/asymkey"
 	"gitea.dev/services/context"
 	git_service "gitea.dev/services/git"
@@ -388,6 +389,10 @@ func Diff(ctx *context.Context) {
 	if err != nil {
 		log.Error("GetLatestCommitStatus: %v", err)
 	}
+	if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, statuses); err != nil {
+		ctx.ServerError("RedactScopedCommitStatusContexts", err)
+		return
+	}
 	if !ctx.Repo.Permission.CanRead(unit_model.TypeActions) {
 		git_model.CommitStatusesHideActionsURL(ctx, statuses)
 	}
@@ -466,6 +471,11 @@ func processGitCommits(ctx *context.Context, gitCommits []*git.Commit) ([]*git_m
 	commits, err := git_service.ConvertFromGitCommit(ctx, gitCommits, ctx.Repo.Repository, ctx.Repo.RefFullName)
 	if err != nil {
 		return nil, err
+	}
+	for _, commit := range commits {
+		if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, commit.Statuses); err != nil {
+			return nil, err
+		}
 	}
 	if !ctx.Repo.Permission.CanRead(unit_model.TypeActions) {
 		for _, commit := range commits {

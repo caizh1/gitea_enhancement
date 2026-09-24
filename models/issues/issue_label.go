@@ -5,6 +5,7 @@ package issues
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	governance_model "gitea.dev/models/governance"
 	access_model "gitea.dev/models/perm/access"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/util"
 
 	"xorm.io/builder"
 )
@@ -92,15 +94,22 @@ func NewIssueLabel(ctx context.Context, issue *Issue, label *Label, doer *user_m
 			if err != nil {
 				return err
 			}
-			if HasIssueLabel(ctx, issue.ID, label.ID) {
-				return nil
-			}
 			if err = issue.LoadRepo(ctx); err != nil {
 				return err
 			}
 
-			// Do NOT add invalid labels
-			if issue.RepoID != label.RepoID && issue.Repo.OwnerID != label.OrgID {
+			// Do not trust a caller-supplied label or an ID from another source.
+			if err = issue.Repo.LoadOwner(ctx); err != nil {
+				return err
+			}
+			label, err = GetLabelInRepoOrOrgByID(ctx, issue.RepoID, issue.Repo.OwnerID, issue.Repo.Owner.IsOrganization(), label.ID)
+			if errors.Is(err, util.ErrNotExist) {
+				return err
+			}
+			if err != nil {
+				return err
+			}
+			if HasIssueLabel(ctx, issue.ID, label.ID) {
 				return nil
 			}
 
@@ -131,11 +140,30 @@ func newIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer *us
 	if err = issue.LoadLabels(ctx); err != nil {
 		return err
 	}
+	if err = issue.Repo.LoadOwner(ctx); err != nil {
+		return err
+	}
+	requestedIDs := make([]int64, 0, len(labels))
+	for _, l := range labels {
+		requestedIDs = append(requestedIDs, l.ID)
+	}
+	validLabels, err := GetLabelsInRepoOrAncestorsByIDs(ctx, issue.RepoID, issue.Repo.OwnerID, issue.Repo.Owner.IsOrganization(), requestedIDs)
+	if err != nil {
+		return err
+	}
+	validByID := make(map[int64]*Label, len(validLabels))
+	for _, l := range validLabels {
+		validByID[l.ID] = l
+	}
+	for _, id := range requestedIDs {
+		if validByID[id] == nil {
+			return ErrLabelNotExist{LabelID: id}
+		}
+	}
 
 	for _, l := range labels {
-		// Don't add already present labels and invalid labels
-		if HasIssueLabel(ctx, issue.ID, l.ID) ||
-			(l.RepoID != issue.RepoID && l.OrgID != issue.Repo.OwnerID) {
+		l = validByID[l.ID]
+		if HasIssueLabel(ctx, issue.ID, l.ID) {
 			continue
 		}
 
@@ -473,8 +501,30 @@ func ReplaceIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer
 		if err = issue.LoadLabels(ctx); err != nil {
 			return err
 		}
-
-		labels = RemoveDuplicateExclusiveLabels(labels)
+		if err = issue.Repo.LoadOwner(ctx); err != nil {
+			return err
+		}
+		requestedIDs := make([]int64, 0, len(labels))
+		for _, label := range labels {
+			requestedIDs = append(requestedIDs, label.ID)
+		}
+		labels, err = GetLabelsInRepoOrAncestorsByIDs(ctx, issue.RepoID, issue.Repo.OwnerID, issue.Repo.Owner.IsOrganization(), requestedIDs)
+		if err != nil {
+			return err
+		}
+		validLabels := make(map[int64]*Label, len(labels))
+		for _, label := range labels {
+			validLabels[label.ID] = label
+		}
+		ordered := make([]*Label, 0, len(requestedIDs))
+		for _, id := range requestedIDs {
+			label := validLabels[id]
+			if label == nil {
+				return ErrLabelNotExist{LabelID: id}
+			}
+			ordered = append(ordered, label)
+		}
+		labels = RemoveDuplicateExclusiveLabels(ordered)
 
 		sort.Sort(labelSorter(labels))
 		sort.Sort(labelSorter(issue.Labels))
@@ -486,18 +536,10 @@ func ReplaceIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer
 			addLabel := labels[addIndex]
 			removeLabel := issue.Labels[removeIndex]
 			if addLabel.ID == removeLabel.ID {
-				// Silently drop invalid labels
-				if removeLabel.RepoID != issue.RepoID && removeLabel.OrgID != issue.Repo.OwnerID {
-					toRemove = append(toRemove, removeLabel)
-				}
-
 				addIndex++
 				removeIndex++
 			} else if addLabel.ID < removeLabel.ID {
-				// Only add if the label is valid
-				if addLabel.RepoID == issue.RepoID || addLabel.OrgID == issue.Repo.OwnerID {
-					toAdd = append(toAdd, addLabel)
-				}
+				toAdd = append(toAdd, addLabel)
 				addIndex++
 			} else {
 				toRemove = append(toRemove, removeLabel)

@@ -16,11 +16,13 @@ import (
 	"strings"
 	"time"
 
+	actions_model "gitea.dev/models/actions"
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
@@ -286,6 +288,7 @@ type pullMergeBoxData struct {
 	// the branch protection's own contexts and/or required scoped workflow checks.
 	// The latter gate the merge even when the rule's own status check is disabled.
 	hasRequiredStatusContexts bool
+	scopedWorkflowBlocked     bool
 
 	hasOverridableBlockers     bool
 	canMergeNow                bool // PR is mergeable, either no blocker, or doer can bypass the blockers
@@ -433,6 +436,10 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxStatusCheckData(ctx *context.C
 	if err != nil {
 		log.Error("GetLatestCommitStatus: %v", err)
 	}
+	if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, commitStatuses); err != nil {
+		ctx.ServerError("RedactScopedCommitStatusContexts", err)
+		return
+	}
 
 	// Effective required contexts = branch-protection contexts + required scoped workflow checks.
 	requiredContexts := pbRequiredContexts
@@ -504,6 +511,13 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxStatusCheckData(ctx *context.C
 		return false
 	}
 	statusCheckData.RequiredChecksState = pull_service.MergeRequiredContextsCommitStatus(commitStatuses, requiredContexts)
+	if err := pull_service.CheckRequiredScopedWorkflowReadiness(ctx, ctx.Repo.Repository, headCommitID); err != nil {
+		data.scopedWorkflowBlocked = true
+		data.ShowStatusCheck = true
+		statusCheckData.ScopedWorkflowProblem = scopedWorkflowReadinessPrompt(ctx, err)
+		statusCheckData.ScopedWorkflowSettings = scopedWorkflowSettingsLinks(ctx)
+		log.Info("required scoped workflow readiness blocked pull %d: %v", prInfo.issue.PullRequest.ID, err)
+	}
 
 	if data.enableStatusCheck || data.hasRequiredStatusContexts {
 		if statusCheckData.RequiredChecksState.IsError() || statusCheckData.RequiredChecksState.IsFailure() {
@@ -528,12 +542,17 @@ type pullCommitStatusCheckData struct {
 	CanApprove              bool              // whether the user can approve workflow runs
 	ApproveLink             string            // link to approve all checks
 	RequiredChecksState     commitstatus.CommitStatusState
+	ScopedWorkflowProblem   template.HTML
+	ScopedWorkflowSettings  []scopedWorkflowSettingsLink
 
 	pullCommitStatusState commitstatus.CommitStatusState
 	PullCommitStatuses    []*git_model.CommitStatus
 }
 
 func (d *pullCommitStatusCheckData) CommitStatusCheckPrompt(locale translation.Locale) string {
+	if d.ScopedWorkflowProblem != "" {
+		return locale.TrString("repo.pulls.required_scoped_workflow.blocked")
+	}
 	if d.RequiredChecksState.IsPending() || len(d.MissingRequiredChecks) > 0 {
 		return locale.TrString("repo.pulls.status_checking")
 	} else if d.RequiredChecksState.IsSuccess() {
@@ -549,6 +568,84 @@ func (d *pullCommitStatusCheckData) CommitStatusCheckPrompt(locale translation.L
 		return locale.TrString("repo.pulls.status_checks_error")
 	}
 	return locale.TrString("repo.pulls.status_checking")
+}
+
+type scopedWorkflowSettingsLink struct {
+	Name string
+	URL  string
+}
+
+func scopedWorkflowReadinessPrompt(ctx *context.Context, err error) template.HTML {
+	return ctx.Locale.Tr(scopedWorkflowReadinessKey(err.Error()))
+}
+
+func scopedWorkflowReadinessKey(message string) string {
+	key := "repo.pulls.required_scoped_workflow.unavailable"
+	switch {
+	case strings.Contains(message, "needs a run for commit"):
+		key = "repo.pulls.required_scoped_workflow.missing_run"
+	case strings.Contains(message, "needs a run at current source commit"):
+		key = "repo.pulls.required_scoped_workflow.stale_source"
+	case strings.Contains(message, "required scoped run is pending"):
+		key = "repo.pulls.required_scoped_workflow.pending"
+	case strings.Contains(message, "required scoped run failed"):
+		key = "repo.pulls.required_scoped_workflow.failed"
+	case strings.Contains(message, "required scoped run was cancelled"):
+		key = "repo.pulls.required_scoped_workflow.cancelled"
+	case strings.Contains(message, "runner managed by its required source scope"):
+		key = "repo.pulls.required_scoped_workflow.runner"
+	case strings.Contains(message, "needs a successful run"):
+		key = "repo.pulls.required_scoped_workflow.job"
+	case strings.Contains(message, "configuration revision"), strings.Contains(message, "configuration changed"), strings.Contains(message, "required pattern"):
+		key = "repo.pulls.required_scoped_workflow.configuration"
+	case strings.Contains(message, "reference hook"), strings.Contains(message, "default branch"), strings.Contains(message, "source"):
+		key = "repo.pulls.required_scoped_workflow.source"
+	}
+	return key
+}
+
+func scopedWorkflowSettingsLinks(ctx *context.Context) []scopedWorkflowSettingsLink {
+	if ctx.Doer == nil {
+		return nil
+	}
+	sources, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, ctx.Repo.Repository.OwnerID)
+	if err != nil {
+		log.Error("GetEffectiveScopedWorkflowSources for readiness: %v", err)
+		return nil
+	}
+	seen := make(map[int64]bool)
+	var links []scopedWorkflowSettingsLink
+	for _, source := range sources {
+		required := false
+		for _, config := range source.WorkflowConfigs {
+			required = required || config != nil && config.Required
+		}
+		if !required || seen[source.OwnerID] {
+			continue
+		}
+		seen[source.OwnerID] = true
+		switch source.OwnerID {
+		case 0:
+			if ctx.Doer.IsAdmin {
+				links = append(links, scopedWorkflowSettingsLink{Name: ctx.Locale.TrString("repo.pulls.required_scoped_workflow.instance"), URL: setting.AppSubURL + "/-/admin/actions/scoped-workflows"})
+			}
+		case ctx.Doer.ID:
+			links = append(links, scopedWorkflowSettingsLink{Name: ctx.Doer.Name, URL: setting.AppSubURL + "/user/settings/actions/scoped-workflows"})
+		default:
+			owner, err := user_model.GetUserByID(ctx, source.OwnerID)
+			if err != nil || !owner.IsOrganization() {
+				continue
+			}
+			allowed := ctx.Doer.IsAdmin
+			if !allowed {
+				allowed, err = organization.IsOrganizationOwner(ctx, owner.ID, ctx.Doer.ID)
+			}
+			if err == nil && allowed {
+				links = append(links, scopedWorkflowSettingsLink{Name: owner.FullPath(), URL: owner.OrganisationLink() + "/settings/actions/scoped-workflows"})
+			}
+		}
+	}
+	return links
 }
 
 func getViewPullHeadBranchCommitID(ctx *context.Context, pull *issues_model.PullRequest) (string, error) {
@@ -924,7 +1021,7 @@ func viewPullFiles(ctx *context.Context, beforeCommitID, afterCommitID string) {
 
 	setCompareContext(ctx, beforeCommit, afterCommit, ctx.Repo.Owner.Name, ctx.Repo.Repository.Name)
 
-	assigneeUsers, err := repo_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
+	assigneeUsers, err := access_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
 	if err != nil {
 		ctx.ServerError("GetRepoAssignees", err)
 		return

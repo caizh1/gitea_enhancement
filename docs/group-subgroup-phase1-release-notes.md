@@ -1,0 +1,47 @@
+# 群组／子群组一期阶段构建说明
+
+## 当前状态
+
+**尚未形成一期候选发布。** 当前运行的是本机隔离验收实例的第十六版 macOS arm64 开发构建，不是面向目标 Linux 环境的安装包。祖先 CI、可信工作流门禁、基础分支保护及多项协作与协议能力已经实现，并有下述真实操作证据；这不等于[一期操作矩阵](group-subgroup-phase1-matrix.md)全部通过。发布判定仍以[一期计划](group-subgroup-phase1-plan.md)的核心操作、容量、安全和人工效率门槛为准。
+
+## 当前构建与运行边界
+
+- 第十六版 SHA-256：`85167c3625a6550b2351b6656d3e22f05f7d1885642d994f6b609b62528e04b2`。隔离实例已正常备份并切换到第十六版，固定执行入口为 `/Users/archer/.cache/gitea-phase1-ui-iegohg9v/gitea-current`；Git hooks 依赖该路径，不能直接改用某个版本二进制路径。仓库根目录原有 Linux `gitea` 未替换。
+- 第七版重新编译 Vite 前端，并重新生成 `options`、`templates`、`public/assets` 的 bindata；第八版将邀请无权／已撤销响应改为原生 HTML 404，并修正取消提示；第九版把相同的原生 404 反馈用于治理 Web 的无权／不存在场景。第十版补可发现群组的访问申请入口，并固定申请时路径隐私；第十一版收紧 Owner 身份及归档、删除、审计授权，并补仓库邮箱邀请入口及转移后邀请目标路径。第十二版重生成 `options`、`templates` bindata，修正必选工作流失败诊断、审计员只读入口与审计导出序号语义，并明确邀请的当前目标路径。第十三版重新生成 `options` bindata，补父组归档阻止单仓恢复时的明确错误提示；授权与归档事务未改。第十四版补 Actions 用户删除的最终权限、生命周期与当前运行状态检查，并使产物删除标记受生命周期约束。数据库经正常迁移至版本 377，本批无新迁移。
+- 实例仅监听本机，使用隔离测试身份、SQLite、真实 Runner 和本机 SMTP。第五／六版有各自定向 PostgreSQL／MinIO 记录；第九版审计及邀请四项、第十版访问申请三项、第十一版 Owner／删除／审计／邀请四项，第十二版六项整合测试、第十三版四项归档整合测试均在真实 PostgreSQL 集成入口通过。它们均不能充当全量回归或目标部署证明。没有生产数据、生产凭据或一期候选发布产物。
+
+## 已有真实验收片段
+
+| 范围 | 已观察结果 | 边界 |
+| --- | --- | --- |
+| 祖先 CI 与可信门禁 | 无本级 YAML 的深层仓库由父组工作流来源和祖先 Runner 执行 push／PR；父级变量、掩码 Secret 与同名覆盖经过真实 Runner 验证。受保护 Secret 的真实分支 push 得到凭据，未保护分支 push 与实际执行的私有 fork PR 均取不到。根规则实际拒绝 HTTP／SSH 保护分支推送；旧成功在 Required 配置改变后不能放行 PR，新运行成功后普通 Owner 完成合并。 | 已验 Runner v1.0.8 不识别 `github.ref_protected` 表达式，不能将该上下文字段用于工作流门禁；受保护 Secret 的其他触发身份及全部重跑／撤权组合未验。 |
+| 成员、审批与协作 | 父组审批规则阻断无批准合并；新提交使旧批准失效，二次审查批准后 PR 4 自动合并。治理邮件邀请经本机 SMTP、收件人网页接受与权限检查；Reporter 自退后，旧产物链接和新的 HTTP Git 请求被拒。原生 Team 的创建、仓库授权、撤权、空 Team 删除有真实 UI／客户端结果。 | 邀请链接到期、全角色与并发组合，通知、提及及非空 Team 删除未验。 |
+| 共享、Hook、标签与制品 | 共享项目有独立导航和过滤列表；深层事件投递根／子 Hook，测试投递失败后可授权重投；祖先标签可在深层 Issue 选择和筛选。OCI／Generic 客户端、LFS、Release 附件及 Actions artifact 的代表性上传／下载和部分撤权反例通过；Generic／OCI 的指定版本删除另有下述客户端实测。 | 不能从代表性协议正例推出全部格式、删除、签名地址及生命周期矩阵完成。 |
+| 第七至九版错误反馈与身份 | 部署密钥实际推送触发的组织身份 Run 立即取消并给出人工处理路径；有权 Owner 从 UI 显式重跑后，真实根 Runner 成功并上传产物。最后一名有效人类 Owner 尝试退出 Owners Team，UI 显示明确拒绝且成员保留。第八版收件人打开已撤销邀请看到原生 404；第九版 Developer 打开无权审计页也看到原生 404，普通 Owner 可从导航进入审计、筛选 Secret 配置事件并发起 CSV 导出。 | 组织部署密钥推送仍需有权人类显式重跑；没有交付群组机器身份产品。审计仅固定筛选和导出子项通过，未覆盖全部范围、分页和撤权交错。 |
+| 第九版 Runner 暂停与恢复 | 普通 Owner 在原生页面停用父 Runner 2 和子 Runner 1；深层 Job55 持续等待且 TaskID 为 0。仅恢复父 Runner 后约 2 秒由其领取并成功执行，日志只报告受保护凭据存在，不输出值；最后恢复子 Runner。 | 覆盖排队期间停用与恢复，未覆盖执行中停用、删除、注册令牌轮换、全部撤权组合或千仓性能。 |
+| 第十版访问申请与隐私 | 可发现的内部群组首页提供“访问申请与状态”；真实 UI 完成申请、本人撤回、Owner 批准 Reporter、再次申请后拒绝及成员自退。批准后实际 HTTP Git 读取／克隆成功、推送被拒；自退后新旧路径读取均被拒。资源改为私有并改名后，无当前读取权的申请人只能看到申请时路径，旧地址返回 404。 | 只覆盖固定身份、内部群组和 HTTP Git 样本；申请到期、多来源、其他协议及全角色组合仍未验。 |
+| 第十一版 Owner 与删除生命周期 | 修复受限共享原始 Owner 角色被误用于审计、归档和删除，以及多条不完整授权拼成原生 Owner 身份。v10 受限用户曾在真实 UI 将空组 18 安排为待删除；v11 同身份审计页及相关 API 返回 404，删除状态不再可由其改变。真正 Owner 在重启后从 UI 恢复空组 14 和 18，原路径、未归档状态及创建入口恢复。 | 没有执行浏览器永久删除；含仓库／包／运行中任务的延迟删除与清理组合仍未完成。 |
+| 第十一版转移、邀请与多来源 | 仓库成员页邮箱邀请经本机 SMTP 到达。仓库 12 转移到同名子群组后，收件人预览显示完整新路径；一份邀请经 UI 拒绝，另一份在转移回新路径后经 UI 接受，直接 Developer 来源生效，HTTP Git 新旧地址读取与合成分支推送成功。再叠加群组 Reporter 后，管理者预览并移除直接来源，写入被拒、读取保留；移除最后的群组来源后，页面和 HTTP Git 新旧地址均被拒。正式 API 建立的 90 秒 Reporter 来源到期后，页面、Git 读取拒绝且有到期审计。 | 覆盖单仓、固定角色和 HTTP Git；秒级到期不是 UI 设置。邀请链接到期、并发接受／转移、SSH／LFS／包旧别名及完整多来源矩阵未验。 |
+| 第十二版诊断、审计与邀请 | PR 5 的失败必选 Run 在真实页面显示运行失败与修复后重跑提示，合并仍阻止。审计员从旧入口跳转到当前仓库协作者页，见只读来源与无编辑控件；实际 API 读 200、写 403，撤销审计员后均 404。新邀请邮件预览明确当前完整仓库路径，Owner 撤销后同链接原生 404。审计导出 API 保留 `max_sequence`：有匹配群组事件返回 375，内部全局快照上界为 386；空筛选返回 0、内部上界为 387，两份完成后数值不变，下载分别有 1／0 条。 | 只复验失败诊断这一真实 PR 状态、一次性审计员与两份导出；未覆盖全部诊断分支、审计范围、分页与撤权交错。浏览器点击首份下载，但实际落盘位置未核对。 |
+| 第十二版包删除客户端 | 新建 `phase1-delete-*` Generic 1.0.0／2.0.0 与 OCI v1／v2／v3，Developer 发布、Owner／Reporter 下载并核对字节；Reporter 与无关用户删除均被拒且 Owner 仍可下载。Owner 删除 Generic 1.0.0、OCI v1 tag 与 v3 digest 后，同一客户端读取相应引用失败；Generic 2.0.0、OCI v2 和原有验收包仍可读。纠正 ORAS `not found` 无数字状态码的脚本误判后，41 项断言通过、1 项仅观察 tag 删除后原 digest 不可见。 | 仅固定唯一摘要样本；不推定 tag 与 digest 删除普遍等价，也未验证多 tag 同摘要、物理 blob 回收或 OCI 原生 UI 删除。首轮一次性样本的剩余版本与最终轮次分开记录。 |
+| 第十二／十三版归档、制品与分支补验 | v12 普通 Owner 新建并初始化仓库 13／14，先独立归档 14，再归档父组；预览显示 1 群组、2 项目、原已归档 1 个。归档后两仓仍可读，推送和 Issue 创建被拒。v12 单仓解档正确拒绝但提示不足；v13 同操作显示父组限制及恢复路径。父组统一恢复后两仓归档状态清除、创建入口恢复，两仓真实推送及仓库 13 Issue 创建成功；这一统一恢复与已核实的 GitLab 19.4 固定源码／测试语义一致。v13 Owner 从原生制品 UI 删除的是**首轮** `phase1-delete-generic-1790184068819120000` 的 2.0.0；刷新后旧详情 404，最终轮次 2.0.0 和原有包仍可通过 Generic API 读取。v12 仓库 6 的内容 API 与 HTTP Git 另验禁推、正常推送和强推边界；v13 稳定 HEAD 的 API Run 60／61 成功。 | 两仓混合归档样本不覆盖待删除项目及运行中任务；未执行 OCI UI 删除。v12 的旧 Run 53／55 因领取前 SHA 不再为受保护分支 HEAD 而缺凭据，不能误判为 API 身份差异；其他角色、协议与并发组合待验。 |
+
+这些结果分别见[祖先 UI／Runner](../outputs/group-subgroup-phase1-20260923/parent-ancestor-ui.md)、[第三批 Git 与保护规则](../outputs/group-subgroup-phase1-20260923/parent-third-batch-validation.md)、[第四批门禁与共享](../outputs/group-subgroup-phase1-20260923/parent-fourth-batch-validation.md)、[第五批审批与产物](../outputs/group-subgroup-phase1-20260923/parent-fifth-batch-validation.md)、[v5 真实 UI／协议](../outputs/group-subgroup-phase1-20260923/parent-v5-ui-validation.md)、[v6 自退](../outputs/group-subgroup-phase1-20260923/parent-v6-ui-validation.md)、[v7／v8 验证](../outputs/group-subgroup-phase1-20260923/parent-v7-v8-validation.md)、[受保护 Secret 实测](../outputs/group-subgroup-phase1-20260923/parent-protected-secret-ui.md)、[v9 审计](../outputs/group-subgroup-phase1-20260923/parent-v9-audit-validation.md)、[v9 Runner 暂停](../outputs/group-subgroup-phase1-20260923/parent-v9-runner-pause.md)、[v10 访问申请](../outputs/group-subgroup-phase1-20260923/parent-v10-access-request-validation.md)、[v11 Owner 与生命周期](../outputs/group-subgroup-phase1-20260923/parent-v11-owner-lifecycle-validation.md)、[v11 转移邀请](../outputs/group-subgroup-phase1-20260923/parent-v11-transfer-invitation-validation.md)、[v11 多来源与到期](../outputs/group-subgroup-phase1-20260923/parent-v11-multisource-invitation-validation.md)、[v12 包删除](../outputs/group-subgroup-phase1-20260923/package-delete-acceptance-evidence.md)、[v12 整合与真实界面](../outputs/group-subgroup-phase1-20260923/parent-v12-integrated-validation.md)、[v13 归档与制品](../outputs/group-subgroup-phase1-20260923/parent-v13-lifecycle-validation.md)、[API 分支保护](../outputs/group-subgroup-phase1-20260923/api-branch-protection-evidence.md)及[GitLab 19.4 固定归档语义](../outputs/group-subgroup-phase1-20260923/gitlab-19-4-archive-state-evidence.md)。v5 的隔离 PostgreSQL／MinIO 整合和 v6 定向结果另见[v5 整合](../outputs/group-subgroup-phase1-20260923/parent-v5-integrated-validation.md)、[v6 整合](../outputs/group-subgroup-phase1-20260923/parent-v6-integrated-validation.md)。第九版审计／邀请 PostgreSQL 四个顶级测试全部通过，包耗时 4.708 秒；第十版访问申请真实 PostgreSQL 三个顶级测试通过，包耗时 5.73 秒；第十一版真实 PostgreSQL 四个顶级测试通过，包耗时 8.405 秒；第十二版真实 PostgreSQL 六个顶级测试、含子项 26 个 pass 事件及零 fail，包耗时 92.865 秒；第十三版真实 PostgreSQL 四个顶级测试通过、零 fail，包耗时 12.866 秒，测试查询确认 `postgres / gitea_phase1_test`。[数据库证据纠正](../outputs/group-subgroup-phase1-20260923/owner-identity-db-evidence.md)明确服务包先前标作 PostgreSQL 的两份日志实际是 SQLite。第七版 `services/actions` 全包 70 个顶级测试通过。以上均不等同于第十三版全矩阵通过。
+
+第十三版另补 Owner／继承 Developer 的 Web 文件修改、Developer API／HTTP Git 及 Reporter 拒写；真实作业 token 已验证同 Owner 私有跨仓 Code 只读与逐级上限。第十四版修复在真实专用仓库复现的归档 Actions 删除 P1；PostgreSQL 9 个顶层、含子项 36 个通过，0 失败／跳过，10.052 秒；同对象三个实际 Web／REST 删除入口拒绝且产物保留。详见[v14 验收](../outputs/group-subgroup-phase1-20260923/parent-v14-actions-validation.md)。v14 时浏览器被原生测试确认框阻塞；v15 已解除，但没有重新执行该删除 UI，仍未计入完成。
+
+第十五版补原生应用、屏蔽管理的最终授权及 OAuth 组织审计投影；普通 Owner 归档时编辑应用／解除屏蔽被拒，恢复后同对象操作成功，无关用户页面 404。push 绑定事件 after，定时计划按现时默认分支核验；真实 Runner 的两次 push、schedule 和 skip-ci 移除计划均通过。父任务十四包 SQLite 共 324 个顶层测试通过；PG 最终证据和首轮 fixture 失败分别见[v15 整合](../outputs/group-subgroup-phase1-20260923/parent-v15-integrated-validation.md)。全仓 lint 仍报告 46 个问题，不是全仓通过。
+
+第十六版进一步补齐屏蔽、解除、备注修改的事务审计及祖先投影，普通 Owner 在父子审计页面真实看到三类事件，详情不含备注。定时计划版本冲突不再吞普通 push，真正范围失效仍由最终 Run 事务拒绝。最终 PG 七项全绿，Actions 全包及屏蔽／审计相关四包全绿，增量 lint 为零问题，真实 Run92 成功；详见[v16 整合](../outputs/group-subgroup-phase1-20260923/parent-v16-integrated-validation.md)。这是隔离开发构建，尚不是一期发布候选。
+
+## 发布前仍缺的开发与证据
+
+- 祖先统一来源的定时触发仍需开发；当前统一工作流消费者跳过 schedule／workflow_run，本级定时成功不代表该能力完成，详见 CI05。
+
+- [操作矩阵](group-subgroup-phase1-matrix.md)与[阶段验收记录](group-subgroup-phase1-acceptance.md)中尚未覆盖的角色、来源、撤权、移动、归档恢复、协议和并发组合仍逐项待验；上述固定正反样本不代表整个操作类别完成，代码和自动化通过的行也不能直接记为真实 UI／客户端通过。
+- 受保护 Secret 当前只认可可信事件的当前受保护分支 HEAD；手动／定时触发、引用变化及撤权交错仍缺完整现场证据。PR、PR-target、fork 与标签不下发此类 Secret，不能宣称 GitLab 凭据全语义等价。Runner 执行中停用／删除与在途凭据、完整作业 token 跨仓目标授权、来源失效后重新确认、审计全部范围与长任务重启恢复没有完整现场证据。已验的成员授权到期不能替代邀请链接到期、清理前瞬间及并发撤权验证。GitLab 19.4 的受保护 MR 凭据、全部 Hook 事件和完整群组机器身份并非本期已对齐能力。
+- 计划中的 Linux amd64／8 vCPU／16 GiB、千成员／千仓／20 层／100 共享／50 并发用户／10 Runner 容量环境尚未提供，性能未验证。十仓人工基线和新流程的活跃时间、重复操作、错误与介入比例尚未实测，不能宣称达到减少人工 80%。
+- 当前跨仓作业 token 不授予 Actions 读权；v3 runtime 限同 Run，官方 upload-artifact v4.6.2 在本 Runner 组合报兼容错误，跨仓产物正例未通过。连续 push 的事件提交问题已在 v15 修复，真实 Run88／89 分别使用自身提交。未解决的客户端兼容见[令牌证据](../outputs/group-subgroup-phase1-20260923/ci06-runner-token-acceptance.md)，本次修复见[v15 CI](../outputs/group-subgroup-phase1-20260923/parent-v15-ci-ui.md)。
+- 审计导出保留 `max_sequence` 的字段名和类型，含义改为授权筛选范围的快照末序号。仓库内没有依赖旧全局含义的消费者，外部客户端的语义兼容仍未验证。既有事件 ID 的全局序号间隔仍可能透露粗粒度活动，列为 P2，详见[审查报告](group-subgroup-phase1-review.md)。
+
+本说明记录开发构建和已交付片段，不代替最终候选包、完整安全审查或[逐操作验收](group-subgroup-phase1-acceptance.md)。

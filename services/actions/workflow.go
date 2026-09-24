@@ -219,7 +219,7 @@ func resolveDispatchWorkflowContent(ctx reqctx.RequestContext, repo *repo_model.
 
 func resolveScopedDispatchContent(ctx reqctx.RequestContext, repo *repo_model.Repository, sourceRepoID int64, workflowID string, run *actions_model.ActionRun) ([]byte, error) {
 	// the source must be an effective scoped source for this consumer repo
-	effective, err := actions_model.IsScopedWorkflowSourceEffective(ctx, repo.OwnerID, sourceRepoID)
+	effective, err := actions_model.ScopedWorkflowSourceValid(ctx, repo.OwnerID, sourceRepoID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +244,7 @@ func resolveScopedDispatchContent(ctx reqctx.RequestContext, repo *repo_model.Re
 			run.WorkflowRepoID = sourceRepo.ID
 			run.WorkflowCommitSHA = sha
 			run.IsScopedRun = true
+			run.WorkflowSourceScopeRevision = sourceRepo.ActionsScopeRevision
 			return p.Content, nil
 		}
 	}

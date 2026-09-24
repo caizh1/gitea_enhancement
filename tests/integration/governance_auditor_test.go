@@ -62,22 +62,28 @@ func TestGovernanceAuditorPermissions(t *testing.T) {
 	member.Role, member.CustomRoleID = governance_model.MinimalAccess, custom.ID
 	_, err := db.GetEngine(ctx).ID(member.ID).Cols("role", "custom_role_id").Update(member)
 	require.NoError(t, err)
-	// 原生单元门禁隐藏无权使用的 Issue 单元，返回 404。
-	MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo2/issues", api.CreateIssueOption{Title: "代码单元授权不能借审计员扩充 Issue 写入"}).AddTokenAuth(token), http.StatusNotFound)
+	// 审计员仍能读取 Issue；缺少独立写授权时最终写入门禁返回 403。
+	MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo2/issues", api.CreateIssueOption{Title: "代码单元授权不能借审计员扩充 Issue 写入"}).AddTokenAuth(token), http.StatusForbidden)
 	_, err = db.GetEngine(ctx).ID(member.ID).Delete(new(governance_model.Membership))
 	require.NoError(t, err)
 	MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo2/issues", api.CreateIssueOption{Title: "撤销独立授权立即拒绝"}).AddTokenAuth(token), http.StatusForbidden)
 	session := loginUser(t, "user4")
 	session.MakeRequest(t, NewRequest(t, "GET", "/user2/repo2"), http.StatusOK)
-	session.MakeRequest(t, NewRequest(t, "GET", "/governance/groups/3"), http.StatusOK)
+	groupRedirect := session.MakeRequest(t, NewRequest(t, "GET", "/governance/groups/3"), http.StatusSeeOther)
+	require.Equal(t, "/org3", groupRedirect.Header().Get("Location"))
+	session.MakeRequest(t, NewRequest(t, "GET", groupRedirect.Header().Get("Location")), http.StatusOK)
 	session.MakeRequest(t, NewRequest(t, "GET", "/user2/repo2/issues/new"), http.StatusForbidden)
 	listResponse := session.MakeRequest(t, NewRequest(t, "GET", "/user2/repo2/issues"), http.StatusOK)
 	require.NotContains(t, listResponse.Body.String(), "issue-list-new", "只读审计员页面不显示新建 Issue 按钮")
 	session.MakeRequest(t, NewRequest(t, "GET", "/user2/repo2/settings"), http.StatusNotFound)
 	session.MakeRequest(t, NewRequestWithValues(t, "POST", "/user2/repo2/issues/new", map[string]string{"title": "网页创建拒绝"}), http.StatusForbidden)
-	response := session.MakeRequest(t, NewRequest(t, "GET", "/governance/repositories/2/members"), http.StatusOK)
+	membersRedirect := session.MakeRequest(t, NewRequest(t, "GET", "/governance/repositories/2/members"), http.StatusSeeOther)
+	require.Equal(t, "/user2/repo2/collaborators", membersRedirect.Header().Get("Location"))
+	response := session.MakeRequest(t, NewRequest(t, "GET", membersRedirect.Header().Get("Location")), http.StatusOK)
 	require.Contains(t, response.Body.String(), "全站审计员只读查看成员来源")
-	require.NotContains(t, response.Body.String(), "保存直接授权")
+	for _, forbiddenControl := range []string{"添加协作者", "通过邮箱邀请成员", "保存直接授权", "预览移除直接授权"} {
+		require.NotContains(t, response.Body.String(), forbiddenControl)
+	}
 	options := governance_api.AuditExportOption{Filter: governance_model.AuditFilter{ScopeType: "instance", From: time.Now().Add(-time.Hour), To: time.Now().Add(time.Second)}, Format: "json"}
 	response = MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/governance/audit-exports", options).AddTokenAuth(token), http.StatusAccepted)
 	job := DecodeJSON(t, response, &governance_model.AuditExport{})

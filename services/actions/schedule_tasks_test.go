@@ -6,11 +6,51 @@ package actions
 import (
 	"testing"
 
+	actions_model "gitea.dev/models/actions"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unittest"
 	"gitea.dev/modules/json"
 	api "gitea.dev/modules/structs"
+	governance_service "gitea.dev/services/governance"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestReplaceSchedulesRejectsStaleRepoSnapshot(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	creator := governance_model.Actor{ID: 1, Kind: "user", Name: "user1", Transport: "api"}
+	group, err := governance_service.CreateGroup(ctx, creator, governance_service.GroupOption{Path: "schedule-before-move", ParentID: 3, Visibility: 2})
+	require.NoError(t, err)
+	repo := &repo_model.Repository{OwnerID: group.ID, OwnerName: group.InternalName, Name: "workflow", LowerName: "workflow", Status: repo_model.RepositoryReady}
+	require.NoError(t, db.Insert(ctx, repo))
+	repo.OwnerNamespace, err = governance_model.RegisterNativeRepository(ctx, repo.ID, group.ID, repo.Name)
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(repo.ID).Cols("owner_namespace").Update(repo)
+	require.NoError(t, err)
+	oldSnapshot, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+	require.NoError(t, err)
+	_, err = governance_service.MoveGroup(ctx, governance_model.Actor{ID: 2, Kind: "user", Name: "user2", Transport: "api"}, group.ID, governance_service.GroupOption{Path: "schedule-before-move", Revision: group.Revision})
+	require.NoError(t, err)
+	currentRepo, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+	require.NoError(t, err)
+	currentPlan := &actions_model.ActionSchedule{RepoID: repo.ID, OwnerID: group.ID, ScopeRevision: currentRepo.ActionsScopeRevision}
+	require.NoError(t, db.Insert(ctx, currentPlan))
+	require.ErrorIs(t, replaceSchedulesForRepo(ctx, oldSnapshot, "stale", nil), governance_model.ErrConflict)
+	unittest.AssertExistsAndLoadBean(t, &actions_model.ActionSchedule{ID: currentPlan.ID})
+	moved, err := governance_model.GetNamespace(ctx, group.ID)
+	require.NoError(t, err)
+	_, err = governance_service.MoveGroup(ctx, creator, group.ID, governance_service.GroupOption{Path: "schedule-before-move", ParentID: 3, Revision: moved.Revision})
+	require.NoError(t, err)
+	secondPlan := &actions_model.ActionSchedule{RepoID: repo.ID, OwnerID: group.ID, ScopeRevision: currentRepo.ActionsScopeRevision + 1}
+	require.NoError(t, db.Insert(ctx, secondPlan))
+	require.ErrorIs(t, replaceSchedulesForRepo(ctx, oldSnapshot, "stale", nil), governance_model.ErrConflict)
+	unittest.AssertExistsAndLoadBean(t, &actions_model.ActionSchedule{ID: secondPlan.ID})
+}
 
 func TestWithScheduleInEventPayload(t *testing.T) {
 	t.Run("adds schedule to existing payload", func(t *testing.T) {

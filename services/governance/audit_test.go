@@ -14,6 +14,7 @@ import (
 
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
+	"gitea.dev/models/organization"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/json"
@@ -51,6 +52,34 @@ func TestAuditAccessRevocationAndCustomRole(t *testing.T) {
 	_, err = db.GetEngine(ctx).ID(1).Cols("prohibit_login").Update(&user_model.User{ProhibitLogin: true})
 	require.NoError(t, err)
 	assert.ErrorIs(t, CheckAuditAccess(ctx, 1, "instance", 0), governance_model.ErrNotFound, "管理员停用后也不得读取历史导出")
+}
+
+func TestGroupAuditShareCeilingDoesNotImplyOwner(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	owner := governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}
+	invitedOwner := governance_model.Actor{ID: 4, Name: "user4", Kind: "user", Transport: "api"}
+	target, err := CreateGroup(ctx, owner, GroupOption{Path: "audit-share-target", Visibility: 2})
+	require.NoError(t, err)
+	invited, err := CreateGroup(ctx, invitedOwner, GroupOption{Path: "audit-share-invited", Visibility: 0})
+	require.NoError(t, err)
+	require.ErrorIs(t, CheckAuditAccess(ctx, invitedOwner.ID, "group", target.ID), governance_model.ErrNotFound)
+	require.NoError(t, SetGroupShare(ctx, owner, target.ID, GroupShareOption{GroupID: invited.ID, MaxRole: governance_model.Maintainer, Revision: target.Revision}, false))
+	grants, err := governance_model.GroupGrants(ctx, target.ID, invitedOwner.ID, time.Now())
+	require.NoError(t, err)
+	require.Len(t, grants, 1)
+	require.Equal(t, governance_model.Owner, grants[0].Role)
+	require.Equal(t, governance_model.Maintainer, grants[0].CeilingRole)
+	require.True(t, grants[0].Abilities[governance_model.ReadAudit])
+	require.False(t, governance_model.HasOwnerGrant(grants))
+	isOwner, err := organization.IsOrganizationOwner(ctx, target.ID, invitedOwner.ID)
+	require.NoError(t, err)
+	require.False(t, isOwner)
+	require.ErrorIs(t, CheckAuditAccess(ctx, invitedOwner.ID, "group", target.ID), governance_model.ErrNotFound)
+
+	require.NoError(t, SetGroupShare(ctx, owner, target.ID, GroupShareOption{GroupID: invited.ID, MaxRole: governance_model.Owner, Revision: target.Revision + 1}, false))
+	require.NoError(t, CheckAuditAccess(ctx, invitedOwner.ID, "group", target.ID))
 }
 
 func TestAuditDownloadChecksIdentityAndEscapesCSV(t *testing.T) {

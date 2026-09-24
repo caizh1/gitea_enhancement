@@ -19,11 +19,14 @@ import (
 	"sync"
 	"time"
 
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	webhook_model "gitea.dev/models/webhook"
 	"gitea.dev/modules/glob"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/hostmatcher"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/process"
 	"gitea.dev/modules/proxy"
@@ -128,6 +131,11 @@ func addDefaultHeaders(req *http.Request, secret []byte, w *webhook_model.Webhoo
 	}
 
 	req.Header.Add("X-Gitea-Delivery", t.UUID)
+	eventUUID := t.EventUUID
+	if eventUUID == "" {
+		eventUUID = t.UUID
+	}
+	req.Header.Add("X-Gitea-Event-ID", eventUUID)
 	req.Header.Add("X-Gitea-Event", event)
 	req.Header.Add("X-Gitea-Event-Type", eventType)
 	req.Header.Add("X-Gitea-Signature", signatureSHA256)
@@ -148,9 +156,12 @@ func addDefaultHeaders(req *http.Request, secret []byte, w *webhook_model.Webhoo
 // Deliver creates the [http.Request] (depending on the webhook type), sends it
 // and records the status and response.
 func Deliver(ctx context.Context, t *webhook_model.HookTask) error {
-	w, err := webhook_model.GetWebhookByID(ctx, t.HookID)
+	w, authorized, err := authorizeHookDelivery(ctx, t)
 	if err != nil {
 		return err
+	}
+	if !authorized {
+		return nil
 	}
 
 	defer func() {
@@ -163,6 +174,21 @@ func Deliver(ctx context.Context, t *webhook_model.HookTask) error {
 	}()
 
 	t.IsDelivered = true
+	t.ResponseInfo = &webhook_model.HookResponse{Headers: map[string]string{}}
+	defer func() {
+		t.Delivered = timeutil.TimeStampNanoNow()
+		if err := webhook_model.UpdateHookTask(ctx, t); err != nil {
+			log.Error("UpdateHookTask [%d]: %v", t.ID, err)
+		}
+		if t.IsSucceed {
+			w.LastStatus = webhook_module.HookStatusSucceed
+		} else {
+			w.LastStatus = webhook_module.HookStatusFail
+		}
+		if err := webhook_model.UpdateWebhookLastStatus(ctx, w); err != nil {
+			log.Error("UpdateWebhookLastStatus: %v", err)
+		}
+	}()
 
 	newRequest := webhookRequesters[w.Type]
 	if t.PayloadVersion == 1 || newRequest == nil {
@@ -195,57 +221,8 @@ func Deliver(ctx context.Context, t *webhook_model.HookTask) error {
 		t.RequestInfo.Headers["Authorization"] = "******"
 	}
 
-	t.ResponseInfo = &webhook_model.HookResponse{
-		Headers: map[string]string{},
-	}
-
-	// OK We're now ready to attempt to deliver the task - we must double check that it
-	// has not been delivered in the meantime
-	updated, err := webhook_model.MarkTaskDelivered(ctx, t)
-	if err != nil {
-		log.Error("MarkTaskDelivered[%d]: %v", t.ID, err)
-		return fmt.Errorf("unable to mark task[%d] delivered in the db: %w", t.ID, err)
-	}
-	if !updated {
-		// This webhook task has already been attempted to be delivered or is in the process of being delivered
-		log.Trace("Webhook Task[%d] already delivered", t.ID)
-		return nil
-	}
-
-	// All code from this point will update the hook task
-	defer func() {
-		t.Delivered = timeutil.TimeStampNanoNow()
-		if t.IsSucceed {
-			log.Trace("Hook delivered: %s", t.UUID)
-		} else if !w.IsActive {
-			log.Trace("Hook delivery skipped as webhook is inactive: %s", t.UUID)
-		} else {
-			log.Trace("Hook delivery failed: %s", t.UUID)
-		}
-
-		if err := webhook_model.UpdateHookTask(ctx, t); err != nil {
-			log.Error("UpdateHookTask [%d]: %v", t.ID, err)
-		}
-
-		// Update webhook last delivery status.
-		if t.IsSucceed {
-			w.LastStatus = webhook_module.HookStatusSucceed
-		} else {
-			w.LastStatus = webhook_module.HookStatusFail
-		}
-		if err = webhook_model.UpdateWebhookLastStatus(ctx, w); err != nil {
-			log.Error("UpdateWebhookLastStatus: %v", err)
-			return
-		}
-	}()
-
 	if setting.DisableWebhooks {
 		return fmt.Errorf("webhook task skipped (webhooks disabled): [%d]", t.ID)
-	}
-
-	if !w.IsActive {
-		log.Trace("Webhook %s in Webhook Task[%d] is not active", w.URL, t.ID)
-		return nil
 	}
 
 	resp, err := webhookHTTPClient.Do(req.WithContext(ctx))
@@ -269,6 +246,71 @@ func Deliver(ctx context.Context, t *webhook_model.HookTask) error {
 	}
 	t.ResponseInfo.Body = string(p)
 	return nil
+}
+
+// authorizeHookDelivery commits the send decision under the same lock as pause and delete.
+func authorizeHookDelivery(ctx context.Context, t *webhook_model.HookTask) (*webhook_model.Webhook, bool, error) {
+	var selected *webhook_model.Webhook
+	var authorized bool
+	var rejected error
+	err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
+		fresh, err := webhook_model.GetHookTaskByID(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.IsDelivered {
+			return nil
+		}
+		current, err := webhook_model.GetWebhookByID(ctx, fresh.HookID)
+		if err != nil {
+			if webhook_model.IsErrWebhookNotExist(err) {
+				return webhook_model.CancelHookTask(ctx, fresh.ID, "webhook deleted")
+			}
+			return err
+		}
+		if !current.IsActive {
+			return webhook_model.CancelHookTask(ctx, fresh.ID, "webhook disabled")
+		}
+		selected, err = fresh.HookSnapshot()
+		if errors.Is(err, webhook_model.ErrLegacyHookSnapshot) {
+			rejected = err
+			return webhook_model.CancelHookTask(ctx, fresh.ID, "missing webhook snapshot")
+		}
+		if err != nil {
+			rejected = err
+			return webhook_model.CancelHookTask(ctx, fresh.ID, "invalid webhook snapshot")
+		}
+		if fresh.RepoID != 0 && selected.OwnerID != 0 && selected.RepoID == 0 {
+			var owners []int64
+			if err := json.Unmarshal([]byte(fresh.ScopeOwnerIDs), &owners); err != nil || len(owners) == 0 {
+				rejected = errors.New("invalid webhook event scope")
+				return webhook_model.CancelHookTask(ctx, fresh.ID, "invalid webhook event scope")
+			}
+			if selected.OwnerID != owners[0] {
+				if _, err := repo_model.GetRepositoryByID(ctx, fresh.RepoID); err != nil {
+					if repo_model.IsErrRepoNotExist(err) {
+						return webhook_model.CancelHookTask(ctx, fresh.ID, "event repository deleted")
+					}
+					return err
+				}
+			}
+		}
+		authorized, err = webhook_model.MarkTaskDelivered(ctx, fresh)
+		if err != nil {
+			return err
+		}
+		if authorized {
+			*t = *fresh
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if rejected != nil {
+		return nil, false, rejected
+	}
+	return selected, authorized, nil
 }
 
 var (

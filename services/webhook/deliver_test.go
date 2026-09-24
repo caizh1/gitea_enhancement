@@ -12,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	governance_model "gitea.dev/models/governance"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
 	webhook_model "gitea.dev/models/webhook"
 	"gitea.dev/modules/hostmatcher"
 	"gitea.dev/modules/setting"
@@ -85,6 +88,7 @@ func TestWebhookProxy(t *testing.T) {
 
 func TestWebhookDeliverAuthorizationHeader(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	ensureWebhookTestNamespace(t, 3)
 
 	done := make(chan struct{}, 1)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +115,7 @@ func TestWebhookDeliverAuthorizationHeader(t *testing.T) {
 		EventType:      webhook_module.HookEventPush,
 		PayloadVersion: 2,
 	}
+	captureDirectWebhookTask(t, hook, hookTask)
 
 	hookTask, err = webhook_model.CreateHookTask(t.Context(), hookTask)
 	assert.NoError(t, err)
@@ -129,6 +134,7 @@ func TestWebhookDeliverAuthorizationHeader(t *testing.T) {
 
 func TestWebhookDeliverHookTask(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	ensureWebhookTestNamespace(t, 3)
 
 	done := make(chan struct{}, 1)
 	version2Body := `{
@@ -229,6 +235,7 @@ func TestWebhookDeliverHookTask(t *testing.T) {
 			PayloadContent: `{"data": 42}`,
 			PayloadVersion: 1,
 		}
+		captureDirectWebhookTask(t, hook, hookTask)
 
 		hookTask, err := webhook_model.CreateHookTask(t.Context(), hookTask)
 		assert.NoError(t, err)
@@ -256,6 +263,7 @@ func TestWebhookDeliverHookTask(t *testing.T) {
 			PayloadContent: string(data),
 			PayloadVersion: 2,
 		}
+		captureDirectWebhookTask(t, hook, hookTask)
 
 		hookTask, err = webhook_model.CreateHookTask(t.Context(), hookTask)
 		assert.NoError(t, err)
@@ -274,6 +282,7 @@ func TestWebhookDeliverHookTask(t *testing.T) {
 
 func TestWebhookDeliverSpecificTypes(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
+	ensureWebhookTestNamespace(t, 3)
 
 	type hookCase struct {
 		gotBody    chan []byte
@@ -325,6 +334,7 @@ func TestWebhookDeliverSpecificTypes(t *testing.T) {
 				PayloadContent: string(data),
 				PayloadVersion: 2,
 			}
+			captureDirectWebhookTask(t, hook, hookTask)
 
 			hookTask, err := webhook_model.CreateHookTask(t.Context(), hookTask)
 			assert.NoError(t, err)
@@ -343,4 +353,20 @@ func TestWebhookDeliverSpecificTypes(t *testing.T) {
 			assert.True(t, hookTask.IsSucceed)
 		})
 	}
+}
+
+func ensureWebhookTestNamespace(t *testing.T, repoID int64) {
+	t.Helper()
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repoID})
+	owner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: repo.OwnerID})
+	kind := "user"
+	if owner.IsOrganization() {
+		kind = "group"
+	}
+	require.NoError(t, governance_model.RegisterNativeNamespace(t.Context(), &governance_model.Namespace{ID: owner.ID, Slug: owner.Name, Kind: kind}))
+}
+
+func captureDirectWebhookTask(t *testing.T, hook *webhook_model.Webhook, task *webhook_model.HookTask) {
+	t.Helper()
+	require.NoError(t, task.CaptureHook(hook, hook.RepoID, 0, nil))
 }

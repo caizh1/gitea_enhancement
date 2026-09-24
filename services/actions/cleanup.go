@@ -13,6 +13,8 @@ import (
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	actions_module "gitea.dev/modules/actions"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/json"
@@ -20,6 +22,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/timeutil"
+	governance_service "gitea.dev/services/governance"
 
 	"xorm.io/builder"
 )
@@ -174,85 +177,68 @@ func CleanupEphemeralRunnersByPickedTaskOfRepo(ctx context.Context, repoID int64
 	return nil
 }
 
-// DeleteRun deletes workflow run, including all logs and artifacts.
-func DeleteRun(ctx context.Context, run *actions_model.ActionRun) error {
-	if !run.Status.IsDone() {
-		return errors.New("run is not done")
+// DeleteRun deletes a user's completed workflow run, including its logs and artifacts.
+func DeleteRun(ctx context.Context, run *actions_model.ActionRun, doer *user_model.User) error {
+	if run == nil {
+		return governance_model.ErrNotFound
 	}
-
-	repoID := run.RepoID
-
-	jobs, err := actions_model.GetAllRunJobsByRepoAndRunID(ctx, run.RepoID, run.ID)
-	if err != nil {
-		return err
-	}
-	jobIDs := container.FilterSlice(jobs, func(j *actions_model.ActionRunJob) (int64, bool) {
-		return j.ID, true
-	})
-	tasks := make(actions_model.TaskList, 0)
-	if len(jobIDs) > 0 {
-		if err := db.GetEngine(ctx).Where("repo_id = ?", repoID).In("job_id", jobIDs).Find(&tasks); err != nil {
+	repoID, runID := run.RepoID, run.ID
+	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repoID)}, func(ctx context.Context) error {
+		if err := governance_service.CheckRepositoryContentWrite(ctx, doer, repoID, unit.TypeActions); err != nil {
 			return err
 		}
-	}
-
-	artifacts, err := db.Find[actions_model.ActionArtifact](ctx, actions_model.FindArtifactsOptions{
-		RepoID: repoID,
-		RunID:  run.ID,
-	})
-	if err != nil {
-		return err
-	}
-	cleanup := &governance_model.ResourceCleanup{Kind: "actions_run", ResourceID: run.ID, Actor: governance_model.AuditActor(ctx), ObjectPath: fmt.Sprintf("repository-%d/actions/run-%d", run.RepoID, run.ID)}
-	for _, task := range tasks {
-		if task.LogFilename != "" {
-			cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "action_log", Path: task.LogFilename, InStorage: task.LogInStorage})
+		run, err := actions_model.GetRunByRepoAndID(ctx, repoID, runID)
+		if err != nil {
+			return err
 		}
-	}
-	for _, artifact := range artifacts {
-		if artifact.StoragePath != "" {
-			cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "artifact", Path: artifact.StoragePath})
+		if !run.Status.IsDone() {
+			return governance_model.ErrConflict
 		}
-	}
-
-	var recordsToDelete []any
-
-	recordsToDelete = append(recordsToDelete, &actions_model.ActionRun{
-		RepoID: repoID,
-		ID:     run.ID,
-	})
-	recordsToDelete = append(recordsToDelete, &actions_model.ActionRunAttempt{
-		RepoID: repoID,
-		RunID:  run.ID,
-	})
-	recordsToDelete = append(recordsToDelete, &actions_model.ActionRunJob{
-		RepoID: repoID,
-		RunID:  run.ID,
-	})
-	for _, tas := range tasks {
-		recordsToDelete = append(recordsToDelete, &actions_model.ActionTask{
-			RepoID: repoID,
-			ID:     tas.ID,
+		jobs, err := actions_model.GetAllRunJobsByRepoAndRunID(ctx, repoID, runID)
+		if err != nil {
+			return err
+		}
+		jobIDs := container.FilterSlice(jobs, func(j *actions_model.ActionRunJob) (int64, bool) {
+			return j.ID, true
 		})
-		recordsToDelete = append(recordsToDelete, &actions_model.ActionTaskStep{
-			RepoID: repoID,
-			TaskID: tas.ID,
-		})
-		recordsToDelete = append(recordsToDelete, &actions_model.ActionTaskOutput{
-			TaskID: tas.ID,
-		})
-	}
-	recordsToDelete = append(recordsToDelete, &actions_model.ActionArtifact{
-		RepoID: repoID,
-		RunID:  run.ID,
-	})
-	recordsToDelete = append(recordsToDelete, &actions_model.ActionRunJobSummary{
-		RepoID: repoID,
-		RunID:  run.ID,
-	})
-
-	if err := governance_model.WithWrite(ctx, nil, func(ctx context.Context) error {
-		repo, err := repo_model.GetRepositoryByID(ctx, run.RepoID)
+		tasks := make(actions_model.TaskList, 0)
+		if len(jobIDs) > 0 {
+			if err := db.GetEngine(ctx).Where("repo_id = ?", repoID).In("job_id", jobIDs).Find(&tasks); err != nil {
+				return err
+			}
+		}
+		artifacts, err := db.Find[actions_model.ActionArtifact](ctx, actions_model.FindArtifactsOptions{RepoID: repoID, RunID: runID})
+		if err != nil {
+			return err
+		}
+		cleanup := &governance_model.ResourceCleanup{Kind: "actions_run", ResourceID: runID, Actor: governance_model.AuditActor(ctx)}
+		for _, task := range tasks {
+			if task.LogFilename != "" {
+				cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "action_log", Path: task.LogFilename, InStorage: task.LogInStorage})
+			}
+		}
+		for _, artifact := range artifacts {
+			if artifact.StoragePath != "" {
+				cleanup.Objects = append(cleanup.Objects, governance_model.CleanupObject{Kind: "artifact", Path: artifact.StoragePath})
+			}
+		}
+		recordsToDelete := []any{
+			&actions_model.ActionRun{RepoID: repoID, ID: runID},
+			&actions_model.ActionRunAttempt{RepoID: repoID, RunID: runID},
+			&actions_model.ActionRunJob{RepoID: repoID, RunID: runID},
+		}
+		for _, task := range tasks {
+			recordsToDelete = append(recordsToDelete,
+				&actions_model.ActionTask{RepoID: repoID, ID: task.ID},
+				&actions_model.ActionTaskStep{RepoID: repoID, TaskID: task.ID},
+				&actions_model.ActionTaskOutput{TaskID: task.ID},
+			)
+		}
+		recordsToDelete = append(recordsToDelete,
+			&actions_model.ActionArtifact{RepoID: repoID, RunID: runID},
+			&actions_model.ActionRunJobSummary{RepoID: repoID, RunID: runID},
+		)
+		repo, err := repo_model.GetRepositoryByID(ctx, repoID)
 		if err != nil {
 			return err
 		}
@@ -261,7 +247,7 @@ func DeleteRun(ctx context.Context, run *actions_model.ActionRun) error {
 			return err
 		}
 		cleanup.ScopeType, cleanup.ScopeID = "repository", repo.ID
-		cleanup.ObjectPath = fmt.Sprintf("%s/actions/run-%d", repo.FullPath(), run.ID)
+		cleanup.ObjectPath = fmt.Sprintf("%s/actions/run-%d", repo.FullPath(), runID)
 		for _, ancestor := range chain {
 			if ancestor.Kind == "group" {
 				cleanup.AncestorIDs = append(cleanup.AncestorIDs, ancestor.ID)

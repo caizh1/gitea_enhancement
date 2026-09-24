@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -111,6 +112,8 @@ func Transfer(ctx *context.APIContext) {
 		switch {
 		case repo_model.IsErrRepoTransferInProgress(err):
 			ctx.APIError(http.StatusConflict, err.Error())
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.APIError(http.StatusConflict, err.Error())
 		case repo_model.IsErrRepoAlreadyExist(err):
 			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 		case repo_service.IsRepositoryLimitReached(err):
@@ -164,6 +167,8 @@ func AcceptTransfer(ctx *context.APIContext) {
 		switch {
 		case repo_model.IsErrNoPendingTransfer(err):
 			ctx.APIError(http.StatusNotFound, err.Error())
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.APIError(http.StatusConflict, err.Error())
 		case errors.Is(err, util.ErrPermissionDenied):
 			ctx.APIError(http.StatusForbidden, err.Error())
 		case repo_service.IsRepositoryLimitReached(err):

@@ -18,6 +18,7 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	secret_model "gitea.dev/models/secret"
 	"gitea.dev/modules/actions"
@@ -88,6 +89,7 @@ func (Action) ListActionsSecrets(ctx *context.APIContext) {
 		apiSecrets[k] = &api.Secret{
 			Name:        v.Name,
 			Description: v.Description,
+			Protected:   v.Protected,
 			Created:     v.CreatedUnix.AsTime(),
 		}
 	}
@@ -139,7 +141,7 @@ func (Action) CreateOrUpdateSecret(ctx *context.APIContext) {
 
 	opt := web.GetForm(ctx).(*api.CreateOrUpdateSecretOption)
 
-	_, created, err := secret_service.CreateOrUpdateSecret(ctx, 0, repo.ID, ctx.PathParam("secretname"), opt.Data, opt.Description)
+	_, created, err := secret_service.CreateOrUpdateSecret(ctx, 0, repo.ID, ctx.PathParam("secretname"), opt.Data, opt.Description, opt.Protected)
 	if err != nil {
 		if errors.Is(err, util.ErrInvalidArgument) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
@@ -1607,7 +1609,7 @@ func handleWorkflowRerunError(ctx *context.APIContext, err error) {
 	if errors.Is(err, util.ErrInvalidArgument) {
 		ctx.APIError(http.StatusBadRequest, err.Error())
 		return
-	} else if errors.Is(err, util.ErrAlreadyExist) {
+	} else if errors.Is(err, util.ErrAlreadyExist) || errors.Is(err, governance_model.ErrConflict) {
 		ctx.APIError(http.StatusConflict, err.Error())
 		return
 	} else if errors.Is(err, util.ErrNotExist) {
@@ -1905,8 +1907,9 @@ func DeleteActionRun(ctx *context.APIContext) {
 		return
 	}
 
-	if err := actions_service.DeleteRun(ctx, run); err != nil {
-		ctx.APIErrorInternal(err)
+	actorCtx := governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()))
+	if err := actions_service.DeleteRun(actorCtx, run, ctx.Doer); err != nil {
+		actionDeletionError(ctx, err)
 		return
 	}
 	ctx.Status(http.StatusNoContent)
@@ -2059,8 +2062,9 @@ func DeleteArtifact(ctx *context.APIContext) {
 	}
 
 	if actions_service.IsArtifactV4(art) {
-		if err := actions_model.SetArtifactNeedDeleteByID(ctx, art.ID); err != nil {
-			ctx.APIErrorInternal(err)
+		actorCtx := governance_model.WithAuditActor(ctx, governance_service.APIRequestActor(ctx.Doer, ctx.AuthenticatedUser, ctx.RemoteAddr()))
+		if err := actions_service.RequestArtifactDeletionByID(actorCtx, ctx.Doer, ctx.Repo.Repository.ID, art.ID); err != nil {
+			actionDeletionError(ctx, err)
 			return
 		}
 		ctx.Status(http.StatusNoContent)
@@ -2068,6 +2072,19 @@ func DeleteArtifact(ctx *context.APIContext) {
 	}
 	// v3 not supported due to not having one unique id
 	ctx.APIError(http.StatusNotFound, "Artifact not found")
+}
+
+func actionDeletionError(ctx *context.APIContext, err error) {
+	switch {
+	case errors.Is(err, governance_model.ErrConflict):
+		ctx.APIError(http.StatusLocked, "repository or workflow run is not writable")
+	case errors.Is(err, governance_model.ErrForbidden):
+		ctx.APIError(http.StatusForbidden, "insufficient permission")
+	case errors.Is(err, governance_model.ErrNotFound), errors.Is(err, util.ErrNotExist):
+		ctx.APIError(http.StatusNotFound, "workflow run or artifact not found")
+	default:
+		ctx.APIErrorInternal(err)
+	}
 }
 
 func buildSignature(endp string, expires, artifactID int64) []byte {

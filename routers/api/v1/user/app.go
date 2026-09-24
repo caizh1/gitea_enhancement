@@ -5,6 +5,8 @@
 package user
 
 import (
+	stdctx "context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -16,11 +18,37 @@ import (
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
+	auth_service "gitea.dev/services/auth"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
 	governance_service "gitea.dev/services/governance"
 )
+
+func oauthApplicationWriteAuthorization(ctx *context.APIContext) (int64, func(stdctx.Context) error, bool) {
+	if ctx.Doer == nil || ctx.Doer.ID <= 0 || ctx.Doer.IsOrganization() || ctx.Doer.IsGhost() || ctx.Doer.IsGiteaActions() {
+		ctx.APIErrorNotFound()
+		return 0, nil, false
+	}
+	ownerID := ctx.Doer.ID
+	var sudoAdminID int64
+	if ctx.AuthenticatedUser != nil {
+		sudoAdminID = ctx.AuthenticatedUser.ID
+	}
+	return ownerID, func(writeCtx stdctx.Context) error {
+		return auth_service.AuthorizePersonalOAuthApplicationWrite(writeCtx, ownerID, sudoAdminID)
+	}, true
+}
+
+func oauthApplicationWriteError(ctx *context.APIContext, err error, message string, badRequest bool) {
+	if auth_model.IsErrOAuthApplicationNotFound(err) || auth_model.IsErrOauthClientIDInvalid(err) || errors.Is(err, governance_model.ErrNotFound) {
+		ctx.APIErrorNotFound()
+	} else if badRequest {
+		ctx.APIError(http.StatusBadRequest, message)
+	} else {
+		ctx.APIErrorInternal(err)
+	}
+}
 
 // ListAccessTokens list all the access tokens
 func ListAccessTokens(ctx *context.APIContext) {
@@ -244,25 +272,31 @@ func CreateOauth2Application(ctx *context.APIContext) {
 	//   "400":
 	//     "$ref": "#/responses/error"
 
+	ownerID, authorize, ok := oauthApplicationWriteAuthorization(ctx)
+	if !ok {
+		return
+	}
 	data := web.GetForm(ctx).(*api.CreateOAuth2ApplicationOptions)
 	if invalidURI := forms.DetectInvalidOAuth2ApplicationRedirectURI(data.RedirectURIs); invalidURI != "" {
 		ctx.APIError(http.StatusBadRequest, "invalid redirect URI: "+invalidURI)
 		return
 	}
+	secret, secretHash, err := auth_model.NewOAuth2ClientSecret()
+	if err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
 	app, err := auth_model.CreateOAuth2Application(ctx, auth_model.CreateOAuth2ApplicationOptions{
 		Name:                       data.Name,
-		UserID:                     ctx.Doer.ID,
+		UserID:                     ownerID,
 		RedirectURIs:               data.RedirectURIs,
 		ConfidentialClient:         data.ConfidentialClient,
 		SkipSecondaryAuthorization: data.SkipSecondaryAuthorization,
+		ClientSecretHash:           secretHash,
+		Authorize:                  authorize,
 	})
 	if err != nil {
-		ctx.APIError(http.StatusBadRequest, "error creating oauth2 application")
-		return
-	}
-	secret, err := app.GenerateClientSecret(ctx)
-	if err != nil {
-		ctx.APIError(http.StatusBadRequest, "error creating application secret")
+		oauthApplicationWriteError(ctx, err, "error creating oauth2 application", true)
 		return
 	}
 	app.ClientSecret = secret
@@ -328,13 +362,13 @@ func DeleteOauth2Application(ctx *context.APIContext) {
 	//     "$ref": "#/responses/empty"
 	//   "404":
 	//     "$ref": "#/responses/notFound"
+	ownerID, authorize, ok := oauthApplicationWriteAuthorization(ctx)
+	if !ok {
+		return
+	}
 	appID := ctx.PathParamInt64("id")
-	if err := auth_model.DeleteOAuth2Application(ctx, appID, ctx.Doer.ID); err != nil {
-		if auth_model.IsErrOAuthApplicationNotFound(err) {
-			ctx.APIErrorNotFound()
-		} else {
-			ctx.APIErrorInternal(err)
-		}
+	if err := auth_model.DeleteOAuth2Application(ctx, appID, ownerID, authorize); err != nil {
+		oauthApplicationWriteError(ctx, err, "", false)
 		return
 	}
 
@@ -406,6 +440,10 @@ func UpdateOauth2Application(ctx *context.APIContext) {
 	//     "$ref": "#/responses/error"
 	//   "404":
 	//     "$ref": "#/responses/notFound"
+	ownerID, authorize, ok := oauthApplicationWriteAuthorization(ctx)
+	if !ok {
+		return
+	}
 	appID := ctx.PathParamInt64("id")
 
 	data := web.GetForm(ctx).(*api.CreateOAuth2ApplicationOptions)
@@ -413,28 +451,27 @@ func UpdateOauth2Application(ctx *context.APIContext) {
 		ctx.APIError(http.StatusBadRequest, "invalid redirect URI: "+invalidURI)
 		return
 	}
+	secret, secretHash, err := auth_model.NewOAuth2ClientSecret()
+	if err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
 
 	app, err := auth_model.UpdateOAuth2Application(ctx, auth_model.UpdateOAuth2ApplicationOptions{
 		Name:                       data.Name,
-		UserID:                     ctx.Doer.ID,
+		UserID:                     ownerID,
 		ID:                         appID,
 		RedirectURIs:               data.RedirectURIs,
 		ConfidentialClient:         data.ConfidentialClient,
 		SkipSecondaryAuthorization: data.SkipSecondaryAuthorization,
+		ClientSecretHash:           secretHash,
+		Authorize:                  authorize,
 	})
 	if err != nil {
-		if auth_model.IsErrOauthClientIDInvalid(err) || auth_model.IsErrOAuthApplicationNotFound(err) {
-			ctx.APIErrorNotFound()
-		} else {
-			ctx.APIErrorInternal(err)
-		}
+		oauthApplicationWriteError(ctx, err, "", false)
 		return
 	}
-	app.ClientSecret, err = app.GenerateClientSecret(ctx)
-	if err != nil {
-		ctx.APIError(http.StatusBadRequest, "error updating application secret")
-		return
-	}
+	app.ClientSecret = secret
 
 	ctx.JSON(http.StatusOK, convert.ToOAuth2Application(app))
 }

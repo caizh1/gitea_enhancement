@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 
+	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
@@ -88,6 +89,8 @@ func UnblockUser(ctx *context.APIContext, doer, blocker *user_model.User) {
 	if err := user_service.UnblockUser(ctx, doer, blocker, blockee); err != nil {
 		if errors.Is(err, user_model.ErrCanNotUnblock) || errors.Is(err, user_model.ErrBlockOrganization) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, "organization is archived, pending deletion, or another operation is in progress")
 		} else {
 			ctx.APIErrorInternal(err)
 		}

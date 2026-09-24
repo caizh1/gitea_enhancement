@@ -68,7 +68,7 @@ func TestGroupArchiveTreeAtomicity(t *testing.T) {
 	require.False(t, root.Archived)
 	current, err := repo_model.GetRepositoryByID(ctx, repository.ID)
 	require.NoError(t, err)
-	require.False(t, current.IsArchived, "按 GitLab 19.3.2 恢复整棵树，不保留项目原有独立归档标记")
+	require.False(t, current.IsArchived, "当前恢复整棵树的语义不保留项目原有独立归档标记；官方版本对齐仍待核实")
 	unittest.AssertCount(t, &governance_model.AuditEvent{Type: "group.archived", ObjectID: root.ID}, 1)
 	unittest.AssertCount(t, &governance_model.AuditEvent{Type: "group.unarchived", ObjectID: root.ID}, 1)
 }

@@ -6,11 +6,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"reflect"
 	"slices"
 	"strings"
 
+	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/json"
 )
@@ -48,7 +50,27 @@ func appendOAuthApplicationAudit(ctx context.Context, before, after *OAuth2Appli
 	if err != nil {
 		return err
 	}
-	return governance_model.AppendAudit(ctx, &governance_model.AuditEvent{Type: "oauth.application_" + action, Actor: governance_model.AuditActor(ctx), ScopeType: "user", ScopeID: object.UID, ObjectType: "oauth_application", ObjectID: object.ID, ObjectPath: object.Name, Result: "success", Details: details})
+	event := &governance_model.AuditEvent{Type: "oauth.application_" + action, Actor: governance_model.AuditActor(ctx), ScopeType: "user", ScopeID: object.UID, ObjectType: "oauth_application", ObjectID: object.ID, ObjectPath: object.Name, Result: "success", Details: details}
+	if object.UID == 0 {
+		event.ScopeType = "instance"
+	} else {
+		// 组织类型固定为 1；直接投影避免 auth 与 user 模型循环依赖。
+		organization, err := db.GetEngine(ctx).Table("user").Where("id = ? AND type = ?", object.UID, 1).Exist()
+		if err != nil {
+			return err
+		}
+		if organization {
+			event.ScopeType = "group"
+			ancestors, err := governance_model.Ancestors(ctx, object.UID)
+			if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+				return err
+			}
+			for _, ancestor := range ancestors {
+				event.AncestorIDs = append(event.AncestorIDs, ancestor.ID)
+			}
+		}
+	}
+	return governance_model.AppendAudit(ctx, event)
 }
 
 func appendOAuthGrantAudit(ctx context.Context, grant *OAuth2Grant, eventType string) error {

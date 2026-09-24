@@ -4,9 +4,11 @@
 package repo
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
@@ -208,16 +210,25 @@ func changeRepoTeam(ctx *context.APIContext, add bool) {
 			ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("team '%s' is already added to repo", team.Name))
 			return
 		}
-		err = repo_service.TeamAddRepository(ctx, team, ctx.Repo.Repository)
+		err = repo_service.ChangeTeamRepositoryAsActor(ctx, ctx.Doer, team, ctx.Repo.Repository.ID, true)
 	} else {
 		if !repoHasTeam {
 			ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("team '%s' was not added to repo", team.Name))
 			return
 		}
-		err = repo_service.RemoveRepositoryFromTeam(ctx, team, ctx.Repo.Repository.ID)
+		err = repo_service.ChangeTeamRepositoryAsActor(ctx, ctx.Doer, team, ctx.Repo.Repository.ID, false)
 	}
 	if err != nil {
-		ctx.APIErrorInternal(err)
+		switch {
+		case errors.Is(err, governance_model.ErrNotFound):
+			ctx.APIErrorNotFound()
+		case errors.Is(err, governance_model.ErrForbidden):
+			ctx.APIError(http.StatusForbidden, "Team repository access was revoked")
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.APIError(http.StatusConflict, "Team repository access changed")
+		default:
+			ctx.APIErrorInternal(err)
+		}
 		return
 	}
 

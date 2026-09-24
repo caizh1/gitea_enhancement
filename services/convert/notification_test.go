@@ -7,8 +7,12 @@ import (
 	"testing"
 
 	activities_model "gitea.dev/models/activities"
+	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
+	perm_model "gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
@@ -67,6 +71,79 @@ func TestToNotificationThreadOmitsSubjectWhenAccessRevoked(t *testing.T) {
 	// must not leak private issue metadata once access is revoked
 	assert.Nil(t, thread.Repository)
 	assert.Nil(t, thread.Subject)
+}
+
+func TestToNotificationThreadOmitsRevokedIssueUnit(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	owner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 3})
+	reader := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	repo := &repo_model.Repository{OwnerID: owner.ID, OwnerName: owner.Name, OwnerNamespace: owner.Name, Name: "notification-unit-revocation", LowerName: "notification-unit-revocation", IsPrivate: true}
+	require.NoError(t, db.Insert(ctx, repo))
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: repo.ID, Type: unit.TypeCode}, &repo_model.RepoUnit{RepoID: repo.ID, Type: unit.TypeIssues}, &repo_model.RepoUnit{RepoID: repo.ID, Type: unit.TypePullRequests}))
+	require.NoError(t, db.Insert(ctx, &organization.TeamRepo{OrgID: owner.ID, TeamID: 2, RepoID: repo.ID}))
+	_, err := db.GetEngine(ctx).Where("team_id = ? AND type <> ?", 2, unit.TypeCode).Delete(&organization.TeamUnit{})
+	require.NoError(t, err)
+	issue := &issues_model.Issue{RepoID: repo.ID, Index: 1, PosterID: owner.ID, Title: "授权时的议题标题"}
+	require.NoError(t, db.Insert(ctx, issue))
+
+	n := &activities_model.Notification{ID: 12346, UserID: reader.ID, RepoID: repo.ID, Status: activities_model.NotificationStatusUnread, Source: activities_model.NotificationSourceIssue, IssueID: issue.ID, Repository: repo, Issue: issue, User: reader}
+	require.NoError(t, db.Insert(ctx, n))
+	issue.Title = "撤权后更新的议题标题"
+	_, err = db.GetEngine(ctx).ID(issue.ID).Cols("name").Update(issue)
+	require.NoError(t, err)
+	thread := ToNotificationThread(ctx, n)
+	require.NotNil(t, thread)
+	assert.Nil(t, thread.Subject)
+	assert.Nil(t, thread.Repository)
+
+	pull := &issues_model.Issue{RepoID: repo.ID, Index: 2, PosterID: owner.ID, Title: "撤权后的合并请求标题", IsPull: true}
+	require.NoError(t, db.Insert(ctx, pull))
+	require.NoError(t, db.Insert(ctx,
+		&activities_model.Notification{UserID: reader.ID, RepoID: repo.ID, Status: activities_model.NotificationStatusUnread, Source: activities_model.NotificationSourcePullRequest, IssueID: pull.ID},
+		&activities_model.Notification{UserID: reader.ID, RepoID: repo.ID, Status: activities_model.NotificationStatusUnread, Source: activities_model.NotificationSourceCommit, CommitID: "abc123"},
+		&activities_model.Notification{UserID: reader.ID, RepoID: repo.ID, Status: activities_model.NotificationStatusUnread, Source: activities_model.NotificationSourceRepository},
+	))
+	opts := activities_model.FindNotificationOptions{UserID: reader.ID, Status: []activities_model.NotificationStatus{activities_model.NotificationStatusUnread}}
+	visible, total, err := activities_model.FindVisibleNotifications(ctx, reader, opts)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	require.Len(t, visible, 2)
+	assert.ElementsMatch(t, []activities_model.NotificationSource{activities_model.NotificationSourceRepository, activities_model.NotificationSourceCommit}, []activities_model.NotificationSource{visible[0].Source, visible[1].Source})
+	count, err := activities_model.CountVisibleNotifications(ctx, reader, opts)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, count)
+	counts, err := activities_model.GetUIDsAndNotificationCounts(ctx, timeutil.TimeStampNow().Add(-10), timeutil.TimeStampNow().Add(10))
+	require.NoError(t, err)
+	require.Len(t, counts, 1)
+	assert.Equal(t, reader.ID, counts[0].UserID)
+	assert.EqualValues(t, 2, counts[0].Count)
+	opts.ListOptions = db.ListOptions{PageSize: 1, Page: 2}
+	secondPage, pageTotal, err := activities_model.FindVisibleNotifications(ctx, reader, opts)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, pageTotal)
+	require.Len(t, secondPage, 1)
+	assert.NotEqual(t, activities_model.NotificationSourceIssue, secondPage[0].Source)
+	assert.NotEqual(t, activities_model.NotificationSourcePullRequest, secondPage[0].Source)
+	opts.ListOptions = db.ListOptions{}
+
+	_, err = db.GetEngine(ctx).Where("team_id = ?", 2).Delete(&organization.TeamUnit{})
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &organization.TeamUnit{OrgID: owner.ID, TeamID: 2, Type: unit.TypeIssues, AccessMode: perm_model.AccessModeRead}))
+	visible, total, err = activities_model.FindVisibleNotifications(ctx, reader, opts)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	require.Len(t, visible, 2)
+	assert.ElementsMatch(t, []activities_model.NotificationSource{activities_model.NotificationSourceIssue, activities_model.NotificationSourceRepository}, []activities_model.NotificationSource{visible[0].Source, visible[1].Source})
+
+	_, err = db.GetEngine(ctx).Where("team_id = ?", 2).Delete(&organization.TeamUnit{})
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &organization.TeamUnit{OrgID: owner.ID, TeamID: 2, Type: unit.TypePullRequests, AccessMode: perm_model.AccessModeRead}))
+	visible, total, err = activities_model.FindVisibleNotifications(ctx, reader, opts)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	require.Len(t, visible, 2)
+	assert.ElementsMatch(t, []activities_model.NotificationSource{activities_model.NotificationSourcePullRequest, activities_model.NotificationSourceRepository}, []activities_model.NotificationSource{visible[0].Source, visible[1].Source})
 }
 
 func TestToNotificationThread(t *testing.T) {

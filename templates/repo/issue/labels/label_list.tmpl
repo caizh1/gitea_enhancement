@@ -64,9 +64,6 @@
 			<li class="item">
 				<div>{{/* parent is flex, so use block here to keep sentence spaces */}}
 					{{ctx.Locale.Tr "repo.org_labels_desc"}}
-					{{if .IsOrganizationOwner}}
-						<a href="{{.OrganizationLink}}/settings/labels">({{ctx.Locale.Tr "repo.org_labels_desc_manage"}})</a>:
-					{{end}}
 				</div>
 			</li>
 
@@ -74,6 +71,7 @@
 			<li class="item org-label">
 				<div class="label-title">
 					{{ctx.RenderUtils.RenderLabel .}}
+					<small class="desc">{{if .SourcePath}}{{.SourcePath}}{{else}}{{ctx.Locale.Tr "repo.issues.label_source_id" .OrgID}}{{end}}{{if .CanManageSource}} · <a href="{{.SourceLink}}">{{ctx.Locale.Tr "repo.org_labels_desc_manage"}}</a>{{end}}</small>
 					{{if .Description}}<br><small class="desc">{{.Description | ctx.RenderUtils.RenderEmoji}}</small>{{end}}
 				</div>
 				<div class="label-issues">

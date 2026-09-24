@@ -324,9 +324,10 @@ type ViewResponse struct {
 			Commit              ViewCommit        `json:"commit"`
 			PullRequest         *ViewPullRequest  `json:"pullRequest,omitempty"`
 			// Summary view: run duration and trigger time/event
-			Duration     string `json:"duration"`
-			TriggeredAt  int64  `json:"triggeredAt"`  // unix seconds for relative time
-			TriggerEvent string `json:"triggerEvent"` // e.g. pull_request, push, schedule
+			Duration           string `json:"duration"`
+			TriggeredAt        int64  `json:"triggeredAt"`  // unix seconds for relative time
+			TriggerEvent       string `json:"triggerEvent"` // e.g. pull_request, push, schedule
+			CancellationReason string `json:"cancellationReason,omitempty"`
 
 			JobSummaries []*ViewJobSummary `json:"jobSummaries,omitempty"`
 		} `json:"run"`
@@ -600,9 +601,9 @@ func fillViewRunResponseSummary(ctx *context_module.Context, resp *ViewResponse,
 
 	// Hide the Cancel button once a cancel is already in cancelling progress
 	resp.State.Run.CanCancel = isLatestAttempt && !resp.State.Run.Done && !effectiveStatus.IsCancelling() && ctx.Repo.Permission.CanWrite(unit.TypeActions)
-	resp.State.Run.CanApprove = isLatestAttempt && run.NeedApproval && ctx.Repo.Permission.CanWrite(unit.TypeActions)
+	resp.State.Run.CanApprove = isLatestAttempt && !resp.State.Run.Done && run.NeedApproval && ctx.Repo.Permission.CanWrite(unit.TypeActions)
 	resp.State.Run.CanRerun = isLatestAttempt && resp.State.Run.Done && ctx.Repo.Permission.CanWrite(unit.TypeActions)
-	resp.State.Run.CanDeleteArtifact = resp.State.Run.Done && ctx.Repo.Permission.CanWrite(unit.TypeActions)
+	resp.State.Run.CanDeleteArtifact = resp.State.Run.Done && ctx.Repo.Permission.CanWrite(unit.TypeActions) && governance_service.CheckRepositoryContentLifecycle(ctx, ctx.Repo.Repository.ID) == nil
 	if resp.State.Run.CanRerun {
 		for _, job := range jobs {
 			if job.Status == actions_model.StatusFailure || job.Status == actions_model.StatusCancelled {
@@ -649,6 +650,9 @@ func fillViewRunResponseSummary(ctx *context_module.Context, resp *ViewResponse,
 		return
 	}
 	for _, runAttempt := range attempts {
+		if isOrganizationTriggerCancellation(runAttempt, runAttemptID) {
+			resp.State.Run.CancellationReason = ctx.Locale.TrString("actions.runs.organization_trigger_cancelled")
+		}
 		resp.State.Run.Attempts = append(resp.State.Run.Attempts, &ViewRunAttempt{
 			Attempt:           runAttempt.Attempt,
 			Status:            runAttempt.Status.String(),
@@ -724,6 +728,10 @@ func fillViewRunResponseSummary(ctx *context_module.Context, resp *ViewResponse,
 	}
 }
 
+func isOrganizationTriggerCancellation(attempt *actions_model.ActionRunAttempt, selectedAttemptID int64) bool {
+	return attempt != nil && attempt.ID == selectedAttemptID && attempt.Status == actions_model.StatusCancelled && attempt.TriggerUser != nil && attempt.TriggerUser.IsOrganization()
+}
+
 func fillViewRunResponseCurrentJob(ctx *context_module.Context, resp *ViewResponse, run *actions_model.ActionRun, jobs []*actions_model.ActionRunJob) {
 	req := web.GetForm(ctx).(*ViewRequest)
 	current, hasPathParam := findCurrentJobByPathParam(ctx, jobs)
@@ -751,7 +759,9 @@ func fillViewRunResponseCurrentJob(ctx *context_module.Context, resp *ViewRespon
 
 	resp.State.CurrentJob.Title = current.Name
 	resp.State.CurrentJob.Detail = current.Status.LocaleString(ctx.Locale)
-	if run.NeedApproval {
+	if resp.State.Run.CancellationReason != "" && current.Status == actions_model.StatusCancelled {
+		resp.State.CurrentJob.Detail = resp.State.Run.CancellationReason
+	} else if run.NeedApproval {
 		resp.State.CurrentJob.Detail = ctx.Locale.TrString("actions.need_approval_desc")
 	} else if detail := describePendingJobDetail(ctx, current, jobs); detail != "" {
 		resp.State.CurrentJob.Detail = detail
@@ -784,16 +794,26 @@ func describePendingJobDetail(ctx *context_module.Context, current *actions_mode
 		// A waiting job has no runner to pick it up yet. A busy runner is still
 		// "online", so distinguish three cases: no runner online at all, online
 		// runners but none match the labels, and a matching runner that is busy.
+		availableOwnerIDs, err := actions_model.AvailableRunnerOwnerIDs(ctx, current.OwnerID)
+		if err != nil {
+			log.Error("AvailableRunnerOwnerIDs for job %d: %v", current.ID, err)
+			return ""
+		}
 		runners, err := db.Find[actions_model.ActionRunner](ctx, actions_model.FindRunnerOptions{
-			RepoID:        current.RepoID,
-			IsOnline:      optional.Some(true),
-			WithAvailable: true,
+			RepoID:            current.RepoID,
+			IsOnline:          optional.Some(true),
+			WithAvailable:     true,
+			AvailableOwnerIDs: availableOwnerIDs,
 		})
 		if err != nil {
 			log.Error("FindRunners for job %d: %v", current.ID, err)
 			return ""
 		}
-		hasOnlineRunner, hasMatchingRunner := false, false
+		if err := current.LoadRun(ctx); err != nil {
+			log.Error("LoadRun for pending job %d: %v", current.ID, err)
+			return ""
+		}
+		hasOnlineRunner, hasMatchingRunner, hasTrustedRunner := false, false, false
 		for _, runner := range runners {
 			if runner.IsDisabled {
 				continue
@@ -801,7 +821,15 @@ func describePendingJobDetail(ctx *context_module.Context, current *actions_mode
 			hasOnlineRunner = true
 			if runner.CanMatchLabels(current.RunsOn) {
 				hasMatchingRunner = true
-				break
+				trusted, err := actions_model.RequiredScopedRunnerAllowed(ctx, current.Run, runner)
+				if err != nil {
+					log.Error("RequiredScopedRunnerAllowed for pending job %d: %v", current.ID, err)
+					return ""
+				}
+				if trusted {
+					hasTrustedRunner = true
+					break
+				}
 			}
 		}
 		switch {
@@ -809,6 +837,8 @@ func describePendingJobDetail(ctx *context_module.Context, current *actions_mode
 			return ctx.Locale.TrString("actions.runs.no_runner_online")
 		case !hasMatchingRunner:
 			return ctx.Locale.TrString("actions.runs.no_matching_online_runner_helper", strings.Join(current.RunsOn, ", "))
+		case !hasTrustedRunner:
+			return ctx.Locale.TrString("actions.runs.no_trusted_online_runner")
 		default:
 			// A matching runner exists but hasn't claimed the job, so it is busy.
 			return ctx.Locale.TrString("actions.runs.waiting_for_available_runner")
@@ -1023,7 +1053,7 @@ func RerunFailed(ctx *context_module.Context) {
 }
 
 func handleWorkflowRerunError(ctx *context_module.Context, err error) {
-	if errors.Is(err, util.ErrAlreadyExist) {
+	if errors.Is(err, util.ErrAlreadyExist) || errors.Is(err, governance_model.ErrConflict) {
 		ctx.JSON(http.StatusConflict, map[string]any{"message": err.Error()})
 		return
 	}
@@ -1126,8 +1156,9 @@ func Delete(ctx *context_module.Context) {
 		return
 	}
 
-	if err := actions_service.DeleteRun(ctx, run); err != nil {
-		ctx.ServerError("DeleteRun", err)
+	actorCtx := governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"))
+	if err := actions_service.DeleteRun(actorCtx, run, ctx.Doer); err != nil {
+		writeActionsDeletionError(ctx, "DeleteRun", err)
 		return
 	}
 
@@ -1239,6 +1270,17 @@ func resolveArtifactAttemptIDFromQuery(ctx *context_module.Context, run *actions
 	return attempt.ID, nil
 }
 
+func writeActionsDeletionError(ctx *context_module.Context, operation string, err error) {
+	switch {
+	case errors.Is(err, governance_model.ErrConflict):
+		ctx.HTTPError(http.StatusLocked)
+	case errors.Is(err, governance_model.ErrForbidden), errors.Is(err, governance_model.ErrNotFound), errors.Is(err, util.ErrNotExist):
+		ctx.NotFound(nil)
+	default:
+		ctx.ServerError(operation, err)
+	}
+}
+
 func ArtifactsDeleteView(ctx *context_module.Context) {
 	run := getCurrentRunByPathParam(ctx)
 	if ctx.Written() {
@@ -1252,8 +1294,9 @@ func ArtifactsDeleteView(ctx *context_module.Context) {
 		return
 	}
 	artifactName := ctx.PathParam("artifact_name")
-	if err := actions_model.SetArtifactNeedDeleteByRunAttempt(ctx, run.ID, resolvedAttemptID, artifactName); err != nil {
-		ctx.ServerError("SetArtifactNeedDeleteByRunAttempt", err)
+	actorCtx := governance_model.WithAuditActor(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"))
+	if err := actions_service.RequestArtifactDeletionByRunAttempt(actorCtx, ctx.Doer, ctx.Repo.Repository.ID, run.ID, resolvedAttemptID, artifactName); err != nil {
+		writeActionsDeletionError(ctx, "RequestArtifactDeletionByRunAttempt", err)
 		return
 	}
 	ctx.JSON(http.StatusOK, struct{}{})

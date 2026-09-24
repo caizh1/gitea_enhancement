@@ -313,6 +313,11 @@ func updateRepository(ctx context.Context, repo *repo_model.Repository, visibili
 		if previous.OwnerID != repo.OwnerID || !strings.EqualFold(previous.Name, repo.Name) || previous.OwnerName != repo.OwnerName {
 			return fmt.Errorf("%w：仓库归属或路径已经变化，请重新读取设置", governance_model.ErrConflict)
 		}
+		if previous.DefaultBranch != repo.DefaultBranch {
+			if err := checkRequiredWorkflowDefaultBranch(ctx, repo.ID); err != nil {
+				return err
+			}
+		}
 		if previous.Name != repo.Name || previous.OwnerID != repo.OwnerID {
 			repo.OwnerNamespace, err = governance_model.ChangeNativeRepositoryPath(ctx, repo.ID, repo.OwnerID, repo.Name)
 			if err != nil {

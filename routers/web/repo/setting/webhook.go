@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	user_model "gitea.dev/models/user"
@@ -656,17 +657,30 @@ func WebHooksEdit(ctx *context.Context) {
 
 // TestWebhook test if web hook is work fine
 func TestWebhook(ctx *context.Context) {
-	hookID := ctx.PathParamInt64("id")
-	w, err := webhook.GetWebhookByRepoID(ctx, ctx.Repo.Repository.ID, hookID)
-	if err != nil {
-		ctx.Flash.Error("GetWebhookByRepoID: " + err.Error())
-		ctx.Status(http.StatusInternalServerError)
+	orCtx, w := checkWebhook(ctx)
+	if ctx.Written() {
+		return
+	}
+	var apiRepo *api.Repository
+	objectFormat := git.Sha1ObjectFormat
+	if orCtx.RepoID > 0 {
+		objectFormat = git.ObjectFormatFromName(ctx.Repo.Repository.ObjectFormatName)
+		apiRepo = convert.ToRepo(ctx, ctx.Repo.Repository, access_model.Permission{AccessMode: perm.AccessModeNone})
+	} else if ctx.Data["PageIsOrgSettings"] == true {
+		// 群组测试使用合成资源，避免为测试端点额外披露下级仓库数据。
+		apiRepo = &api.Repository{
+			Owner: convert.ToUserWithAccessMode(ctx, ctx.ContextUser, perm.AccessModeNone),
+			Name:  "webhook-test", FullName: ctx.ContextUser.Name + "/webhook-test",
+			Description: "群组 Webhook 测试使用的合成仓库", DefaultBranch: "main",
+			HTMLURL: ctx.ContextUser.HTMLURL(ctx), Private: true,
+		}
+	} else {
+		ctx.NotFound(nil)
 		return
 	}
 
 	// use a fake commit to test webhook
 	ghostUser := user_model.NewGhostUser()
-	objectFormat := git.ObjectFormatFromName(ctx.Repo.Repository.ObjectFormatName)
 	commit := &git.Commit{
 		ID:            objectFormat.EmptyObjectID(),
 		Author:        ghostUser.NewGitSig(),
@@ -679,7 +693,7 @@ func TestWebhook(ctx *context.Context) {
 	apiCommit := &api.PayloadCommit{
 		ID:      commit.ID.String(),
 		Message: commit.MessageUTF8(),
-		URL:     ctx.Repo.Repository.HTMLURL() + "/commit/" + url.PathEscape(commit.ID.String()),
+		URL:     apiRepo.HTMLURL + "/commit/" + url.PathEscape(commit.ID.String()),
 		Author: &api.PayloadUser{
 			Name:  commit.Author.Name,
 			Email: commit.Author.Email,
@@ -692,20 +706,27 @@ func TestWebhook(ctx *context.Context) {
 
 	commitID := commit.ID.String()
 	p := &api.PushPayload{
-		Ref:          git.RefNameFromBranch(ctx.Repo.Repository.DefaultBranch).String(),
+		Ref:          git.RefNameFromBranch(apiRepo.DefaultBranch).String(),
 		Before:       commitID,
 		After:        commitID,
-		CompareURL:   setting.AppURL + ctx.Repo.Repository.ComposeCompareURL(commitID, commitID),
+		CompareURL:   apiRepo.HTMLURL + "/compare/" + commitID + "..." + commitID,
 		Commits:      []*api.PayloadCommit{apiCommit},
 		TotalCommits: 1,
 		HeadCommit:   apiCommit,
-		Repo:         convert.ToRepo(ctx, ctx.Repo.Repository, access_model.Permission{AccessMode: perm.AccessModeNone}),
+		Repo:         apiRepo,
 		Pusher:       apiUser,
 		Sender:       apiUser,
 	}
 	if err := webhook_service.PrepareTestWebhook(ctx, w, webhook_module.HookEventPush, p); err != nil {
 		ctx.Flash.Error("PrepareTestWebhook: " + err.Error())
-		ctx.Status(http.StatusInternalServerError)
+		switch {
+		case errors.Is(err, governance_model.ErrForbidden):
+			ctx.Status(http.StatusForbidden)
+		case errors.Is(err, governance_model.ErrConflict):
+			ctx.Status(http.StatusConflict)
+		default:
+			ctx.Status(http.StatusInternalServerError)
+		}
 	} else {
 		ctx.Flash.Info(ctx.Tr("repo.settings.webhook.delivery.success"))
 		ctx.Status(http.StatusOK)
@@ -724,6 +745,10 @@ func ReplayWebhook(ctx *context.Context) {
 	if err := webhook_service.ReplayHookTask(ctx, w, hookTaskUUID); err != nil {
 		if webhook.IsErrHookTaskNotExist(err) {
 			ctx.NotFound(nil)
+		} else if errors.Is(err, governance_model.ErrForbidden) {
+			ctx.HTTPError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.HTTPError(http.StatusConflict, err.Error())
 		} else {
 			ctx.ServerError("ReplayHookTask", err)
 		}

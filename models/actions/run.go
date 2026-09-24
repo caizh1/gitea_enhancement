@@ -53,10 +53,13 @@ type ActionRun struct {
 
 	// WorkflowRepoID/WorkflowCommitSHA record the (repo, commit) the run's workflow file content came from.
 	// Always filled (repo-level run = the repo itself; scoped run = the source repo).
-	WorkflowRepoID    int64  `xorm:"NOT NULL DEFAULT 0"`
-	WorkflowCommitSHA string `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
+	WorkflowRepoID              int64            `xorm:"NOT NULL DEFAULT 0"`
+	WorkflowCommitSHA           string           `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
+	WorkflowSourceScopeRevision int64            `xorm:"NOT NULL DEFAULT 0"`
+	ScopedConfigRevisions       map[string]int64 `xorm:"JSON TEXT"`
 
-	IsScopedRun bool `xorm:"NOT NULL DEFAULT false"` // IsScopedRun explicitly classifies scoped runs.
+	IsScopedRun      bool `xorm:"NOT NULL DEFAULT false"` // IsScopedRun explicitly classifies scoped runs.
+	ScopeInvalidated bool `xorm:"NOT NULL DEFAULT false"` // Moving the owning group requires a fresh workflow trigger.
 
 	// Started and Stopped are identical to the latest attempt after ActionRunAttempt was introduced.
 	// When a rerun creates a new latest attempt, they are reset until the new attempt starts and stops.

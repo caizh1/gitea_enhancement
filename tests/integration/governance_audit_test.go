@@ -13,6 +13,7 @@ import (
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/test"
 	governance_api "gitea.dev/routers/api/v1/governance"
 	governance_service "gitea.dev/services/governance"
 	"gitea.dev/tests"
@@ -56,7 +57,9 @@ func TestGovernanceAuditHTTP(t *testing.T) {
 	MakeRequest(t, NewRequest(t, "GET", "/api/v1/governance/audit-exports/"+job.ID+"/download").AddTokenAuth(otherToken), http.StatusNotFound)
 
 	session := loginUser(t, "user2")
-	resp = session.MakeRequest(t, NewRequest(t, "GET", "/governance/audit?scope_type=group&scope_id=3"), http.StatusOK)
+	resp = session.MakeRequest(t, NewRequest(t, "GET", "/governance/audit?scope_type=group&scope_id=3").SetHeader("Accept", "text/html"), http.StatusOK)
+	require.Contains(t, resp.Header().Get("Content-Type"), "text/html")
+	require.True(t, test.IsNormalPageCompleted(resp.Body.String()))
 	assert.Contains(t, resp.Body.String(), "私有群组/历史路径")
 	assert.NotContains(t, resp.Body.String(), "<script>测试</script>")
 	assert.Contains(t, resp.Body.String(), "&lt;script&gt;测试&lt;/script&gt;")
@@ -89,7 +92,10 @@ func TestGovernanceAuditHTTP(t *testing.T) {
 	assert.Contains(t, resp.Body.String(), "测试连通性")
 	assert.NotContains(t, resp.Body.String(), stream.VerificationToken)
 	loginUser(t, "user4").MakeRequest(t, NewRequest(t, "GET", "/governance/audit/streams?scope_type=group&scope_id=3"), http.StatusNotFound)
-	loginUser(t, "user4").MakeRequest(t, NewRequest(t, "GET", "/governance/audit?scope_type=group&scope_id=3"), http.StatusNotFound)
+	denied := loginUser(t, "user4").MakeRequest(t, NewRequest(t, "GET", "/governance/audit?scope_type=group&scope_id=3").SetHeader("Accept", "text/html"), http.StatusNotFound)
+	require.Contains(t, denied.Header().Get("Content-Type"), "text/html")
+	require.True(t, test.IsNormalPageCompleted(denied.Body.String()))
+	require.NotContains(t, denied.Body.String(), "私有群组/历史路径")
 	_, err = db.GetEngine(ctx).ID(2).Cols("prohibit_login").Update(&user_model.User{ProhibitLogin: true})
 	require.NoError(t, err)
 	assert.ErrorIs(t, governance_service.CheckAuditAccess(ctx, 2, "group", 3), governance_model.ErrNotFound)

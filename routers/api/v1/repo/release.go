@@ -4,10 +4,12 @@
 package repo
 
 import (
+	"errors"
 	"net/http"
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/git"
@@ -18,6 +20,17 @@ import (
 	"gitea.dev/services/convert"
 	release_service "gitea.dev/services/release"
 )
+
+func releaseMutationError(ctx *context.APIContext, err error) {
+	switch {
+	case errors.Is(err, governance_model.ErrConflict):
+		ctx.APIError(http.StatusLocked, "repo is archived or pending deletion")
+	case errors.Is(err, governance_model.ErrForbidden):
+		ctx.APIError(http.StatusForbidden, "release write permission was revoked")
+	default:
+		ctx.APIErrorInternal(err)
+	}
+}
 
 func canAccessReleaseDraft(ctx *context.APIContext) bool {
 	if !ctx.IsSigned || !ctx.Repo.Permission.CanWrite(unit.TypeReleases) {
@@ -277,7 +290,7 @@ func CreateRelease(ctx *context.APIContext) {
 			} else if git.IsErrNotExist(err) {
 				ctx.APIError(http.StatusNotFound, "target not found")
 			} else {
-				ctx.APIErrorInternal(err)
+				releaseMutationError(ctx, err)
 			}
 			return
 		}
@@ -298,7 +311,7 @@ func CreateRelease(ctx *context.APIContext) {
 		rel.Target = form.Target
 
 		if err = release_service.UpdateRelease(ctx, ctx.Doer, ctx.Repo.GitRepo, rel, nil, nil, nil); err != nil {
-			ctx.APIErrorInternal(err)
+			releaseMutationError(ctx, err)
 			return
 		}
 	}
@@ -372,7 +385,7 @@ func EditRelease(ctx *context.APIContext) {
 		rel.IsPrerelease = *form.IsPrerelease
 	}
 	if err := release_service.UpdateRelease(ctx, ctx.Doer, ctx.Repo.GitRepo, rel, nil, nil, nil); err != nil {
-		ctx.APIErrorInternal(err)
+		releaseMutationError(ctx, err)
 		return
 	}
 
@@ -434,7 +447,7 @@ func DeleteRelease(ctx *context.APIContext) {
 			ctx.APIError(http.StatusUnprocessableEntity, "user not allowed to delete protected tag")
 			return
 		}
-		ctx.APIErrorInternal(err)
+		releaseMutationError(ctx, err)
 		return
 	}
 	ctx.Status(http.StatusNoContent)

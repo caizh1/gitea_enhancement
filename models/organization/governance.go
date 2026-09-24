@@ -13,37 +13,36 @@ import (
 	user_model "gitea.dev/models/user"
 )
 
-func GovernanceGroupAbilities(ctx context.Context, groupID, userID int64) (governance_model.Abilities, error) {
+func governanceGroupGrants(ctx context.Context, groupID, userID int64) ([]governance_model.Grant, error) {
 	if userID <= 0 {
-		return governance_model.Abilities{}, nil
+		return nil, nil
 	}
 	user, err := user_model.GetUserByID(ctx, userID)
 	if user_model.IsErrUserNotExist(err) {
-		return governance_model.Abilities{}, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	if !user.IsActive || user.ProhibitLogin || user.IsOrganization() || user.IsGiteaActions() {
-		return governance_model.Abilities{}, nil
+		return nil, nil
 	}
 	grants, err := governance_model.GroupGrants(ctx, groupID, userID, time.Now())
 	if errors.Is(err, governance_model.ErrNotFound) {
-		return governance_model.Abilities{}, nil
+		return nil, nil
 	}
-	return governance_model.EffectiveAbilities(grants), err
+	return grants, err
+}
+
+func GovernanceGroupAbilities(ctx context.Context, groupID, userID int64) (governance_model.Abilities, error) {
+	grants, err := governanceGroupGrants(ctx, groupID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return governance_model.EffectiveAbilities(grants), nil
 }
 
 func hasGovernanceOwner(ctx context.Context, groupID, userID int64) (bool, error) {
-	abilities, err := GovernanceGroupAbilities(ctx, groupID, userID)
-	if err != nil {
-		return false, err
-	}
-	owner, _ := governance_model.AbilitiesFor(governance_model.Owner, nil)
-	for ability := range owner {
-		if !abilities[ability] {
-			return false, nil
-		}
-	}
-	return true, nil
+	grants, err := governanceGroupGrants(ctx, groupID, userID)
+	return governance_model.HasOwnerGrant(grants), err
 }

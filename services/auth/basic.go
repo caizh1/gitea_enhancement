@@ -16,6 +16,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
+	actions_service "gitea.dev/services/actions"
 )
 
 // Ensure the struct implements the interface.
@@ -111,7 +112,11 @@ func (b *Basic) VerifyAuthToken(req *http.Request, w http.ResponseWriter, store 
 
 	// check task token
 	task, err := actions_model.GetRunningTaskByToken(req.Context(), authToken)
+	valid := false
 	if err == nil && task != nil {
+		valid, err = actions_service.TaskCredentialValid(req.Context(), task)
+	}
+	if err == nil && valid {
 		log.Trace("Basic Authorization: Valid AccessToken for task[%d]", task.ID)
 		store.GetData()["LoginMethod"] = ActionTokenMethodName
 		return user_model.NewActionsUserWithTaskID(task.ID), nil

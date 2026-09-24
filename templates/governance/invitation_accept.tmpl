@@ -3,7 +3,7 @@
  {{template "base/alert" .}}<h2>成员邀请</h2>
  {{if .Completed}}<p class="ui positive message">{{.Outcome}}</p><a class="ui button" href="{{AppSubUrl}}/">返回首页</a>
  {{else if .Invitation}}
-  <p>邀请时的资源：<strong class="tw-break-all">{{.Invitation.ScopePath}}</strong></p><p>邀请人：{{.Invitation.InviterName}} · 邮箱：{{.Invitation.Email}}</p>
+  <p>当前邀请目标：<strong class="tw-break-all">{{.Invitation.ScopePath}}</strong></p><p>邀请人：{{.Invitation.InviterName}} · 邮箱：{{.Invitation.Email}}</p>
   <p>授权角色：{{index .RoleNames .Invitation.Role}}{{if .Invitation.CustomRoleID}} · 自定义角色 #{{.Invitation.CustomRoleID}}{{end}}</p>
   <p>成员权限有效至：{{if .Invitation.MembershipExpiresUnix}}{{DateUtils.FullTime .Invitation.MembershipExpiresUnix}}{{else}}永久{{end}}</p>
   <p>邀请到期：{{DateUtils.FullTime .Invitation.ExpiresUnix}}。接受时会重新检查邀请者权限和资源状态。</p>

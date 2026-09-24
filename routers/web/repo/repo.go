@@ -13,6 +13,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -27,6 +28,7 @@ import (
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
@@ -298,6 +300,8 @@ func handleActionError(ctx *context.Context, err error) {
 		ctx.JSONError(ctx.TrN(limit, "repo.form.reach_limit_of_creation_1", "repo.form.reach_limit_of_creation_n", limit))
 	case errors.Is(err, util.ErrPermissionDenied):
 		ctx.JSONError(ctx.Tr("error.permission_denied"))
+	case errors.Is(err, governance_model.ErrConflict):
+		ctx.JSONError(err.Error())
 	default:
 		ctx.ServerError(fmt.Sprintf("Action (%s)", ctx.PathParam("action")), err)
 	}
@@ -540,6 +544,15 @@ func SearchRepo(ctx *context.Context) {
 		log.Error("FindReposLatestCommitStatuses: %v", err)
 		ctx.JSON(http.StatusInternalServerError, nil)
 		return
+	}
+	for i, status := range latestCommitStatuses {
+		if status == nil {
+			continue
+		}
+		if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, repos[i], []*git_model.CommitStatus{status}); err != nil {
+			ctx.JSON(http.StatusInternalServerError, nil)
+			return
+		}
 	}
 	if !ctx.Repo.Permission.CanRead(unit.TypeActions) {
 		git_model.CommitStatusesHideActionsURL(ctx, latestCommitStatuses)

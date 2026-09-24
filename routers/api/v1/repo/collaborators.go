@@ -371,7 +371,7 @@ func GetAssignees(ctx *context.APIContext) {
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	assignees, err := repo_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
+	assignees, err := access_model.GetRepoAssignees(ctx, ctx.Repo.Repository)
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return

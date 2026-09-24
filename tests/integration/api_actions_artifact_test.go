@@ -24,6 +24,7 @@ import (
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/util"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,8 @@ func prepareTestEnvActionsArtifacts(t *testing.T) func() {
 	t.Helper()
 	f := tests.PrepareTestEnv(t, 1)
 	tests.PrepareArtifactsStorage(t)
+	prepareAuthorizedFixtureTask(t, 47)
+	prepareAuthorizedFixtureTask(t, 48)
 	return f
 }
 
@@ -55,6 +58,34 @@ func getArtifactFixtureTask(t *testing.T) *actions_model.ActionTask {
 	require.NoError(t, task.LoadJob(t.Context()))
 	ensureArtifactFixtureTaskSteps(t, task)
 	return task
+}
+
+func TestActionsArtifactCredentialsRejectChangedScope(t *testing.T) {
+	for _, state := range []string{"owner_changed", "runner_disabled", "repository_archived", "triggerer_disabled"} {
+		t.Run(state, func(t *testing.T) {
+			defer prepareTestEnvActionsArtifacts(t)()
+			task := getArtifactFixtureTask(t)
+			jwtToken, err := actions_service.CreateAuthorizationToken(task.ID, task.Job.RunID, task.Job.ID)
+			require.NoError(t, err)
+			for _, credential := range []string{"8061e833a55f6fc0157c98b883e91fcfeeb1a71a", jwtToken} {
+				MakeRequest(t, NewRequest(t, "GET", "/api/actions_pipeline/_apis/pipelines/workflows/791/artifacts").AddTokenAuth(credential), http.StatusOK)
+			}
+			switch state {
+			case "owner_changed":
+				_, err = db.GetEngine(t.Context()).ID(task.RepoID).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 2})
+			case "runner_disabled":
+				_, err = db.GetEngine(t.Context()).ID(task.RunnerID).Cols("is_disabled").Update(&actions_model.ActionRunner{IsDisabled: true})
+			case "repository_archived":
+				_, err = db.GetEngine(t.Context()).ID(task.RepoID).Cols("is_archived").Update(&repo_model.Repository{IsArchived: true})
+			case "triggerer_disabled":
+				_, err = db.GetEngine(t.Context()).ID(task.OwnerID).Cols("is_active").Update(&user_model.User{IsActive: false})
+			}
+			require.NoError(t, err)
+			for _, credential := range []string{"8061e833a55f6fc0157c98b883e91fcfeeb1a71a", jwtToken} {
+				MakeRequest(t, NewRequest(t, "GET", "/api/actions_pipeline/_apis/pipelines/workflows/791/artifacts").AddTokenAuth(credential), http.StatusUnauthorized)
+			}
+		})
+	}
 }
 
 func ensureArtifactFixtureTaskSteps(t *testing.T, task *actions_model.ActionTask) {

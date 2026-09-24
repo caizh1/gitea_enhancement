@@ -62,6 +62,13 @@
 					{{end}}
 				</div>
 			</div>
+			{{if .InheritedGroupProtectedBranches}}
+				<h4 class="ui top attached header">继承的群组基础保护（此处只读）</h4>
+				<div class="ui attached segment">
+					<p>来源：{{.GroupProtectionSource}}{{if .GroupProtectionManageURL}} · <a href="{{AppSubUrl}}{{.GroupProtectionManageURL}}">前往来源管理</a>{{end}}。这些规则实时作用于当前仓库；仓库本级规则仍在上方独立管理。</p>
+					{{range .InheritedGroupProtectedBranches}}<div class="item tw-py-2"><strong>{{.RuleName}}</strong> · 推送并合并：{{if eq .PushRole 0}}无人{{else if eq .PushRole 30}}开发者及以上{{else}}维护者及以上{{end}} · 合并：{{if eq .MergeRole 0}}无人{{else if eq .MergeRole 30}}开发者及以上{{else}}维护者及以上{{end}} · {{if .AllowForcePush}}允许强推{{else}}禁止强推{{end}}</div>{{end}}
+				</div>
+			{{end}}
 		{{end}}
 	</div>
 

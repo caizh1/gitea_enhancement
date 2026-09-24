@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	actions_model "gitea.dev/models/actions"
+	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
@@ -127,6 +129,161 @@ func TestMoveGroupLosingInheritedAccessStillReportsSuccess(t *testing.T) {
 	assert.ErrorIs(t, err, governance_model.ErrNotFound)
 }
 
+func TestMoveGroupInvalidatesInheritedOwnerRunnerToken(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	group, err := CreateGroup(ctx, governance_model.Actor{ID: 1, Name: "user1", Kind: "user", Transport: "api"}, GroupOption{Path: "runner-token-move", ParentID: 3, Visibility: 2})
+	require.NoError(t, err)
+	owner, err := organization.IsOrganizationOwner(ctx, group.ID, 2)
+	require.NoError(t, err)
+	require.True(t, owner)
+	token, err := actions_model.NewRunnerToken(ctx, group.ID, 0)
+	require.NoError(t, err)
+	_, err = MoveGroup(ctx, governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}, group.ID, GroupOption{Path: "runner-token-move", Revision: group.Revision})
+	require.NoError(t, err)
+	owner, err = organization.IsOrganizationOwner(ctx, group.ID, 2)
+	require.NoError(t, err)
+	require.False(t, owner)
+	require.False(t, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunnerToken{ID: token.ID}).IsActive)
+	runner := &actions_model.ActionRunner{Name: "stale-root-runner", OwnerID: group.ID}
+	runner.GenerateAndFillToken()
+	require.Error(t, actions_model.RegisterRunnerWithToken(ctx, runner, token.ID))
+}
+
+func TestMoveGroupInvalidatesTokenOnSameRootReparent(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	actor := governance_model.Actor{ID: 1, Name: "user1", Kind: "user", Transport: "api"}
+	root, err := CreateGroup(ctx, actor, GroupOption{Path: "same-root", Visibility: 2})
+	require.NoError(t, err)
+	sourceParent, err := CreateGroup(ctx, actor, GroupOption{Path: "source", ParentID: root.ID, Visibility: 2})
+	require.NoError(t, err)
+	targetParent, err := CreateGroup(ctx, actor, GroupOption{Path: "target", ParentID: root.ID, Visibility: 2})
+	require.NoError(t, err)
+	child, err := CreateGroup(ctx, actor, GroupOption{Path: "child", ParentID: sourceParent.ID, Visibility: 2})
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &governance_model.Membership{ScopeType: "group", ScopeID: sourceParent.ID, UserID: 4, Role: governance_model.Owner}))
+	owner, err := organization.IsOrganizationOwner(ctx, child.ID, 4)
+	require.NoError(t, err)
+	require.True(t, owner)
+	token, err := actions_model.NewRunnerToken(ctx, child.ID, 0)
+	require.NoError(t, err)
+	_, err = MoveGroup(ctx, actor, child.ID, GroupOption{Path: "child", ParentID: targetParent.ID, Revision: child.Revision})
+	require.NoError(t, err)
+	owner, err = organization.IsOrganizationOwner(ctx, child.ID, 4)
+	require.NoError(t, err)
+	require.False(t, owner)
+	require.False(t, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunnerToken{ID: token.ID}).IsActive)
+}
+
+func groupMoveActionsFixture(t *testing.T) (*GroupState, *GroupState, *repo_model.Repository) {
+	t.Helper()
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	actor := governance_model.Actor{ID: 1, Name: "user1", Kind: "user", Transport: "api"}
+	group, err := CreateGroup(ctx, actor, GroupOption{Path: "move-actions", ParentID: 3, Visibility: 2})
+	require.NoError(t, err)
+	child, err := CreateGroup(ctx, actor, GroupOption{Path: "child", ParentID: group.ID, Visibility: 2})
+	require.NoError(t, err)
+	owner, err := user_model.GetUserByID(ctx, child.ID)
+	require.NoError(t, err)
+	repo := &repo_model.Repository{OwnerID: child.ID, OwnerName: owner.Name, Name: "workflow", LowerName: "workflow", IsPrivate: true, Status: repo_model.RepositoryReady}
+	require.NoError(t, db.Insert(ctx, repo))
+	repo.OwnerNamespace, err = governance_model.RegisterNativeRepository(ctx, repo.ID, child.ID, repo.Name)
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(repo.ID).Cols("owner_namespace").Update(repo)
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{RepoID: repo.ID, Type: unit.TypeActions, Config: &repo_model.ActionsConfig{}}))
+	return group, child, repo
+}
+
+func TestMoveGroupCancelsSubtreeQueueAndInvalidatesTokens(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	group, child, repo := groupMoveActionsFixture(t)
+	tokens := make([]*actions_model.ActionRunnerToken, 0, 3)
+	for _, scope := range [][2]int64{{group.ID, 0}, {child.ID, 0}, {0, repo.ID}} {
+		token, err := actions_model.NewRunnerToken(ctx, scope[0], scope[1])
+		require.NoError(t, err)
+		tokens = append(tokens, token)
+	}
+	run := &actions_model.ActionRun{RepoID: repo.ID, OwnerID: child.ID, WorkflowID: "test.yaml", Index: 9918, TriggerUserID: 1, Status: actions_model.StatusWaiting}
+	require.NoError(t, db.Insert(ctx, run))
+	job := &actions_model.ActionRunJob{RunID: run.ID, RepoID: repo.ID, OwnerID: child.ID, JobID: "queued", Status: actions_model.StatusWaiting}
+	require.NoError(t, db.Insert(ctx, job))
+	history := &actions_model.ActionTask{RepoID: repo.ID, OwnerID: child.ID, Status: actions_model.StatusSuccess}
+	history.GenerateAndFillToken()
+	require.NoError(t, db.Insert(ctx, history))
+	_, err := MoveGroup(ctx, governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}, group.ID, GroupOption{Path: "move-actions", Revision: group.Revision})
+	require.NoError(t, err)
+	for _, token := range tokens {
+		require.False(t, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunnerToken{ID: token.ID}).IsActive)
+	}
+	assert.Equal(t, actions_model.StatusCancelled, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunJob{ID: job.ID}).Status)
+	assert.Equal(t, actions_model.StatusSuccess, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTask{ID: history.ID}).Status)
+	current, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "move-actions/child/workflow", current.FullPath())
+}
+
+func TestMoveGroupRejectsActiveSubtreeTrust(t *testing.T) {
+	for _, name := range []string{"group_runner", "repo_runner", "active_task", "deploy_key"} {
+		t.Run(name, func(t *testing.T) {
+			unittest.PrepareTestEnv(t)
+			ctx := t.Context()
+			group, child, repo := groupMoveActionsFixture(t)
+			token, err := actions_model.NewRunnerToken(ctx, child.ID, 0)
+			require.NoError(t, err)
+			switch name {
+			case "group_runner", "repo_runner":
+				runner := &actions_model.ActionRunner{Name: name}
+				if name == "group_runner" {
+					runner.OwnerID = child.ID
+				} else {
+					runner.RepoID = repo.ID
+				}
+				runner.GenerateAndFillToken()
+				require.NoError(t, db.Insert(ctx, runner))
+			case "active_task":
+				task := &actions_model.ActionTask{RepoID: repo.ID, OwnerID: child.ID, Status: actions_model.StatusRunning}
+				task.GenerateAndFillToken()
+				require.NoError(t, db.Insert(ctx, task))
+			case "deploy_key":
+				require.NoError(t, db.Insert(ctx, &asymkey_model.DeployKey{RepoID: repo.ID, KeyID: 99999, Name: "move-key"}))
+			}
+			_, err = MoveGroup(ctx, governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}, group.ID, GroupOption{Path: "move-actions", Revision: group.Revision})
+			require.ErrorIs(t, err, governance_model.ErrConflict)
+			assert.True(t, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunnerToken{ID: token.ID}).IsActive)
+			unchanged, getErr := governance_model.GetNamespace(ctx, group.ID)
+			require.NoError(t, getErr)
+			assert.Equal(t, int64(3), unchanged.ParentID)
+		})
+	}
+}
+
+func TestMoveGroupFailedPathKeepsQueueAndToken(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	group, child, repo := groupMoveActionsFixture(t)
+	_, err := CreateGroup(ctx, governance_model.Actor{ID: 1, Name: "user1", Kind: "user", Transport: "api"}, GroupOption{Path: "move-actions", Visibility: 2})
+	require.NoError(t, err)
+	token, err := actions_model.NewRunnerToken(ctx, child.ID, 0)
+	require.NoError(t, err)
+	run := &actions_model.ActionRun{RepoID: repo.ID, OwnerID: child.ID, WorkflowID: "test.yaml", Index: 9919, TriggerUserID: 1, Status: actions_model.StatusWaiting}
+	require.NoError(t, db.Insert(ctx, run))
+	job := &actions_model.ActionRunJob{RunID: run.ID, RepoID: repo.ID, OwnerID: child.ID, JobID: "queued", Status: actions_model.StatusWaiting}
+	require.NoError(t, db.Insert(ctx, job))
+	_, err = MoveGroup(ctx, governance_model.Actor{ID: 2, Name: "user2", Kind: "user", Transport: "api"}, group.ID, GroupOption{Path: "move-actions", Revision: group.Revision})
+	require.Error(t, err)
+	assert.True(t, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunnerToken{ID: token.ID}).IsActive)
+	assert.Equal(t, actions_model.StatusWaiting, unittest.AssertExistsAndLoadBean(t, &actions_model.ActionRunJob{ID: job.ID}).Status)
+	unchanged, err := governance_model.GetNamespace(ctx, group.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), unchanged.ParentID)
+}
+
 func TestPreviewGroupMoveShowsChangedGovernanceScopes(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	ctx := t.Context()
@@ -155,6 +312,13 @@ func TestPreviewGroupMoveShowsChangedGovernanceScopes(t *testing.T) {
 	assert.EqualValues(t, 1, impact.RemovedApprovalSettings)
 	assert.EqualValues(t, 1, impact.RemovedAuditStreams)
 	assert.True(t, impact.CompatibilityAliasRetained)
+	require.NotEmpty(t, impact.ImpactFingerprint)
+	require.NoError(t, db.Insert(ctx, &actions_model.ActionVariable{OwnerID: target.ID, Name: "SYNTHETIC_LIFECYCLE", Data: "synthetic"}))
+	_, err = MoveGroup(ctx, actor, source.ID, GroupOption{Path: "moved", ParentID: target.ID, Revision: source.Revision, ImpactFingerprint: impact.ImpactFingerprint})
+	require.ErrorIs(t, err, governance_model.ErrConflict, "预览后新增目标父级变量必须要求重看影响")
+	current, err := governance_model.GetNamespace(ctx, source.ID)
+	require.NoError(t, err)
+	assert.Equal(t, source.ParentID, current.ParentID)
 }
 
 func TestCrossRootMovePreservesBaseRoleAndRequestPaths(t *testing.T) {
@@ -193,7 +357,7 @@ func TestCrossRootMovePreservesBaseRoleAndRequestPaths(t *testing.T) {
 	assert.Equal(t, member.CustomRoleID, invitation.CustomRoleID)
 	assert.Equal(t, "role-target/moved", invitation.ScopePath)
 	request := unittest.AssertExistsAndLoadBean(t, &governance_model.AccessRequest{ScopeType: "group", ScopeID: source.ID})
-	assert.Equal(t, "role-target/moved", request.ScopePath)
+	assert.Equal(t, source.FullPath, request.ScopePath)
 	memberAccess, err := CheckGroupAccess(ctx, 4, source.ID, governance_model.ReadCode)
 	require.NoError(t, err)
 	assert.True(t, memberAccess.Abilities[governance_model.ReadAudit])

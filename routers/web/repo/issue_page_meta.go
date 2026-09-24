@@ -11,11 +11,13 @@ import (
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
+	access_model "gitea.dev/models/perm/access"
 	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/optional"
+	shared_issue "gitea.dev/routers/web/shared/issue"
 	shared_user "gitea.dev/routers/web/shared/user"
 	"gitea.dev/services/context"
 	issue_service "gitea.dev/services/issue"
@@ -154,7 +156,7 @@ func (d *IssuePageMetaData) retrieveMilestonesDataForIssueWriter(ctx *context.Co
 
 func (d *IssuePageMetaData) retrieveAssigneesData(ctx *context.Context) {
 	var err error
-	d.AssigneesData.CandidateAssignees, err = repo_model.GetRepoAssignees(ctx, d.Repository)
+	d.AssigneesData.CandidateAssignees, err = access_model.GetRepoAssignees(ctx, d.Repository)
 	if err != nil {
 		ctx.ServerError("GetRepoAssignees", err)
 		return
@@ -494,10 +496,19 @@ func (d *issueSidebarLabelsData) SetSelectedLabels(labels []*issues_model.Label)
 }
 
 func (d *issueSidebarLabelsData) SetSelectedLabelNames(labelNames []string) {
-	d.SelectedLabelIDs = makeSelectedStringIDs(
-		d.AllLabels, func(label *issues_model.Label) string { return strings.ToLower(label.Name) },
-		labelNames, strings.ToLower,
-	)
+	wanted := make(container.Set[string], len(labelNames))
+	for _, name := range labelNames {
+		wanted.Add(strings.ToLower(name))
+	}
+	ids := make([]string, 0)
+	for _, label := range d.AllLabels {
+		if wanted.Contains(strings.ToLower(label.Name)) {
+			label.IsChecked = true
+			ids = append(ids, strconv.FormatInt(label.ID, 10))
+		}
+	}
+	sort.Strings(ids)
+	d.SelectedLabelIDs = strings.Join(ids, ",")
 }
 
 func (d *issueSidebarLabelsData) SetSelectedLabelIDs(labelIDs []int64) {
@@ -520,8 +531,13 @@ func (d *IssuePageMetaData) retrieveLabelsData(ctx *context.Context) {
 	labelsData.RepoLabels = labels
 
 	if repo.Owner.IsOrganization() {
-		orgLabels, err := issues_model.GetLabelsByOrgID(ctx, repo.Owner.ID, ctx.FormString("sort"), db.ListOptions{})
+		orgLabels, err := issues_model.GetLabelsByAncestorOrgID(ctx, repo.Owner.ID, ctx.FormString("sort"))
 		if err != nil {
+			ctx.ServerError("GetLabelsByAncestorOrgID", err)
+			return
+		}
+		if err := shared_issue.PopulateLabelSources(ctx, orgLabels); err != nil {
+			ctx.ServerError("PopulateLabelSources", err)
 			return
 		}
 		issues_model.SortLabelsForDisplay(orgLabels)

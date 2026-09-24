@@ -11,6 +11,22 @@
 						data-hide-all="{{ctx.Locale.Tr "repo.pulls.status_checks_hide_all"}}"
 		>{{ctx.Locale.Tr "repo.pulls.status_checks_hide_all"}}</button>
 	</div>
+	{{if $statusCheckData.ScopedWorkflowProblem}}
+	<div class="item" id="required-scoped-workflow-readiness">
+		<div class="tw-min-w-0">
+			<strong>{{$statusCheckData.ScopedWorkflowProblem}}</strong>
+			{{if $statusCheckData.ScopedWorkflowSettings}}
+			<ul class="tw-mb-0 tw-pl-5">
+				{{range $source := $statusCheckData.ScopedWorkflowSettings}}
+				<li><a href="{{$source.URL}}">{{ctx.Locale.Tr "repo.pulls.required_scoped_workflow.settings" $source.Name}}</a></li>
+				{{end}}
+			</ul>
+			{{else}}
+			<p class="tw-m-0">{{ctx.Locale.Tr "repo.pulls.required_scoped_workflow.contact"}}</p>
+			{{end}}
+		</div>
+	</div>
+	{{end}}
 
 	{{if $statusCheckData.RequireApprovalRunCount}}
 	<div class="item flex-left-right" id="approve-status-checks">

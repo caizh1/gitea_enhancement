@@ -40,11 +40,7 @@ func groupArchiveTree(ctx context.Context, actorID, id int64) (*GroupState, []*g
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	owner := actor.IsAdmin
-	for _, grant := range group.Grants {
-		owner = owner || grant.Role == governance_model.Owner
-	}
-	if !owner {
+	if !actor.IsAdmin && !governance_model.HasOwnerGrant(group.Grants) {
 		return nil, nil, nil, governance_model.ErrNotFound
 	}
 	namespaces, repositories, err := groupResourceTree(ctx, group.Namespace)
@@ -99,7 +95,7 @@ func PreviewGroupArchive(ctx context.Context, actorID, id int64) (*GroupArchiveI
 	return impact, err
 }
 
-// SetGroupArchiveState 按 GitLab 19.3.2 统一归档或恢复后代；不保留后代原有独立归档标记。
+// SetGroupArchiveState 统一归档或恢复后代；不保留后代原有独立归档标记。
 func SetGroupArchiveState(ctx context.Context, actor governance_model.Actor, id int64, option GroupArchiveOption) (*GroupState, error) {
 	ctx = governance_model.WithAuditActor(ctx, actor)
 	err := withActorWrite(ctx, actor, nil, func(ctx context.Context) error {
@@ -165,7 +161,7 @@ func SetGroupArchiveState(ctx context.Context, actor governance_model.Actor, id 
 			if !option.Archived {
 				kind = "group.unarchived"
 			}
-			return groupAudit(ctx, actor, group.Namespace, kind, map[string]any{"archived": option.Archived, "groups": len(namespaces), "repositories": len(repositories), "previously_archived_repositories": previouslyArchived, "descendant_archive_policy": "gitlab_19_3_2"})
+			return groupAudit(ctx, actor, group.Namespace, kind, map[string]any{"archived": option.Archived, "groups": len(namespaces), "repositories": len(repositories), "previously_archived_repositories": previouslyArchived, "descendant_archive_policy": "restore_descendants"})
 		})
 	})
 	if err != nil {

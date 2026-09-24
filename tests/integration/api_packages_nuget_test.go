@@ -325,7 +325,7 @@ func TestPackageNuGet(t *testing.T) {
 			MakeRequest(t, req, http.StatusConflict)
 
 			// delete the package
-			assert.NoError(t, packageService.DeletePackageVersionAndReferences(t.Context(), pvs[0]))
+			assert.NoError(t, packageService.DeletePackageVersionAndReferencesForCleanup(t.Context(), pvs[0]))
 
 			// create failure with token without write access
 			req = NewRequestWithBody(t, "PUT", url, bytes.NewReader(content)).

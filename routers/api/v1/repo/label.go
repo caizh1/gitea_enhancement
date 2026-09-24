@@ -49,20 +49,14 @@ func ListLabels(ctx *context.APIContext) {
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	labels, err := issues_model.GetLabelsByRepoID(ctx, ctx.Repo.Repository.ID, ctx.FormString("sort"), utils.GetListOptions(ctx))
-	if err != nil {
-		ctx.APIErrorInternal(err)
-		return
-	}
-
-	count, err := issues_model.CountLabelsByRepoID(ctx, ctx.Repo.Repository.ID)
+	labels, count, err := issues_model.GetLabelsByRepoAndAncestors(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), ctx.FormString("sort"), utils.GetListOptions(ctx))
 	if err != nil {
 		ctx.APIErrorInternal(err)
 		return
 	}
 
 	ctx.SetTotalCountHeader(count)
-	ctx.JSON(http.StatusOK, convert.ToLabelList(labels, ctx.Repo.Repository, nil))
+	ctx.JSON(http.StatusOK, convert.ToLabelList(labels, ctx.Repo.Repository, ctx.Repo.Owner))
 }
 
 // GetLabel get label by repository and label id
@@ -103,14 +97,14 @@ func GetLabel(ctx *context.APIContext) {
 	if intID, err2 := strconv.ParseInt(strID, 10, 64); err2 != nil {
 		l, err = issues_model.GetLabelInRepoByName(ctx, ctx.Repo.Repository.ID, strID)
 	} else {
-		l, err = issues_model.GetLabelInRepoByID(ctx, ctx.Repo.Repository.ID, intID)
+		l, err = issues_model.GetLabelInRepoOrOrgByID(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), intID)
 	}
 	if err != nil {
 		ctx.APIErrorAuto(err)
 		return
 	}
 
-	ctx.JSON(http.StatusOK, convert.ToLabel(l, ctx.Repo.Repository, nil))
+	ctx.JSON(http.StatusOK, convert.ToLabel(l, ctx.Repo.Repository, ctx.Repo.Owner))
 }
 
 // CreateLabel create a label for a repository

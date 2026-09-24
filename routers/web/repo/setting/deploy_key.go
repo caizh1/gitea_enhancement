@@ -4,16 +4,19 @@
 package setting
 
 import (
+	"errors"
 	"net/http"
 
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
+	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	asymkey_service "gitea.dev/services/asymkey"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 )
 
 // DeployKeys render the deploy keys list of a repository page
@@ -70,10 +73,13 @@ func DeployKeysPost(ctx *context.Context) {
 		return
 	}
 
-	key, err := asymkey_service.AddDeployKey(ctx, ctx.Repo.Repository.ID, form.Title, content, !form.IsWritable)
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	key, err := asymkey_service.AddDeployKeyForActor(ctx, actor, ctx.Repo.Repository.ID, form.Title, content, !form.IsWritable)
 	if err != nil {
 		ctx.Data["HasError"] = true
 		switch {
+		case errors.Is(err, util.ErrPermissionDenied):
+			ctx.HTTPError(http.StatusForbidden)
 		case asymkey_model.IsErrDeployKeyAlreadyExist(err):
 			ctx.Data["Err_Content"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("repo.settings.key_been_used"), tplDeployKeys, &form)
@@ -99,7 +105,12 @@ func DeployKeysPost(ctx *context.Context) {
 
 // DeleteDeployKey response for deleting a deploy key
 func DeleteDeployKey(ctx *context.Context) {
-	if err := asymkey_service.DeleteDeployKey(ctx, ctx.Repo.Repository, ctx.FormInt64("id")); err != nil {
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	if err := asymkey_service.DeleteDeployKeyForActor(ctx, actor, ctx.Repo.Repository.ID, ctx.FormInt64("id")); err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
 		ctx.Flash.Error("DeleteDeployKey: " + err.Error())
 	} else {
 		ctx.Flash.Success(ctx.Tr("repo.settings.deploy_key_deletion_success"))

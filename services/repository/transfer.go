@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
+	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/db"
 	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
@@ -128,14 +129,21 @@ func AcceptTransferOwnership(ctx context.Context, repo *repo_model.Repository, d
 }
 
 // isRepositoryModelOrDirExist returns true if the repository with given name under user has already existed.
-func isRepositoryModelOrDirExist(ctx context.Context, u *user_model.User, repoName string) (bool, error) {
+func isRepositoryModelOrDirExist(ctx context.Context, u *user_model.User, repoName string, current *repo_model.Repository) (bool, error) {
 	has, err := repo_model.IsRepositoryModelExist(ctx, u, repoName)
 	if err != nil {
 		return false, err
 	}
+	if has {
+		return true, nil
+	}
+	// 群组转移和改名保留物理目录，返回自己的目录不构成名称占用。
+	if current.RelativePath() == repo_model.RelativePath(u.Name, repoName) {
+		return false, nil
+	}
 	repo := repo_model.StorageRepo(repo_model.RelativePath(u.Name, repoName))
 	isExist, err := gitrepo.IsRepositoryExist(ctx, repo)
-	return has || isExist, err
+	return isExist, err
 }
 
 // transferOwnership transfers all corresponding repository items from old user to new one.
@@ -204,9 +212,17 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 
 	sess := db.GetEngine(ctx)
 	newOwnerName := newOwner.Name
+	if repo.Owner.IsOrganization() {
+		if err := rejectTransferWithLostLabels(ctx, repo.ID, newOwner.ID); err != nil {
+			return err
+		}
+	}
+	if err := prepareActionsForTransfer(ctx, repo.ID); err != nil {
+		return err
+	}
 
 	// Check if new owner has repository with same name.
-	if has, err := isRepositoryModelOrDirExist(ctx, newOwner, repo.Name); err != nil {
+	if has, err := isRepositoryModelOrDirExist(ctx, newOwner, repo.Name, repo); err != nil {
 		return fmt.Errorf("IsRepositoryExist: %w", err)
 	} else if has {
 		return repo_model.ErrRepoAlreadyExist{
@@ -216,7 +232,7 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 	}
 
 	oldOwner := repo.Owner
-	newPath, err := governance_model.ChangeNativeRepositoryPath(ctx, repo.ID, newOwner.ID, repo.Name)
+	ownerPath, err := governance_model.ChangeNativeRepositoryPath(ctx, repo.ID, newOwner.ID, repo.Name)
 	if err != nil {
 		return err
 	}
@@ -226,7 +242,7 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 	repo.OwnerID = newOwner.ID
 	repo.Owner = newOwner
 	repo.OwnerName = newOwner.Name
-	repo.OwnerNamespace = strings.TrimSuffix(newPath, "/"+repo.Name)
+	repo.OwnerNamespace = ownerPath
 	if newOwner.IsOrganization() {
 		if namespace, loadErr := governance_model.GetNamespace(ctx, newOwner.ID); loadErr == nil && namespace.Visibility > repo.EffectiveVisibility() {
 			repo.Visibility = namespace.Visibility
@@ -244,7 +260,7 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 	if err := repo_model.UpdateRepositoryColsNoAutoTime(ctx, repo, "owner_id", "owner_name", "owner_namespace", "governance_storage_owner", "governance_storage_name", "visibility", "is_private"); err != nil {
 		return fmt.Errorf("update owner: %w", err)
 	}
-	if err := governance_service.RemapTransferredRepositoryCustomRoles(ctx, repositoryRequestActor(ctx, doer), repo.ID, oldOwner.ID, newOwner.ID, newPath); err != nil {
+	if err := governance_service.RemapTransferredRepositoryCustomRoles(ctx, repositoryRequestActor(ctx, doer), repo.ID, oldOwner.ID, newOwner.ID, repo.FullPath()); err != nil {
 		return fmt.Errorf("remap repository governance roles: %w", err)
 	}
 
@@ -347,31 +363,6 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 		if err := repo_model.WatchRepo(ctx, oldOwner, repo, false); err != nil {
 			return fmt.Errorf("watchRepo [false]: %w", err)
 		}
-
-		// Delete labels that belong to the old organization and comments that added these labels
-		if _, err := sess.Exec(`DELETE FROM issue_label WHERE issue_label.id IN (
-			SELECT il_too.id FROM (
-				SELECT il_too_too.id
-					FROM issue_label AS il_too_too
-						INNER JOIN label ON il_too_too.label_id = label.id
-						INNER JOIN issue on issue.id = il_too_too.issue_id
-					WHERE
-						issue.repo_id = ? AND ((label.org_id = 0 AND issue.repo_id != label.repo_id) OR (label.repo_id = 0 AND label.org_id != ?))
-		) AS il_too )`, repo.ID, newOwner.ID); err != nil {
-			return fmt.Errorf("Unable to remove old org labels: %w", err)
-		}
-
-		if _, err := sess.Exec(`DELETE FROM comment WHERE comment.id IN (
-			SELECT il_too.id FROM (
-				SELECT com.id
-					FROM comment AS com
-						INNER JOIN label ON com.label_id = label.id
-						INNER JOIN issue ON issue.id = com.issue_id
-					WHERE
-						com.type = ? AND issue.repo_id = ? AND ((label.org_id = 0 AND issue.repo_id != label.repo_id) OR (label.repo_id = 0 AND label.org_id != ?))
-		) AS il_too)`, issues_model.CommentTypeLabel, repo.ID, newOwner.ID); err != nil {
-			return fmt.Errorf("Unable to remove old org label comments: %w", err)
-		}
 	}
 
 	if err := repo_model.DeleteRepositoryTransfer(ctx, repo.ID); err != nil {
@@ -408,6 +399,79 @@ func transferOwnershipLocked(ctx context.Context, doer, newOwner *user_model.Use
 	return committer.Commit()
 }
 
+// 组织标签不随仓库转移，拒绝原删除路径会丢失的关联或历史。
+func rejectTransferWithLostLabels(ctx context.Context, repoID, targetOwnerID int64) error {
+	owners := []int64{targetOwnerID}
+	chain, err := governance_model.Ancestors(ctx, targetOwnerID)
+	if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+		return err
+	}
+	for _, source := range chain {
+		if source.Kind == "group" && source.ID != targetOwnerID {
+			owners = append(owners, source.ID)
+		}
+	}
+	lost, err := issues_model.RepositoryHasLabelsOutsideOwners(ctx, repoID, owners)
+	if err != nil {
+		return err
+	}
+	if lost {
+		return fmt.Errorf("%w：当前标签关联或操作历史在变更归属后无法保留；为避免数据丢失，此转移组合暂不支持，请保持当前归属", governance_model.ErrConflict)
+	}
+	return nil
+}
+
+func prepareActionsForTransfer(ctx context.Context, repoID int64) error {
+	e := db.GetEngine(ctx)
+	for _, blocked := range []struct {
+		bean   any
+		where  string
+		args   []any
+		remedy string
+	}{
+		{new(actions_model.ActionTask), "repo_id = ? AND status IN (?, ?)", []any{repoID, actions_model.StatusRunning, actions_model.StatusCancelling}, "请先等待或取消正在执行的 Actions 任务"},
+		{new(actions_model.ActionRunner), "repo_id = ?", []any{repoID}, "请先删除仓库专属 Runner 并在转移后重新注册"},
+		{new(asymkey_model.DeployKey), "repo_id = ?", []any{repoID}, "请先移除仓库部署密钥并在转移后重新配置"},
+	} {
+		has, err := e.Where(blocked.where, blocked.args...).Exist(blocked.bean)
+		if err != nil {
+			return err
+		}
+		if has {
+			return fmt.Errorf("%w：%s", governance_model.ErrConflict, blocked.remedy)
+		}
+	}
+	if _, err := e.Where("repo_id = ?", repoID).Delete(new(actions_model.ActionScheduleSpec)); err != nil {
+		return err
+	}
+	if _, err := e.Where("repo_id = ?", repoID).Delete(new(actions_model.ActionSchedule)); err != nil {
+		return err
+	}
+	if _, err := e.Where("repo_id = ?", repoID).NoVersionCheck().Cols("scope_invalidated").Update(&actions_model.ActionRun{ScopeInvalidated: true}); err != nil {
+		return err
+	}
+	if _, err := e.ID(repoID).Incr("actions_scope_revision").Update(new(repo_model.Repository)); err != nil {
+		return err
+	}
+	deactivated, err := e.Where("repo_id = ? AND is_active = ?", repoID, true).Cols("is_active").Update(&actions_model.ActionRunnerToken{IsActive: false})
+	if err != nil {
+		return err
+	}
+	if deactivated > 0 {
+		if err := actions_model.AppendConfigurationAudit(ctx, 0, repoID, "actions.runner_token_deactivated_on_transfer", "actions_runner_token", 0, "registration", map[string]any{"deactivated": deactivated}); err != nil {
+			return err
+		}
+	}
+	var jobs []*actions_model.ActionRunJob
+	if err := e.Where("repo_id = ? AND status IN (?, ?)", repoID, actions_model.StatusWaiting, actions_model.StatusBlocked).Find(&jobs); err != nil {
+		return err
+	}
+	if _, err := actions_model.CancelJobs(ctx, jobs); err != nil {
+		return fmt.Errorf("取消转移前排队的 Actions 任务：%w", err)
+	}
+	return nil
+}
+
 // changeRepositoryName changes all corresponding setting from old repository name to new one.
 func changeRepositoryName(ctx context.Context, repo *repo_model.Repository, newRepoName string) (err error) {
 	oldRepoName := repo.Name
@@ -420,7 +484,7 @@ func changeRepositoryName(ctx context.Context, repo *repo_model.Repository, newR
 		return err
 	}
 
-	has, err := isRepositoryModelOrDirExist(ctx, repo.Owner, newRepoName)
+	has, err := isRepositoryModelOrDirExist(ctx, repo.Owner, newRepoName, repo)
 	if err != nil {
 		return fmt.Errorf("IsRepositoryExist: %w", err)
 	} else if has {
@@ -558,7 +622,7 @@ func startRepositoryTransfer(ctx context.Context, doer, newOwner *user_model.Use
 				return err
 			}
 			if impact != nil {
-				if err := impact.Validate(ctx, freshRepo, freshOwner); err != nil {
+				if err := impact.Validate(ctx, freshDoer.ID, freshRepo, freshOwner); err != nil {
 					return err
 				}
 			}

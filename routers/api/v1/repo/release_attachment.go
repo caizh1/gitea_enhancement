@@ -247,7 +247,7 @@ func CreateReleaseAttachment(ctx *context.APIContext) {
 		UploaderID: ctx.Doer.ID,
 		RepoID:     ctx.Repo.Repository.ID,
 		ReleaseID:  releaseID,
-	})
+	}, ctx.Doer)
 	if err != nil {
 		if upload.IsErrFileTypeForbidden(err) {
 			ctx.APIError(http.StatusBadRequest, err.Error())
@@ -259,7 +259,7 @@ func CreateReleaseAttachment(ctx *context.APIContext) {
 			return
 		}
 
-		ctx.APIErrorInternal(err)
+		releaseMutationError(ctx, err)
 		return
 	}
 
@@ -338,12 +338,12 @@ func EditReleaseAttachment(ctx *context.APIContext) {
 		attach.Name = form.Name
 	}
 
-	if err := attachment_service.UpdateAttachment(ctx, setting.Repository.Release.AllowedTypes, attach); err != nil {
+	if err := attachment_service.UpdateReleaseAttachment(ctx, ctx.Doer, ctx.Repo.Repository.ID, setting.Repository.Release.AllowedTypes, attach); err != nil {
 		if upload.IsErrFileTypeForbidden(err) {
 			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		ctx.APIErrorInternal(err)
+		releaseMutationError(ctx, err)
 		return
 	}
 	ctx.JSON(http.StatusCreated, convert.ToAPIAttachment(ctx.Repo.Repository, attach))
@@ -407,8 +407,8 @@ func DeleteReleaseAttachment(ctx *context.APIContext) {
 		return
 	}
 
-	if err := repo_model.DeleteAttachment(ctx, attach, true); err != nil {
-		ctx.APIErrorInternal(err)
+	if err := attachment_service.DeleteReleaseAttachment(ctx, ctx.Doer, ctx.Repo.Repository.ID, attach); err != nil {
+		releaseMutationError(ctx, err)
 		return
 	}
 	ctx.Status(http.StatusNoContent)

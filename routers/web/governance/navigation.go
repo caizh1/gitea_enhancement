@@ -54,6 +54,8 @@ func prepareNavigation(ctx *context.Context, groupID int64) bool {
 	}
 	ctx.Data["CanManageApprovals"] = slices.Contains(navigation.AllowedActions, "manage_approvals")
 	ctx.Data["CanReadAudit"] = slices.Contains(navigation.AllowedActions, "read_audit")
+	ctx.Data["CanManageGroup"] = slices.Contains(navigation.AllowedActions, "manage_group")
+	ctx.Data["IsPackageEnabled"] = setting.Packages.Enabled
 	return true
 }
 
@@ -62,6 +64,50 @@ func NavigationHome(ctx *context.Context, groupID int64) {
 		return
 	}
 	ctx.Data["GroupTab"] = "overview"
+	if ctx.FormString("tab") == "shared_projects" {
+		if ctx.Data["Navigation"].(*governance_service.GroupNavigation).RestrictedNavigation {
+			ctx.NotFound(nil)
+			return
+		}
+		actorID := int64(0)
+		if ctx.Doer != nil {
+			actorID = ctx.Doer.ID
+		}
+		state, err := governance_service.ListGroupSharedRepositories(ctx, actorID, groupID, max(1, ctx.FormInt("page")), min(max(1, setting.UI.ExplorePagingNum), 100))
+		if err != nil {
+			respondError(ctx, err)
+			return
+		}
+		ctx.Data["GroupTab"], ctx.Data["SharedProjects"] = "shared_projects", state
+		pager := context.NewPagination(state.Count, state.PageSize, state.Page, 5)
+		pager.AddParamFromRequest(ctx.Req)
+		ctx.Data["Page"] = pager
+		ctx.HTML(http.StatusOK, "governance/navigation")
+		return
+	}
+	if tab := ctx.FormString("tab"); tab == "issues" || tab == "pulls" {
+		if ctx.Data["Navigation"].(*governance_service.GroupNavigation).RestrictedNavigation {
+			ctx.NotFound(nil)
+			return
+		}
+		actorID := int64(0)
+		if ctx.Doer != nil {
+			actorID = ctx.Doer.ID
+		}
+		state, err := governance_service.ListGroupIssues(ctx, actorID, groupID, tab == "pulls", governance_service.GroupWorkQuery{
+			Scope: ctx.FormString("scope"), RepoID: ctx.FormInt64("repo"), Filter: ctx.FormString("filter"), State: ctx.FormString("state"), Page: ctx.FormInt("page"), PageSize: setting.UI.IssuePagingNum,
+		})
+		if err != nil {
+			respondError(ctx, err)
+			return
+		}
+		ctx.Data["GroupTab"], ctx.Data["Work"] = tab, state
+		pager := context.NewPagination(state.Count, state.Query.PageSize, state.Query.Page, 5)
+		pager.AddParamFromRequest(ctx.Req)
+		ctx.Data["Page"] = pager
+		ctx.HTML(http.StatusOK, "governance/group_issues")
+		return
+	}
 	if ctx.FormString("tab") == "activity" {
 		if ctx.Data["Navigation"].(*governance_service.GroupNavigation).RestrictedNavigation {
 			ctx.NotFound(nil)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -454,7 +455,7 @@ func CreatePullRequest(ctx *context.APIContext) {
 	}
 
 	if len(form.Labels) > 0 {
-		labels, err := issues_model.GetLabelsInRepoByIDs(ctx, ctx.Repo.Repository.ID, form.Labels)
+		labels, err := issues_model.GetLabelsInRepoOrAncestorsByIDs(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), form.Labels)
 		if err != nil {
 			ctx.APIErrorInternal(err)
 			return
@@ -465,18 +466,9 @@ func CreatePullRequest(ctx *context.APIContext) {
 			labelIDs = append(labelIDs, label.ID)
 		}
 
-		if ctx.Repo.Owner.IsOrganization() {
-			orgLabels, err := issues_model.GetLabelsInOrgByIDs(ctx, ctx.Repo.Owner.ID, form.Labels)
-			if err != nil {
-				ctx.APIErrorInternal(err)
-				return
-			}
-
-			orgLabelIDs := make([]int64, 0, len(orgLabels))
-			for _, orgLabel := range orgLabels {
-				orgLabelIDs = append(orgLabelIDs, orgLabel.ID)
-			}
-			labelIDs = append(labelIDs, orgLabelIDs...)
+		if slices.ContainsFunc(form.Labels, func(id int64) bool { return !slices.Contains(labelIDs, id) }) {
+			ctx.APIErrorNotFound()
+			return
 		}
 	}
 
@@ -576,6 +568,8 @@ func CreatePullRequest(ctx *context.APIContext) {
 			ctx.APIError(http.StatusForbidden, err.Error())
 		} else if errors.Is(err, issues_model.ErrMustCollaborator) {
 			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, util.ErrNotExist) {
+			ctx.APIErrorNotFound()
 		} else {
 			ctx.APIErrorInternal(err)
 		}
@@ -746,24 +740,21 @@ func EditPullRequest(ctx *context.APIContext) {
 	}
 
 	if ctx.Repo.Permission.CanWrite(unit.TypePullRequests) && form.Labels != nil {
-		labels, err := issues_model.GetLabelsInRepoByIDs(ctx, ctx.Repo.Repository.ID, form.Labels)
+		labels, err := issues_model.GetLabelsInRepoOrAncestorsByIDs(ctx, ctx.Repo.Repository.ID, ctx.Repo.Owner.ID, ctx.Repo.Owner.IsOrganization(), form.Labels)
 		if err != nil {
 			ctx.APIErrorInternal(err)
 			return
 		}
 
-		if ctx.Repo.Owner.IsOrganization() {
-			orgLabels, err := issues_model.GetLabelsInOrgByIDs(ctx, ctx.Repo.Owner.ID, form.Labels)
-			if err != nil {
-				ctx.APIErrorInternal(err)
-				return
-			}
-
-			labels = append(labels, orgLabels...)
+		if slices.ContainsFunc(form.Labels, func(id int64) bool {
+			return !slices.ContainsFunc(labels, func(label *issues_model.Label) bool { return label.ID == id })
+		}) {
+			ctx.APIErrorNotFound()
+			return
 		}
 
 		if err = issues_model.ReplaceIssueLabels(ctx, issue, labels, ctx.Doer); err != nil {
-			ctx.APIErrorInternal(err)
+			ctx.APIErrorAuto(err)
 			return
 		}
 	}

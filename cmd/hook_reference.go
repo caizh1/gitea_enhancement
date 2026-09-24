@@ -94,6 +94,7 @@ func runHookReferenceTransaction(ctx context.Context, c *cli.Command) error {
 		return errors.New("引用事务缺少稳定项目 ID")
 	}
 	options := private.HookOptions{RepositoryID: repoID, UserID: userID, IsInternal: internal, IsWiki: isWiki, PullRequestID: prID, ReferenceState: state, ReferenceWriterID: os.Getenv("GITEA_REFERENCE_WRITER_ID"), ReferenceActor: referenceActor, PushTrigger: repo_module.PushTrigger(os.Getenv(repo_module.EnvPushTrigger))}
+	options.ActionsTaskID, _ = strconv.ParseInt(os.Getenv(repo_module.EnvActionsTaskID), 10, 64)
 	options.ReferenceOperationID = os.Getenv(repo_module.EnvReferenceOperationID)
 	options.ReferenceOperation = os.Getenv(repo_module.EnvReferenceOperation)
 	options.ReferenceOldBranch = os.Getenv(repo_module.EnvReferenceOldBranch)

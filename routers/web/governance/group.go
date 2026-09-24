@@ -50,6 +50,14 @@ func Groups(ctx *context.Context) {
 			return
 		}
 		ctx.Data["Group"] = group
+		if group.ParentID == 0 && tab == "settings" {
+			rules, _, err := governance_service.ListGroupBranchProtections(ctx, ctx.Doer.ID, id)
+			if err != nil {
+				respondError(ctx, err)
+				return
+			}
+			ctx.Data["GroupBranchProtections"] = rules
+		}
 		if !prepareNavigation(ctx, id) {
 			return
 		}
@@ -187,11 +195,15 @@ func resolveGroupPath(ctx *context.Context, path string) (int64, error) {
 }
 
 func SaveGroup(ctx *context.Context) {
-	option := governance_service.GroupOption{Name: ctx.FormString("name"), Path: ctx.FormString("path"), ParentID: ctx.FormInt64("parent_id"), Visibility: ctx.FormInt("visibility"), Revision: ctx.FormInt64("revision")}
+	option := governance_service.GroupOption{Name: ctx.FormString("name"), Path: ctx.FormString("path"), ParentID: ctx.FormInt64("parent_id"), Visibility: ctx.FormInt("visibility"), Revision: ctx.FormInt64("revision"), ImpactFingerprint: ctx.FormString("impact_fingerprint")}
 	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
 	var group *governance_service.GroupState
 	var err error
 	if ctx.FormString("action") == "move" {
+		if option.ImpactFingerprint == "" {
+			ctx.HTTPError(http.StatusConflict, "缺少移动影响预览，请重新预览后确认")
+			return
+		}
 		group, err = governance_service.MoveGroup(ctx, actor, ctx.PathParamInt64("id"), option)
 	} else {
 		group, err = governance_service.CreateGroup(ctx, actor, option)
@@ -248,6 +260,27 @@ func SaveGroupMember(ctx *context.Context) {
 	issue_service.SyncScopeGovernanceReviewRequests(ctx, "group", id, ctx.Doer)
 	ctx.Flash.Success("当前群组的直接授权已更新；其他来源继续按实际权限生效")
 	ctx.Redirect(setting.AppSubURL + "/governance/groups/" + strconv.FormatInt(id, 10) + "?tab=members")
+}
+
+func LeaveGroup(ctx *context.Context) {
+	id := ctx.PathParamInt64("id")
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	if err := governance_service.LeaveGroup(ctx, actor, id); err != nil {
+		respondError(ctx, err)
+		return
+	}
+	issue_service.SyncScopeGovernanceReviewRequests(ctx, "group", id, ctx.Doer)
+	_, err := governance_service.CheckGroupAccess(ctx, ctx.Doer.ID, id, governance_model.ReadGroup)
+	if err != nil && !errors.Is(err, governance_model.ErrNotFound) {
+		respondError(ctx, err)
+		return
+	}
+	ctx.Flash.Success("已退出本群组的直接授权；其他授权来源仍按各自范围生效")
+	if err == nil {
+		ctx.Redirect(setting.AppSubURL + "/governance/groups/" + strconv.FormatInt(id, 10) + "?tab=members")
+	} else {
+		ctx.Redirect(setting.AppSubURL + "/governance/groups")
+	}
 }
 
 func SaveGroupShare(ctx *context.Context) {

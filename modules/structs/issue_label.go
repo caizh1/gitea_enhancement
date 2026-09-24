@@ -21,6 +21,10 @@ type Label struct {
 	Description string `json:"description"`
 	// URL is the API endpoint for accessing this label
 	URL string `json:"url"`
+	// SourceType identifies the repository or organization owning this label.
+	SourceType string `json:"source_type,omitempty"`
+	// SourceID is the owner's stable ID; equally named labels remain distinct.
+	SourceID int64 `json:"source_id,omitempty"`
 }
 
 // CreateLabelOption options for creating a label

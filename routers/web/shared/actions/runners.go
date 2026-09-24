@@ -12,14 +12,17 @@ import (
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	shared_user "gitea.dev/routers/web/shared/user"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	governance_service "gitea.dev/services/governance"
 )
 
 const (
@@ -122,9 +125,15 @@ func Runners(ctx *context.Context) {
 	if rCtx.IsRepo {
 		opts.RepoID = rCtx.RepoID
 		opts.WithAvailable = true
+		opts.AvailableOwnerIDs, err = actions_model.AvailableRunnerOwnerIDs(ctx, ctx.Repo.Repository.OwnerID)
 	} else if rCtx.IsOrg || rCtx.IsUser {
 		opts.OwnerID = rCtx.OwnerID
 		opts.WithAvailable = true
+		opts.AvailableOwnerIDs, err = actions_model.AvailableRunnerOwnerIDs(ctx, rCtx.OwnerID)
+	}
+	if err != nil {
+		ctx.ServerError("AvailableRunnerOwnerIDs", err)
+		return
 	}
 
 	runners, count, err := db.FindAndCount[actions_model.ActionRunner](ctx, opts)
@@ -137,23 +146,50 @@ func Runners(ctx *context.Context) {
 		ctx.ServerError("LoadAttributes", err)
 		return
 	}
+	runnerSources := make(map[int64]string, len(runners))
+	runnerSourceVisible := make(map[int64]bool, len(runners))
+	for _, runner := range runners {
+		source, visible := runner.BelongsToOwnerName(), true
+		if runner.OwnerID != 0 {
+			namespace, err := governance_model.GetNamespace(ctx, runner.OwnerID)
+			if errors.Is(err, governance_model.ErrNotFound) {
+				visible = runner.OwnerID == rCtx.OwnerID
+			} else if err != nil {
+				ctx.ServerError("GetNamespace", err)
+				return
+			} else {
+				source, visible, err = visibleNamespaceSource(ctx, ctx.Doer.ID, ctx.Doer.IsAdmin, namespace)
+				if err != nil {
+					ctx.ServerError("CheckGroupAccess", err)
+					return
+				}
+			}
+		}
+		if !visible {
+			source = string(ctx.Tr("actions.inheritance.restricted"))
+		}
+		if source == "" && runner.OwnerID == 0 && runner.RepoID == 0 {
+			source = string(ctx.Tr("actions.inheritance.instance"))
+		}
+		runnerSources[runner.ID], runnerSourceVisible[runner.ID] = source, visible
+	}
 
 	// ownid=0,repo_id=0,means this token is used for global
-	var token *actions_model.ActionRunnerToken
-	token, err = actions_model.GetLatestRunnerToken(ctx, opts.OwnerID, opts.RepoID)
-	if errors.Is(err, util.ErrNotExist) || (token != nil && !token.IsActive) {
-		token, err = actions_model.NewRunnerToken(ctx, opts.OwnerID, opts.RepoID)
-		if err != nil {
-			ctx.ServerError("CreateRunnerToken", err)
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	token, err := actions_service.GetRunnerRegistrationToken(ctx, actor, opts.OwnerID, opts.RepoID, false)
+	if err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
 			return
 		}
-	} else if err != nil {
-		ctx.ServerError("GetLatestRunnerToken", err)
+		ctx.ServerError("GetRunnerRegistrationToken", err)
 		return
 	}
 
 	ctx.Data["Keyword"] = opts.Filter
 	ctx.Data["Runners"] = runners
+	ctx.Data["RunnerSources"] = runnerSources
+	ctx.Data["RunnerSourceVisible"] = runnerSourceVisible
 	ctx.Data["Total"] = count
 	ctx.Data["RegistrationToken"] = token.Token
 	ctx.Data["RunnerOwnerID"] = opts.OwnerID
@@ -280,7 +316,12 @@ func ResetRunnerRegistrationToken(ctx *context.Context) {
 	repoID := rCtx.RepoID
 	redirectTo := rCtx.RedirectLink
 
-	if _, err := actions_model.NewRunnerToken(ctx, ownerID, repoID); err != nil {
+	actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+	if _, err := actions_service.GetRunnerRegistrationToken(ctx, actor, ownerID, repoID, true); err != nil {
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		}
 		ctx.ServerError("ResetRunnerRegistrationToken", err)
 		return
 	}

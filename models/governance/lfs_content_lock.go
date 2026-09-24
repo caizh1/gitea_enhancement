@@ -7,6 +7,7 @@ package governance
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -23,10 +24,14 @@ type LFSContentLock struct {
 func (*LFSContentLock) TableName() string { return "governance_lfs_content_lock" }
 
 func WithLFSContentLocks(ctx context.Context, oids []string, apply func(context.Context) error) error {
-	return withContentLocks(ctx, oids, new(LFSContentLock), apply)
+	return withContentLocks(ctx, oids, new(LFSContentLock), true, apply)
 }
 
-func withContentLocks(ctx context.Context, oids []string, bean any, apply func(context.Context) error) error {
+func WithLFSContentLocksWithoutRevision(ctx context.Context, oids []string, apply func(context.Context) error) error {
+	return withContentLocks(ctx, oids, new(LFSContentLock), false, apply)
+}
+
+func withContentLocks(ctx context.Context, oids []string, bean any, increment bool, apply func(context.Context) error) error {
 	oids = slices.Clone(oids)
 	slices.Sort(oids)
 	oids = slices.Compact(oids)
@@ -38,12 +43,17 @@ func withContentLocks(ctx context.Context, oids []string, bean any, apply func(c
 			if _, err := hex.DecodeString(oid); err != nil {
 				return ErrInvalid
 			}
-			query := "INSERT INTO governance_lfs_content_lock (oid, revision) VALUES (?,1) ON CONFLICT (oid) DO UPDATE SET revision = governance_lfs_content_lock.revision+1"
+			next := "revision+1"
+			initial := 1
+			if !increment {
+				next, initial = "revision", 0
+			}
+			query := fmt.Sprintf("INSERT INTO governance_lfs_content_lock (oid, revision) VALUES (?,%d) ON CONFLICT (oid) DO UPDATE SET revision = governance_lfs_content_lock.%s", initial, next)
 			if setting.Database.Type.IsMySQL() {
-				query = "INSERT INTO governance_lfs_content_lock (oid, revision) VALUES (?,1) ON DUPLICATE KEY UPDATE revision = revision+1"
+				query = fmt.Sprintf("INSERT INTO governance_lfs_content_lock (oid, revision) VALUES (?,%d) ON DUPLICATE KEY UPDATE revision = %s", initial, next)
 			}
 			if setting.Database.Type.IsMSSQL() {
-				query = "MERGE INTO governance_lfs_content_lock WITH (HOLDLOCK) AS target USING (SELECT ? AS oid) AS source ON target.oid = source.oid WHEN MATCHED THEN UPDATE SET revision = revision+1 WHEN NOT MATCHED THEN INSERT (oid, revision) VALUES (source.oid, 1);"
+				query = fmt.Sprintf("MERGE INTO governance_lfs_content_lock WITH (HOLDLOCK) AS target USING (SELECT ? AS oid) AS source ON target.oid = source.oid WHEN MATCHED THEN UPDATE SET revision = %s WHEN NOT MATCHED THEN INSERT (oid, revision) VALUES (source.oid, %d);", next, initial)
 			}
 			engine := db.GetEngine(ctx).Context(ctx).Engine()
 			table := engine.Quote(engine.TableName(bean, true))

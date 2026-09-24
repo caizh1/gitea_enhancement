@@ -14,6 +14,7 @@ import (
 	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/git"
@@ -27,6 +28,7 @@ import (
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context/upload"
+	governance_service "gitea.dev/services/governance"
 	notify_service "gitea.dev/services/notify"
 )
 
@@ -68,7 +70,7 @@ func (err ErrProtectedTagName) Unwrap() error {
 	return util.ErrPermissionDenied
 }
 
-func createTag(ctx context.Context, gitRepo *git.Repository, rel *repo_model.Release, msg string, recovery *releaseReferencePayload) (bool, string, error) {
+func createTag(ctx context.Context, gitRepo *git.Repository, rel *repo_model.Release, doer *user_model.User, msg string, recovery *releaseReferencePayload) (bool, string, error) {
 	err := rel.LoadAttributes(ctx)
 	if err != nil {
 		return false, "", err
@@ -128,7 +130,7 @@ func createTag(ctx context.Context, gitRepo *git.Repository, rel *repo_model.Rel
 			}
 			env := repository.FullPushingEnvironment(publisher, committer, rel.Repo, rel.Repo.Name, 0, 0)
 			if recovery != nil && !setting.IsInTesting {
-				operationID, err = planReleaseTagCreate(ctx, rel, recovery)
+				operationID, err = planReleaseTagCreate(ctx, rel, doer, recovery)
 				if err != nil {
 					return false, "", err
 				}
@@ -212,7 +214,7 @@ func CreateRelease(gitRepo *git.Repository, rel *repo_model.Release, attachmentU
 		}
 	}
 
-	_, operationID, err := createTag(gitRepo.Ctx, gitRepo, rel, msg, &releaseReferencePayload{Action: "create", Release: *rel, AttachmentUUIDs: attachmentUUIDs})
+	_, operationID, err := createTag(gitRepo.Ctx, gitRepo, rel, rel.Publisher, msg, &releaseReferencePayload{Action: "create", Release: *rel, AttachmentUUIDs: attachmentUUIDs})
 	if err != nil {
 		return err
 	}
@@ -233,6 +235,9 @@ func CreateRelease(gitRepo *git.Repository, rel *repo_model.Release, attachmentU
 	rel.LowerTagName = strings.ToLower(rel.TagName)
 	if err = governance_model.WithWrite(gitRepo.Ctx, []string{governance_model.Resource("repository", rel.RepoID)}, func(ctx context.Context) error {
 		return db.WithTx(ctx, func(ctx context.Context) error {
+			if err := governance_service.CheckRepositoryContentWrite(ctx, rel.Publisher, rel.RepoID, unit.TypeReleases); err != nil {
+				return err
+			}
 			if err := db.Insert(ctx, rel); err != nil {
 				return err
 			}
@@ -300,7 +305,7 @@ func CreateNewTag(ctx context.Context, doer *user_model.User, repo *repo_model.R
 		IsTag:        true,
 	}
 
-	_, operationID, err := createTag(ctx, gitRepo, rel, msg, &releaseReferencePayload{Action: "create", Release: *rel})
+	_, operationID, err := createTag(ctx, gitRepo, rel, doer, msg, &releaseReferencePayload{Action: "create", Release: *rel})
 	if err != nil {
 		return err
 	}
@@ -311,7 +316,12 @@ func CreateNewTag(ctx context.Context, doer *user_model.User, repo *repo_model.R
 		return reloadReleaseByTag(ctx, rel)
 	}
 
-	return db.Insert(ctx, rel)
+	return governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", repo.ID)}, func(ctx context.Context) error {
+		if err := governance_service.CheckRepositoryContentWrite(ctx, doer, repo.ID, unit.TypeCode); err != nil {
+			return err
+		}
+		return db.Insert(ctx, rel)
+	})
 }
 
 // UpdateRelease updates information, attachments of a release and will create tag if it's not a draft and tag not exist.
@@ -324,7 +334,7 @@ func UpdateRelease(ctx context.Context, doer *user_model.User, gitRepo *git.Repo
 	if rel.ID == 0 {
 		return errors.New("UpdateRelease only accepts an exist release")
 	}
-	isTagCreated, operationID, err := createTag(ctx, gitRepo, rel, "", &releaseReferencePayload{Action: "update", Release: *rel, AddAttachments: addAttachmentUUIDs, DeleteAttachments: delAttachmentUUIDs, EditAttachments: editAttachments})
+	isTagCreated, operationID, err := createTag(ctx, gitRepo, rel, doer, "", &releaseReferencePayload{Action: "update", Release: *rel, AddAttachments: addAttachmentUUIDs, DeleteAttachments: delAttachmentUUIDs, EditAttachments: editAttachments})
 	if err != nil {
 		return err
 	}
@@ -346,6 +356,9 @@ func UpdateRelease(ctx context.Context, doer *user_model.User, gitRepo *git.Repo
 
 	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", rel.RepoID)}, func(ctx context.Context) error {
 		return db.WithTx(ctx, func(ctx context.Context) error {
+			if err := governance_service.CheckRepositoryContentWrite(ctx, doer, rel.RepoID, unit.TypeReleases); err != nil {
+				return err
+			}
 			oldRelease, err := repo_model.GetReleaseByID(ctx, rel.ID)
 			if err != nil {
 				return err
@@ -437,6 +450,9 @@ func UpdateRelease(ctx context.Context, doer *user_model.User, gitRepo *git.Repo
 
 // DeleteReleaseByID deletes a release and corresponding Git tag by given ID.
 func DeleteReleaseByID(ctx context.Context, repo *repo_model.Repository, rel *repo_model.Release, doer *user_model.User, delTag bool) error {
+	if delTag && !rel.IsTag {
+		return governance_model.ErrForbidden
+	}
 	operationID := ""
 	tagOld := rel.Sha1
 	if delTag {
@@ -471,7 +487,7 @@ func DeleteReleaseByID(ctx context.Context, repo *repo_model.Repository, rel *re
 				return err
 			}
 			tagOld = old
-			operationID, err = planReleaseTagDelete(ctx, repo, rel, old)
+			operationID, err = planReleaseTagDelete(ctx, repo, rel, doer, old)
 			if err != nil {
 				return err
 			}
@@ -507,14 +523,23 @@ func DeleteReleaseByID(ctx context.Context, repo *repo_model.Repository, rel *re
 				NewCommitID: objectFormat.EmptyObjectID().String(),
 			}, repository.NewPushCommits())
 		notify_service.DeleteRef(ctx, doer, repo, refName)
-
 	}
 
 	if err := governance_model.WithWrite(ctx, []string{governance_model.Resource("repository", rel.RepoID)}, func(ctx context.Context) error {
 		return db.WithTx(ctx, func(ctx context.Context) error {
+			unitType := unit.TypeReleases
+			if delTag {
+				unitType = unit.TypeCode
+			}
+			if err := governance_service.CheckRepositoryContentWrite(ctx, doer, rel.RepoID, unitType); err != nil {
+				return err
+			}
 			current, err := repo_model.GetReleaseByID(ctx, rel.ID)
 			if err != nil {
 				return err
+			}
+			if delTag && !current.IsTag {
+				return governance_model.ErrForbidden
 			}
 			current.Repo = repo
 			if err := current.LoadAttributes(ctx); err != nil {

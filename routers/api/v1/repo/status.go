@@ -12,6 +12,7 @@ import (
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	commitstatus_service "gitea.dev/services/repository/commitstatus"
@@ -200,6 +201,10 @@ func getCommitStatuses(ctx *context.APIContext, commitID string) {
 		ctx.APIErrorInternal(fmt.Errorf("GetCommitStatuses[%s, %s, %d]: %w", repo.FullName(), commitID, ctx.FormInt("page"), err))
 		return
 	}
+	if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, repo, statuses); err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
 
 	apiStatuses := make([]*api.CommitStatus, 0, len(statuses))
 	for _, status := range statuses {
@@ -261,6 +266,10 @@ func GetCombinedCommitStatusByRef(ctx *context.APIContext) {
 	statuses, err := git_model.GetLatestCommitStatus(ctx, repo.ID, refCommit.Commit.ID.String(), listOptions)
 	if err != nil {
 		ctx.APIErrorInternal(fmt.Errorf("GetLatestCommitStatus[%s, %s]: %w", repo.FullName(), refCommit.CommitID, err))
+		return
+	}
+	if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, repo, statuses); err != nil {
+		ctx.APIErrorInternal(err)
 		return
 	}
 

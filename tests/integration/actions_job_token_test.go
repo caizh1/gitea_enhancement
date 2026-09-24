@@ -60,13 +60,13 @@ func TestActionsJobTokenPermissiveAccess(t *testing.T) {
 			expectGitAccess: perm.AccessModeRead,
 		},
 
-		// repo uses its own settings, so owner settings should not affect it
+		// Repository defaults may override owner defaults, but not owner ceilings.
 		{
 			name:            "SameRepo-Permissive",
 			ownerPermMode:   repo_model.ActionsTokenPermissionModeRestricted,
 			ownerMaxPerms:   map[unit_model.Type]perm.AccessMode{unit_model.TypeCode: perm.AccessModeNone},
 			repoPermMode:    repo_model.ActionsTokenPermissionModePermissive,
-			expectGitAccess: perm.AccessModeWrite,
+			expectGitAccess: perm.AccessModeNone,
 		},
 		{
 			name:            "SameRepo-Permissive-CodeNone",
@@ -105,7 +105,7 @@ func TestActionsJobTokenPermissiveAccess(t *testing.T) {
 	}
 
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
-		task := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTask{ID: 47})
+		task := prepareAuthorizedFixtureTask(t, 47)
 
 		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: task.RepoID})
 		repoActionsUnit := repo.MustGetUnit(t.Context(), unit_model.TypeActions)
@@ -231,7 +231,7 @@ func TestActionsCrossRepoAccess(t *testing.T) {
 		enableActions(repoBID)
 
 		// 4. Create Task in Repo A, and use A's token to access B
-		taskA := createActionTask(t, repoAID, false)
+		taskA := createActionTask(t, repoAID, 2, false)
 		testCtxA := APITestContext{
 			Session:  emptyTestSession(t),
 			Token:    taskA.Token,
@@ -292,7 +292,7 @@ func TestActionsJobTokenPermissions(t *testing.T) {
 func TestActionsJobTokenPermissionsWriteIssue(t *testing.T) {
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
-	task := unittest.AssertExistsAndLoadBean(t, &actions_model.ActionTask{ID: 53})
+	task := prepareAuthorizedFixtureTask(t, 53)
 	require.Equal(t, repo.ID, task.RepoID)
 
 	require.NoError(t, db.Insert(t.Context(), &repo_model.RepoUnit{
@@ -343,23 +343,32 @@ func TestActionsJobTokenPermissionsWriteIssue(t *testing.T) {
 	MakeRequest(t, req, http.StatusNoContent)
 }
 
-func createActionTask(t *testing.T, repoID int64, isFork bool) *actions_model.ActionTask {
+func createActionTask(t *testing.T, repoID, triggerUserID int64, isFork bool) *actions_model.ActionTask {
+	t.Helper()
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repoID})
+	run := &actions_model.ActionRun{
+		RepoID: repoID, OwnerID: repo.OwnerID, TriggerUserID: triggerUserID, WorkflowID: "token-test.yml",
+		Status: actions_model.StatusWaiting, IsForkPullRequest: isFork,
+	}
+	require.NoError(t, db.Insert(t.Context(), run))
 	job := &actions_model.ActionRunJob{
+		RunID:             run.ID,
 		RepoID:            repoID,
-		Status:            actions_model.StatusRunning,
+		OwnerID:           repo.OwnerID,
+		Status:            actions_model.StatusWaiting,
 		IsForkPullRequest: isFork,
 		JobID:             "test_job",
 		Name:              "test_job",
+		WorkflowPayload:   []byte("on: push\njobs:\n  test_job:\n    runs-on: token-test\n"),
+		RunsOn:            []string{"token-test"},
 	}
 	require.NoError(t, db.Insert(t.Context(), job))
-	task := &actions_model.ActionTask{
-		JobID:             job.ID,
-		RepoID:            repoID,
-		Status:            actions_model.StatusRunning,
-		IsForkPullRequest: isFork,
-	}
-	task.GenerateAndFillToken()
-	require.NoError(t, db.Insert(t.Context(), task))
+	runner := &actions_model.ActionRunner{RepoID: repoID, Name: "token-test", AgentLabels: []string{"token-test"}}
+	runner.GenerateAndFillToken()
+	require.NoError(t, db.Insert(t.Context(), runner))
+	task, claimed, err := actions_model.CreateTaskForRunner(t.Context(), runner)
+	require.NoError(t, err)
+	require.True(t, claimed)
 	return task
 }
 

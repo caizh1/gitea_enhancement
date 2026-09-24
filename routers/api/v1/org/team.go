@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	activities_model "gitea.dev/models/activities"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -240,9 +241,13 @@ func CreateTeam(ctx *context.APIContext) {
 		attachAdminTeamUnits(team)
 	}
 
-	if err := org_service.NewTeam(ctx, team); err != nil {
+	if err := org_service.NewTeamAsOwner(ctx, ctx.Doer, team); err != nil {
 		if organization.IsErrTeamAlreadyExist(err) {
 			ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+		} else if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.APIErrorNotFound()
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
 		} else {
 			ctx.APIErrorInternal(err)
 		}
@@ -331,7 +336,19 @@ func EditTeam(ctx *context.APIContext) {
 		attachAdminTeamUnits(team)
 	}
 
-	if err := org_service.UpdateTeam(ctx, team, isAuthChanged, isIncludeAllChanged); err != nil {
+	if err := org_service.UpdateTeamAsOwner(ctx, ctx.Doer, team, isAuthChanged, isIncludeAllChanged); err != nil {
+		if errors.Is(err, org_service.ErrRenameOwnerTeam) {
+			ctx.APIError(http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.APIErrorNotFound()
+			return
+		}
+		if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
+			return
+		}
 		ctx.APIErrorInternal(err)
 		return
 	}
@@ -362,8 +379,14 @@ func DeleteTeam(ctx *context.APIContext) {
 	//   "404":
 	//     "$ref": "#/responses/notFound"
 
-	if err := org_service.DeleteTeam(ctx, ctx.Org.Team); err != nil {
-		ctx.APIErrorInternal(err)
+	if err := org_service.DeleteTeamAsOwner(ctx, ctx.Doer, ctx.Org.Team); err != nil {
+		if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.APIErrorNotFound()
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
+		} else {
+			ctx.APIErrorInternal(err)
+		}
 		return
 	}
 	ctx.Status(http.StatusNoContent)
@@ -489,9 +512,13 @@ func AddTeamMember(ctx *context.APIContext) {
 	if ctx.Written() {
 		return
 	}
-	if err := org_service.AddTeamMember(ctx, ctx.Org.Team, u); err != nil {
+	if err := org_service.AddTeamMemberAsOwner(ctx, ctx.Doer, ctx.Org.Team, u); err != nil {
 		if errors.Is(err, user_model.ErrBlockedUser) {
 			ctx.APIError(http.StatusForbidden, err.Error())
+		} else if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.APIErrorNotFound()
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
 		} else {
 			ctx.APIErrorInternal(err)
 		}
@@ -530,8 +557,14 @@ func RemoveTeamMember(ctx *context.APIContext) {
 		return
 	}
 
-	if err := org_service.RemoveTeamMember(ctx, ctx.Org.Team, u); err != nil {
-		ctx.APIErrorInternal(err)
+	if err := org_service.RemoveTeamMemberAsOwner(ctx, ctx.Doer, ctx.Org.Team, u); err != nil {
+		if errors.Is(err, governance_model.ErrNotFound) {
+			ctx.APIErrorNotFound()
+		} else if errors.Is(err, governance_model.ErrConflict) {
+			ctx.APIError(http.StatusConflict, err.Error())
+		} else {
+			ctx.APIErrorInternal(err)
+		}
 		return
 	}
 	ctx.Status(http.StatusNoContent)
@@ -741,8 +774,8 @@ func AddTeamRepository(ctx *context.APIContext) {
 		ctx.APIError(http.StatusForbidden, "Must have admin-level access to the repository")
 		return
 	}
-	if err := repo_service.TeamAddRepository(ctx, ctx.Org.Team, repo); err != nil {
-		ctx.APIErrorInternal(err)
+	if err := repo_service.ChangeTeamRepositoryAsActor(ctx, ctx.Doer, ctx.Org.Team, repo.ID, true); err != nil {
+		apiTeamRepoWriteError(ctx, err)
 		return
 	}
 	ctx.Status(http.StatusNoContent)
@@ -796,11 +829,24 @@ func RemoveTeamRepository(ctx *context.APIContext) {
 		ctx.APIError(http.StatusForbidden, "Must have admin-level access to the repository")
 		return
 	}
-	if err := repo_service.RemoveRepositoryFromTeam(ctx, ctx.Org.Team, repo.ID); err != nil {
-		ctx.APIErrorInternal(err)
+	if err := repo_service.ChangeTeamRepositoryAsActor(ctx, ctx.Doer, ctx.Org.Team, repo.ID, false); err != nil {
+		apiTeamRepoWriteError(ctx, err)
 		return
 	}
 	ctx.Status(http.StatusNoContent)
+}
+
+func apiTeamRepoWriteError(ctx *context.APIContext, err error) {
+	switch {
+	case errors.Is(err, governance_model.ErrNotFound):
+		ctx.APIErrorNotFound()
+	case errors.Is(err, governance_model.ErrForbidden):
+		ctx.APIError(http.StatusForbidden, "Team repository access was revoked")
+	case errors.Is(err, governance_model.ErrConflict):
+		ctx.APIError(http.StatusConflict, "Team repository access changed")
+	default:
+		ctx.APIErrorInternal(err)
+	}
 }
 
 // SearchTeam api for searching teams

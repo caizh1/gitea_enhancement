@@ -449,6 +449,12 @@ func prepareMigrationTasks() []*migration {
 		newMigration(368, "补齐默认分支跨存储恢复标记", governance.AddReferenceBusinessOperationHEAD),
 		newMigration(369, "保存 Release 跨存储恢复载荷", governance.AddReferenceBusinessOperationPayload),
 		newMigration(370, "统一原生分支保护审批配置与稳定关联", governance.AddUnifiedBranchApprovals),
+		newMigration(371, "标记范围变化前工作流并修订 Actions 信任范围", v1_27.AddActionsScopeSafety),
+		newMigration(372, "保存强制工作流可信配置修订", v1_27.AddTrustedScopedWorkflowRevisions),
+		newMigration(373, "保存 Webhook 事件范围与配置快照", v1_27.AddWebhookDeliverySnapshots),
+		newMigration(374, "增加 Actions 凭据的受保护分支限制", v1_27.AddProtectedActionsSecrets),
+		newMigration(375, "保存顶级群组基础分支保护规则", v1_27.AddGroupProtectedBranches),
+		newMigration(376, "保存 Webhook 重投的稳定事件标识", v1_27.AddWebhookEventID),
 	}
 	return preparedMigrations
 }

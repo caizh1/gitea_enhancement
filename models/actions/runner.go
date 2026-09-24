@@ -217,14 +217,15 @@ func init() {
 // ownerID != 0 and repoID == 0 and WithAvailable == true means any runner for the given user/org and global runners
 type FindRunnerOptions struct {
 	db.ListOptions
-	IDs           []int64
-	RepoID        int64
-	OwnerID       int64 // it will be ignored if RepoID is set
-	Sort          string
-	Filter        string
-	IsOnline      optional.Option[bool]
-	IsDisabled    optional.Option[bool]
-	WithAvailable bool // not only runners belong to, but also runners can be used
+	IDs               []int64
+	RepoID            int64
+	OwnerID           int64 // it will be ignored if RepoID is set
+	AvailableOwnerIDs []int64
+	Sort              string
+	Filter            string
+	IsOnline          optional.Option[bool]
+	IsDisabled        optional.Option[bool]
+	WithAvailable     bool // not only runners belong to, but also runners can be used
 }
 
 func (opts FindRunnerOptions) ToConds() builder.Cond {
@@ -241,13 +242,20 @@ func (opts FindRunnerOptions) ToConds() builder.Cond {
 	if opts.RepoID > 0 {
 		c := builder.NewCond().And(builder.Eq{"repo_id": opts.RepoID})
 		if opts.WithAvailable {
-			c = c.Or(builder.Eq{"owner_id": builder.Select("owner_id").From("repository").Where(builder.Eq{"id": opts.RepoID})})
+			if len(opts.AvailableOwnerIDs) > 0 {
+				c = c.Or(builder.And(builder.Eq{"repo_id": 0}, builder.In("owner_id", opts.AvailableOwnerIDs)))
+			} else {
+				c = c.Or(builder.Eq{"owner_id": builder.Select("owner_id").From("repository").Where(builder.Eq{"id": opts.RepoID})})
+			}
 			c = c.Or(builder.Eq{"repo_id": 0, "owner_id": 0})
 		}
 		cond = cond.And(c)
 	} else if opts.OwnerID > 0 { // OwnerID is ignored if RepoID is set
 		c := builder.NewCond().And(builder.Eq{"owner_id": opts.OwnerID})
 		if opts.WithAvailable {
+			if len(opts.AvailableOwnerIDs) > 0 {
+				c = builder.In("owner_id", opts.AvailableOwnerIDs)
+			}
 			c = c.Or(builder.Eq{"repo_id": 0, "owner_id": 0})
 		}
 		cond = cond.And(c)
@@ -269,6 +277,22 @@ func (opts FindRunnerOptions) ToConds() builder.Cond {
 		cond = cond.And(builder.Eq{"is_disabled": opts.IsDisabled.Value()})
 	}
 	return cond
+}
+
+// AvailableRunnerOwnerIDs follows the current namespace parent chain only.
+func AvailableRunnerOwnerIDs(ctx context.Context, ownerID int64) ([]int64, error) {
+	chain, err := governance_model.Ancestors(ctx, ownerID)
+	if errors.Is(err, governance_model.ErrNotFound) {
+		return []int64{ownerID}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(chain))
+	for _, ancestor := range chain {
+		ids = append(ids, ancestor.ID)
+	}
+	return ids, nil
 }
 
 // runnerStatusOrderExpr builds an ORDER BY fragment that ranks runners by their

@@ -158,7 +158,7 @@ func ExecuteCleanupRules(ctx context.Context) error {
 		default:
 		}
 
-		err := executeCleanupOneRule(ctx, pcr)
+		err := executeCleanupOneRule(packages_service.WithPackageCleanupContext(ctx), pcr)
 		if err != nil {
 			log.Error("CleanupRule [%d]: executeCleanupOneRule failed: %v", pcr.ID, err)
 		}

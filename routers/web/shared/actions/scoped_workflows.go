@@ -4,16 +4,24 @@
 package actions
 
 import (
+	stdcontext "context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
+	governance_model "gitea.dev/models/governance"
+	"gitea.dev/models/organization"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	actions_module "gitea.dev/modules/actions"
 	"gitea.dev/modules/actions/jobparser"
 	"gitea.dev/modules/container"
+	"gitea.dev/modules/gitrepo"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
@@ -21,6 +29,8 @@ import (
 	shared_user "gitea.dev/routers/web/shared/user"
 	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
+	repo_service "gitea.dev/services/repository"
 )
 
 const (
@@ -28,6 +38,8 @@ const (
 	tplUserScopedWorkflows  templates.TplName = "user/settings/actions"
 	tplAdminScopedWorkflows templates.TplName = "admin/actions"
 )
+
+var errScopedWorkflowSourceChanged = errors.New("scoped workflow source changed")
 
 type scopedWorkflowsCtx struct {
 	OwnerID      int64 // 0 = instance-level
@@ -39,6 +51,52 @@ type scopedWorkflowsCtx struct {
 	// SearchUID is the uid passed to the repo-search box. For org/user it scopes the search to that owner;
 	// for admin (0) it searches all repos and therefore requires admin access on the route.
 	SearchUID int64
+}
+
+func withScopedWorkflowSettingsWrite(ctx stdcontext.Context, actor governance_model.Actor, scope *scopedWorkflowsCtx, sourceRepoID int64, write func(stdcontext.Context) error) error {
+	if actor.EffectiveUserID() <= 0 || scope == nil {
+		return util.ErrPermissionDenied
+	}
+	resources := make([]string, 0, 2)
+	if scope.IsGlobal && scope.OwnerID == 0 {
+		resources = append(resources, governance_model.Resource("instance", 0))
+	} else if scope.OwnerID > 0 {
+		resources = append(resources, governance_model.Resource("group", scope.OwnerID))
+	}
+	if sourceRepoID > 0 {
+		resources = append(resources, governance_model.Resource("repository", sourceRepoID))
+	}
+	return governance_service.WithActorWrite(governance_model.WithAuditActor(ctx, actor), actor, resources, func(ctx stdcontext.Context) error {
+		doer, err := user_model.GetUserByID(ctx, actor.EffectiveUserID())
+		if user_model.IsErrUserNotExist(err) {
+			return util.ErrPermissionDenied
+		}
+		if err != nil {
+			return err
+		}
+		if !doer.IsActive || doer.ProhibitLogin || doer.IsOrganization() || doer.IsGiteaActions() || doer.IsGhost() {
+			return util.ErrPermissionDenied
+		}
+		allowed := doer.IsAdmin
+		switch {
+		case scope.IsGlobal && scope.OwnerID == 0:
+		case scope.IsOrg && scope.OwnerID > 0:
+			if !allowed {
+				allowed, err = organization.IsOrganizationOwner(ctx, scope.OwnerID, doer.ID)
+				if err != nil {
+					return err
+				}
+			}
+		case scope.IsUser && scope.OwnerID > 0:
+			allowed = allowed || scope.OwnerID == doer.ID
+		default:
+			return util.ErrPermissionDenied
+		}
+		if !allowed {
+			return util.ErrPermissionDenied
+		}
+		return write(ctx)
+	})
 }
 
 func getScopedWorkflowsCtx(ctx *context.Context) (*scopedWorkflowsCtx, error) {
@@ -92,7 +150,19 @@ type scopedWorkflowInfo struct {
 // scopedWorkflowSourceView is the per-source data shown on the settings page.
 type scopedWorkflowSourceView struct {
 	Repo                *repo_model.Repository
+	SourceRepoID        int64
+	NeedsReconfirmation bool
+	NeedsReferenceHook  bool
+	Suspended           bool
+	RequiredNames       []string
 	ScopedWorkflowInfos []scopedWorkflowInfo
+}
+
+type inheritedScopedWorkflowSourceView struct {
+	SourceName         string
+	ScopeOwnerID       int64
+	RequiredNames      []string
+	NeedsReferenceHook bool
 }
 
 func ScopedWorkflows(ctx *context.Context) {
@@ -126,18 +196,82 @@ func ScopedWorkflows(ctx *context.Context) {
 
 	views := make([]*scopedWorkflowSourceView, 0, len(sources))
 	for _, src := range sources {
+		requiredNames := make([]string, 0)
+		for name, cfg := range src.WorkflowConfigs {
+			if cfg != nil && cfg.Required {
+				requiredNames = append(requiredNames, name)
+			}
+		}
+		slices.Sort(requiredNames)
 		repo, err := repo_model.GetRepositoryByID(ctx, src.SourceRepoID)
 		if err != nil {
 			log.Error("scoped workflows settings: load source repo %d: %v", src.SourceRepoID, err)
+			views = append(views, &scopedWorkflowSourceView{SourceRepoID: src.SourceRepoID, NeedsReconfirmation: true, RequiredNames: requiredNames})
 			continue
 		}
-		views = append(views, &scopedWorkflowSourceView{
-			Repo:                repo,
-			ScopedWorkflowInfos: listSourceScopedWorkflowFiles(ctx, repo, src.WorkflowConfigs),
-		})
+		view := &scopedWorkflowSourceView{SourceRepoID: src.SourceRepoID, RequiredNames: requiredNames}
+		view.NeedsReconfirmation = src.SourceScopeRevision != repo.ActionsScopeRevision || src.OwnerID != 0 && src.OwnerID != repo.OwnerID
+		if !view.NeedsReconfirmation {
+			if len(requiredNames) > 0 {
+				installed, err := gitrepo.ReferenceTransactionHookInstalled(repo)
+				if err != nil {
+					log.Error("scoped workflows settings: check source hook %d: %v", repo.ID, err)
+				}
+				view.NeedsReferenceHook = err != nil || !installed
+			}
+			view.Repo = repo
+			view.ScopedWorkflowInfos = listSourceScopedWorkflowFiles(ctx, repo, src.WorkflowConfigs)
+			active, err := actions_model.ScopedWorkflowRegistrationValid(ctx, src)
+			if err != nil {
+				ctx.ServerError("ScopedWorkflowSourceValid", err)
+				return
+			}
+			view.Suspended = !active
+		}
+		views = append(views, view)
 	}
 
 	ctx.Data["ScopedWorkflowSources"] = views
+	if !swCtx.IsGlobal {
+		effective, err := actions_model.GetEffectiveScopedWorkflowSources(ctx, swCtx.OwnerID)
+		if err != nil {
+			ctx.ServerError("GetEffectiveScopedWorkflowSources", err)
+			return
+		}
+		inherited := make([]*inheritedScopedWorkflowSourceView, 0)
+		for _, src := range effective {
+			if src.OwnerID == swCtx.OwnerID {
+				continue
+			}
+			view := &inheritedScopedWorkflowSourceView{SourceName: fmt.Sprintf("#%d", src.SourceRepoID), ScopeOwnerID: src.OwnerID}
+			if repo, err := repo_model.GetRepositoryByID(ctx, src.SourceRepoID); err == nil {
+				perm, err := access_model.GetDoerRepoPermission(ctx, repo, ctx.Doer)
+				if err != nil {
+					ctx.ServerError("GetDoerRepoPermission", err)
+					return
+				}
+				if perm.CanRead(unit.TypeCode) {
+					view.SourceName = repo.FullName()
+				}
+			}
+			for name, cfg := range src.WorkflowConfigs {
+				if cfg != nil && cfg.Required {
+					view.RequiredNames = append(view.RequiredNames, name)
+				}
+			}
+			slices.Sort(view.RequiredNames)
+			if len(view.RequiredNames) > 0 {
+				if repo, err := repo_model.GetRepositoryByID(ctx, src.SourceRepoID); err == nil {
+					installed, err := gitrepo.ReferenceTransactionHookInstalled(repo)
+					view.NeedsReferenceHook = err != nil || !installed
+				} else {
+					view.NeedsReferenceHook = true
+				}
+			}
+			inherited = append(inherited, view)
+		}
+		ctx.Data["InheritedScopedWorkflowSources"] = inherited
+	}
 	ctx.Data["RepoSearchUID"] = swCtx.SearchUID
 	// owner/user scopes the repo search to the owner (exclusive);
 	// instance-level (admin) searches all repos and so must submit owner/name to disambiguate the selection across owners.
@@ -209,7 +343,7 @@ func listSourceScopedWorkflowFiles(ctx *context.Context, repo *repo_model.Reposi
 				info := scopedWorkflowInfo{
 					EntryName:   p.EntryName,
 					DisplayName: p.DisplayName,
-					Contexts:    deriveScopedStatusContexts(repo.FullName(), p.DisplayName, p.Content, p.Events),
+					Contexts:    deriveScopedStatusContexts(actions_model.ScopedStatusContextPrefix(ctx, repo.ID), p.DisplayName, p.Content, p.Events),
 				}
 				if cfg := configs[p.EntryName]; cfg != nil {
 					info.Required = cfg.Required
@@ -270,8 +404,47 @@ func ScopedWorkflowAdd(ctx *context.Context) {
 		ctx.JSONError(ctx.Tr("actions.scoped_workflows.source.not_found"))
 		return
 	}
+	registered, err := actions_model.GetScopedWorkflowSource(ctx, swCtx.OwnerID, repo.ID)
+	if err != nil && !errors.Is(err, util.ErrNotExist) {
+		ctx.ServerError("GetScopedWorkflowSource", err)
+		return
+	}
+	if err == nil && registered.SourceScopeRevision != repo.ActionsScopeRevision {
+		ctx.JSONError(ctx.Tr("actions.scoped_workflows.source.reconfirm"))
+		return
+	}
 
-	if err := actions_model.AddScopedWorkflowSource(ctx, swCtx.OwnerID, repo.ID); err != nil {
+	preparedRevision := repo.ActionsScopeRevision
+	err = withScopedWorkflowSettingsWrite(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), swCtx, repo.ID, func(ctx stdcontext.Context) error {
+		freshSource, err := repo_model.GetRepositoryByID(ctx, repo.ID)
+		if err != nil {
+			return err
+		}
+		if freshSource.ActionsScopeRevision != preparedRevision || swCtx.OwnerID != 0 && freshSource.OwnerID != swCtx.OwnerID {
+			return errScopedWorkflowSourceChanged
+		}
+		registered, err := actions_model.GetScopedWorkflowSource(ctx, swCtx.OwnerID, repo.ID)
+		if err != nil && !errors.Is(err, util.ErrNotExist) {
+			return err
+		}
+		if err == nil && registered.SourceScopeRevision != freshSource.ActionsScopeRevision {
+			return errScopedWorkflowSourceChanged
+		}
+		return actions_model.AddScopedWorkflowSource(ctx, swCtx.OwnerID, repo.ID)
+	})
+	if errors.Is(err, util.ErrPermissionDenied) {
+		ctx.HTTPError(http.StatusForbidden)
+		return
+	}
+	if errors.Is(err, errScopedWorkflowSourceChanged) {
+		ctx.JSONError(ctx.Tr("actions.scoped_workflows.source.reconfirm"))
+		return
+	}
+	if errors.Is(err, governance_model.ErrConflict) {
+		ctx.HTTPError(http.StatusConflict)
+		return
+	}
+	if err != nil {
 		ctx.ServerError("AddScopedWorkflowSource", err)
 		return
 	}
@@ -290,9 +463,16 @@ func ScopedWorkflowSetRequired(ctx *context.Context) {
 	}
 
 	repoID := ctx.FormInt64("repo_id")
+	release, err := repo_service.LockRepositoryWorking(ctx, repoID)
+	if err != nil {
+		ctx.ServerError("LockRepositoryWorking", err)
+		return
+	}
+	defer release()
 
 	// the source must be registered for this owner
-	if _, err := actions_model.GetScopedWorkflowSource(ctx, swCtx.OwnerID, repoID); err != nil {
+	registration, err := actions_model.GetScopedWorkflowSource(ctx, swCtx.OwnerID, repoID)
+	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
 			ctx.JSONError(ctx.Tr("actions.scoped_workflows.source.not_found"))
 		} else {
@@ -305,6 +485,10 @@ func ScopedWorkflowSetRequired(ctx *context.Context) {
 	sourceRepo, err := repo_model.GetRepositoryByID(ctx, repoID)
 	if err != nil {
 		ctx.ServerError("GetRepositoryByID", err)
+		return
+	}
+	if registration.SourceScopeRevision != sourceRepo.ActionsScopeRevision || registration.OwnerID != 0 && registration.OwnerID != sourceRepo.OwnerID {
+		ctx.JSONError(ctx.Tr("actions.scoped_workflows.source.reconfirm"))
 		return
 	}
 	liveSet := make(container.Set[string])
@@ -340,7 +524,64 @@ func ScopedWorkflowSetRequired(ctx *context.Context) {
 			configs[workflowID] = &actions_model.ScopedWorkflowConfig{Required: required, Patterns: patterns}
 		}
 	}
-	if err := actions_model.SetScopedWorkflowSourceConfigs(ctx, swCtx.OwnerID, repoID, configs); err != nil {
+	hasRequired := false
+	for _, config := range configs {
+		hasRequired = hasRequired || config.Required
+	}
+	if hasRequired {
+		actualBranch, err := gitrepo.GetDefaultBranch(ctx, sourceRepo)
+		if err != nil || actualBranch != sourceRepo.DefaultBranch {
+			ctx.JSONError(ctx.Tr("actions.scoped_workflows.required.default_branch_mismatch"))
+			return
+		}
+		actor := governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web")
+		if err := withScopedWorkflowSettingsWrite(ctx, actor, swCtx, repoID, func(stdcontext.Context) error { return nil }); err != nil {
+			if errors.Is(err, util.ErrPermissionDenied) {
+				ctx.HTTPError(http.StatusForbidden)
+			} else {
+				ctx.ServerError("AuthorizeScopedWorkflowHookInstall", err)
+			}
+			return
+		}
+		if err := gitrepo.InstallReferenceTransactionHook(ctx, sourceRepo); err != nil {
+			log.Error("scoped workflows settings: install source hook %d: %v", repoID, err)
+			ctx.JSONError(ctx.Tr("actions.scoped_workflows.required.hook_unavailable"))
+			return
+		}
+		installed, err := gitrepo.ReferenceTransactionHookInstalled(sourceRepo)
+		if err != nil || !installed {
+			log.Error("scoped workflows settings: verify source hook %d: %v", repoID, err)
+			ctx.JSONError(ctx.Tr("actions.scoped_workflows.required.hook_unavailable"))
+			return
+		}
+	}
+	err = withScopedWorkflowSettingsWrite(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), swCtx, repoID, func(ctx stdcontext.Context) error {
+		freshRegistration, err := actions_model.GetScopedWorkflowSource(ctx, swCtx.OwnerID, repoID)
+		if err != nil {
+			return err
+		}
+		freshSource, err := repo_model.GetRepositoryByID(ctx, repoID)
+		if err != nil {
+			return err
+		}
+		if freshRegistration.SourceScopeRevision != freshSource.ActionsScopeRevision || freshRegistration.OwnerID != 0 && freshRegistration.OwnerID != freshSource.OwnerID {
+			return errScopedWorkflowSourceChanged
+		}
+		return actions_model.SetScopedWorkflowSourceConfigs(ctx, swCtx.OwnerID, repoID, configs)
+	})
+	if errors.Is(err, util.ErrPermissionDenied) {
+		ctx.HTTPError(http.StatusForbidden)
+		return
+	}
+	if errors.Is(err, errScopedWorkflowSourceChanged) {
+		ctx.JSONError(ctx.Tr("actions.scoped_workflows.source.reconfirm"))
+		return
+	}
+	if errors.Is(err, governance_model.ErrConflict) {
+		ctx.HTTPError(http.StatusConflict)
+		return
+	}
+	if err != nil {
 		ctx.ServerError("SetScopedWorkflowSourceConfigs", err)
 		return
 	}
@@ -359,7 +600,18 @@ func ScopedWorkflowRemove(ctx *context.Context) {
 	}
 
 	repoID := ctx.FormInt64("repo_id")
-	if err := actions_model.RemoveScopedWorkflowSource(ctx, swCtx.OwnerID, repoID); err != nil {
+	err = withScopedWorkflowSettingsWrite(ctx, governance_service.RequestActor(ctx.Doer, ctx.RemoteAddr(), "web"), swCtx, repoID, func(ctx stdcontext.Context) error {
+		return actions_model.RemoveScopedWorkflowSource(ctx, swCtx.OwnerID, repoID)
+	})
+	if errors.Is(err, util.ErrPermissionDenied) {
+		ctx.HTTPError(http.StatusForbidden)
+		return
+	}
+	if errors.Is(err, governance_model.ErrConflict) {
+		ctx.HTTPError(http.StatusConflict)
+		return
+	}
+	if err != nil {
 		ctx.ServerError("RemoveScopedWorkflowSource", err)
 		return
 	}

@@ -27,6 +27,7 @@ import (
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/web/feed"
+	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/context"
 	"gitea.dev/services/context/upload"
 	"gitea.dev/services/forms"
@@ -110,6 +111,11 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 		commitStatusMap, err = git_model.GetLatestCommitStatusForRepoCommitIDs(ctx, ctx.Repo.Repository.ID, shas)
 		if err != nil {
 			return nil, err
+		}
+		for _, statuses := range commitStatusMap {
+			if err := actions_service.RedactScopedCommitStatusContexts(ctx, ctx.Doer, ctx.Repo.Repository, statuses); err != nil {
+				return nil, err
+			}
 		}
 	}
 

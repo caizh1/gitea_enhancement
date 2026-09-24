@@ -305,6 +305,39 @@ func checkSameOwnerCrossRepoAccess(ctx context.Context, taskRepo, targetRepo *re
 	return slices.Contains(ownerCfg.AllowedCrossRepoIDs, targetRepo.ID)
 }
 
+// TaskTriggererCanReadSource rechecks the source repository using current
+// native and governance permissions, including public visibility.
+func TaskTriggererCanReadSource(ctx context.Context, task *actions_model.ActionTask) (bool, error) {
+	repo, err := repo_model.GetRepositoryByID(ctx, task.RepoID)
+	if err != nil {
+		return false, err
+	}
+	job, err := actions_model.GetRunJobByRepoAndID(ctx, task.RepoID, task.JobID)
+	if err != nil {
+		return false, err
+	}
+	run, err := actions_model.GetRunByRepoAndID(ctx, task.RepoID, job.RunID)
+	if err != nil {
+		return false, err
+	}
+	triggerUserID, err := actions_model.TaskEffectiveTriggerUserID(ctx, job, run)
+	if err != nil || triggerUserID == 0 {
+		return false, err
+	}
+	if triggerUserID == user_model.ActionsUserID {
+		return actions_model.ScheduledRunValid(ctx, run, repo)
+	}
+	triggerer, err := user_model.GetUserByID(ctx, triggerUserID)
+	if err != nil {
+		return false, err
+	}
+	permission, err := GetIndividualUserRepoPermission(ctx, repo, triggerer)
+	if err != nil {
+		return false, err
+	}
+	return permission.CanReadAny(unit.TypeCode, unit.TypeActions), nil
+}
+
 // GetActionsUserRepoPermission returns the actions user permissions to the repository
 func GetActionsUserRepoPermission(ctx context.Context, repo *repo_model.Repository, actionsUser *user_model.User, taskID int64) (perm Permission, err error) {
 	if actionsUser.ID != user_model.ActionsUserID {
@@ -313,6 +346,20 @@ func GetActionsUserRepoPermission(ctx context.Context, repo *repo_model.Reposito
 	task, err := actions_model.GetTaskByID(ctx, taskID)
 	if err != nil {
 		return perm, err
+	}
+	valid, err := actions_model.TaskCredentialValid(ctx, task)
+	if err != nil {
+		return perm, err
+	}
+	if !valid {
+		return perm, nil
+	}
+	canReadSource, err := TaskTriggererCanReadSource(ctx, task)
+	if err != nil {
+		return perm, err
+	}
+	if !canReadSource {
+		return perm, nil
 	}
 
 	if err := task.LoadJob(ctx); err != nil {
@@ -336,15 +383,9 @@ func GetActionsUserRepoPermission(ctx context.Context, repo *repo_model.Reposito
 	}
 	if task.RepoID != repo.ID {
 		// Cross-repo access must also respect the target repo's permission ceiling.
-		targetRepoActionsCfg := repo.MustGetUnit(ctx, unit.TypeActions).ActionsConfig()
-		if targetRepoActionsCfg.OverrideOwnerConfig {
-			effectivePerms = targetRepoActionsCfg.ClampPermissions(effectivePerms)
-		} else {
-			targetRepoOwnerActionsCfg, err := actions_model.GetOwnerActionsConfig(ctx, repo.OwnerID)
-			if err != nil {
-				return perm, err
-			}
-			effectivePerms = targetRepoOwnerActionsCfg.ClampPermissions(effectivePerms)
+		effectivePerms, err = actions_model.ClampTaskTokenPermissionsForRepo(ctx, effectivePerms, repo)
+		if err != nil {
+			return perm, err
 		}
 	}
 
@@ -358,20 +399,11 @@ func GetActionsUserRepoPermission(ctx context.Context, repo *repo_model.Reposito
 	maxPerm.units = repo.Units
 	maxPerm.unitsMode = maps.Clone(effectivePerms.UnitAccessModes)
 
-	// Check permission like simple user but limit to read-only (PR #36095)
-	// Enhanced to also grant read-only access if isSameRepo is true and target repository is public
+	// Public visibility may authorize the target repository, but cannot raise the
+	// task token above its declared permissions or an ancestor's ceiling.
 	botPerm, err := GetIndividualUserRepoPermission(ctx, repo, user_model.NewActionsUser())
 	if err != nil {
 		return perm, err
-	}
-	if botPerm.AccessMode >= perm_model.AccessModeRead {
-		// Public repo allows read access, increase permissions to at least read
-		// Otherwise you cannot access your own repository if your permissions are set to none but the repository is public
-		for _, u := range repo.Units {
-			if botPerm.CanRead(u.Type) {
-				maxPerm.unitsMode[u.Type] = max(maxPerm.unitsMode[u.Type], perm_model.AccessModeRead)
-			}
-		}
 	}
 
 	if task.RepoID == repo.ID {
@@ -385,7 +417,7 @@ func GetActionsUserRepoPermission(ctx context.Context, repo *repo_model.Reposito
 		return maxPerm, nil
 	}
 
-	// Fall through to allow public repository read access via botPerm check below
+	// Public visibility permits this target, subject to the token's own read scope.
 
 	// Check if the repo is public or the Bot has explicit access
 	if botPerm.AccessMode >= perm_model.AccessModeRead {

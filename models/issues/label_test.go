@@ -49,12 +49,12 @@ func TestLabel_LoadSelectedLabelsAfterClick(t *testing.T) {
 	label := unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 8})
 
 	// First test : with negative and scope
-	label.LoadSelectedLabelsAfterClick([]int64{1, -8}, []string{"", "scope"})
+	label.LoadSelectedLabelsAfterClick([]int64{1, -8}, []string{"", label.ExclusiveScope()})
 	assert.Equal(t, "1", label.QueryString)
 	assert.True(t, label.IsSelected)
 
 	// Second test : with duplicates
-	label.LoadSelectedLabelsAfterClick([]int64{1, 7, 1, 7, 7}, []string{"", "scope", "", "scope", "scope"})
+	label.LoadSelectedLabelsAfterClick([]int64{1, 7, 1, 7, 7}, []string{"", label.ExclusiveScope(), "", label.ExclusiveScope(), label.ExclusiveScope()})
 	assert.Equal(t, "1,8", label.QueryString)
 	assert.False(t, label.IsSelected)
 
@@ -71,6 +71,62 @@ func TestLabel_ExclusiveScope(t *testing.T) {
 
 	label = unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 9})
 	assert.Equal(t, "scope/subscope", label.ExclusiveScope())
+}
+
+func TestAncestorLabelScopeKeepsSourcesSeparate(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	require.NoError(t, governance_model.InitializeLegacyNamespaces(ctx))
+	for _, group := range []*governance_model.Namespace{
+		{ID: 20001, ParentID: 3, Slug: "child", Kind: "group", Visibility: 2},
+		{ID: 20002, ParentID: 20001, Slug: "grandchild", Kind: "group", Visibility: 2},
+		{ID: 20003, ParentID: 3, Slug: "sibling", Kind: "group", Visibility: 2},
+		{ID: 20004, Slug: "shared", Kind: "group", Visibility: 2},
+	} {
+		require.NoError(t, governance_model.InsertNamespace(ctx, group))
+	}
+	require.NoError(t, db.Insert(ctx, &governance_model.Share{ScopeType: "group", ScopeID: 20002, GroupID: 20004, MaxRole: governance_model.Developer}))
+	labels := []*issues_model.Label{
+		{RepoID: 30001, Name: "same", Color: "#123456"},
+		{OrgID: 3, Name: "same", Color: "#123456"},
+		{OrgID: 20001, Name: "same", Color: "#123456"},
+		{OrgID: 20002, Name: "same", Color: "#123456"},
+		{OrgID: 20003, Name: "same", Color: "#123456"},
+		{OrgID: 20004, Name: "same", Color: "#123456"},
+	}
+	for _, l := range labels {
+		require.NoError(t, db.Insert(ctx, l))
+	}
+	wanted := []int64{labels[0].ID, labels[1].ID, labels[2].ID, labels[3].ID}
+	got, count, err := issues_model.GetLabelsByRepoAndAncestors(ctx, 30001, 20002, true, "", db.ListOptions{})
+	require.NoError(t, err)
+	assert.EqualValues(t, 6, count) // two existing root organization labels plus four new ones
+	require.Len(t, got, 6)
+	ids, err := issues_model.GetLabelIDsInRepoOrAncestorsByNames(ctx, 30001, 20002, true, []string{"same"})
+	require.NoError(t, err)
+	assert.Equal(t, wanted, ids)
+	allIDs := append(append([]int64{}, wanted...), labels[4].ID, labels[5].ID)
+	valid, err := issues_model.GetLabelsInRepoOrAncestorsByIDs(ctx, 30001, 20002, true, allIDs)
+	require.NoError(t, err)
+	assert.Len(t, valid, 4)
+	for _, id := range wanted {
+		_, err = issues_model.GetLabelInRepoOrOrgByID(ctx, 30001, 20002, true, id)
+		require.NoError(t, err)
+	}
+	for _, id := range allIDs[4:] {
+		_, err = issues_model.GetLabelInRepoOrOrgByID(ctx, 30001, 20002, true, id)
+		assert.ErrorIs(t, err, util.ErrNotExist)
+	}
+}
+
+func TestExclusiveLabelScopesRemainGlobal(t *testing.T) {
+	repo := &issues_model.Label{RepoID: 1, Name: "priority/high", Exclusive: true}
+	parent := &issues_model.Label{OrgID: 2, Name: "priority/high", Exclusive: true}
+	child := &issues_model.Label{OrgID: 3, Name: "priority/low", Exclusive: true}
+	assert.Equal(t, "priority", parent.ExclusiveScope())
+	assert.Equal(t, repo.ExclusiveScope(), parent.ExclusiveScope())
+	assert.Equal(t, parent.ExclusiveScope(), child.ExclusiveScope())
+	assert.Equal(t, []*issues_model.Label{child}, issues_model.RemoveDuplicateExclusiveLabels([]*issues_model.Label{repo, parent, child}))
 }
 
 func TestSortLabelsForDisplay(t *testing.T) {

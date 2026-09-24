@@ -325,13 +325,13 @@ func TestRelease_createTag(t *testing.T) {
 		IsPrerelease: false,
 		IsTag:        false,
 	}
-	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
+	_, _, err = createTag(t.Context(), gitRepo, release, user, "", nil)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, release.CreatedUnix)
 	releaseCreatedUnix := release.CreatedUnix
 	advance()
 	release.Note = "Changed note"
-	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
+	_, _, err = createTag(t.Context(), gitRepo, release, user, "", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(releaseCreatedUnix), int64(release.CreatedUnix))
 
@@ -349,12 +349,12 @@ func TestRelease_createTag(t *testing.T) {
 		IsPrerelease: false,
 		IsTag:        false,
 	}
-	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
+	_, _, err = createTag(t.Context(), gitRepo, release, user, "", nil)
 	assert.NoError(t, err)
 	releaseCreatedUnix = release.CreatedUnix
 	advance()
 	release.Title = "Changed title"
-	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
+	_, _, err = createTag(t.Context(), gitRepo, release, user, "", nil)
 	assert.NoError(t, err)
 	assert.Less(t, int64(releaseCreatedUnix), int64(release.CreatedUnix))
 
@@ -372,13 +372,13 @@ func TestRelease_createTag(t *testing.T) {
 		IsPrerelease: true,
 		IsTag:        false,
 	}
-	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
+	_, _, err = createTag(t.Context(), gitRepo, release, user, "", nil)
 	assert.NoError(t, err)
 	releaseCreatedUnix = release.CreatedUnix
 	advance()
 	release.Title = "Changed title"
 	release.Note = "Changed note"
-	_, _, err = createTag(t.Context(), gitRepo, release, "", nil)
+	_, _, err = createTag(t.Context(), gitRepo, release, user, "", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(releaseCreatedUnix), int64(release.CreatedUnix))
 }
@@ -391,4 +391,32 @@ func TestCreateNewTag(t *testing.T) {
 
 	assert.NoError(t, CreateNewTag(t.Context(), user, repo, "master", "v2.0",
 		"v2.0 is released \n\n BUGFIX: .... \n\n 123"))
+}
+
+func TestTagDeletionCannotDeleteReleaseByStaleTagProjection(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	release := unittest.AssertExistsAndLoadBean(t, &repo_model.Release{ID: 1})
+	assert.ErrorIs(t, DeleteReleaseByID(t.Context(), repo, release, doer, true), governance_model.ErrForbidden)
+	stale := *release
+	stale.IsTag = true
+	_, err := planReleaseTagDelete(t.Context(), repo, &stale, doer, stale.Sha1)
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
+	assert.NotNil(t, unittest.AssertExistsAndLoadBean(t, &repo_model.Release{ID: release.ID}))
+}
+
+func TestReleaseReferencePlansRejectArchivedRepository(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	assert.NoError(t, governance_model.InitializeLegacyNamespaces(t.Context()))
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	assert.NoError(t, repo_model.SetArchiveRepoState(t.Context(), repo, true))
+	release := &repo_model.Release{RepoID: repo.ID, Repo: repo, PublisherID: doer.ID, Publisher: doer, TagName: "archived-plan", Target: "master"}
+	_, err := planReleaseTagCreate(t.Context(), release, doer, &releaseReferencePayload{Action: "create"})
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
+	tag := unittest.AssertExistsAndLoadBean(t, &repo_model.Release{ID: 3})
+	_, err = planReleaseTagDelete(t.Context(), repo, tag, doer, tag.Sha1)
+	assert.ErrorIs(t, err, governance_model.ErrConflict)
 }

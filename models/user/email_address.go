@@ -523,6 +523,11 @@ func ActivateUserEmail(ctx context.Context, userID int64, email string, activate
 
 			// The user's activation state should be synchronized with the primary email
 			if user.IsActive != activate {
+				if !activate {
+					if err := governance_model.EnsureUserCanLoseOwnerAccess(ctx, userID); err != nil {
+						return err
+					}
+				}
 				user.IsActive = activate
 				if user.Rands, err = GetUserSalt(); err != nil {
 					return fmt.Errorf("unable to generate salt: %w", err)

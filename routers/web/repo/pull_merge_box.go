@@ -64,7 +64,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxIconColor() {
 	showAsWarningColor := pull.IsChecking()
 
 	if statusCheckData := mergeBoxData.StatusCheckData; statusCheckData != nil {
-		showAsErrorColor = statusCheckData.pullCommitStatusState.IsError() || statusCheckData.pullCommitStatusState.IsFailure() ||
+		showAsErrorColor = mergeBoxData.scopedWorkflowBlocked || statusCheckData.pullCommitStatusState.IsError() || statusCheckData.pullCommitStatusState.IsFailure() ||
 			statusCheckData.RequiredChecksState.IsError() || statusCheckData.RequiredChecksState.IsFailure()
 
 		showAsWarningColor = showAsWarningColor ||

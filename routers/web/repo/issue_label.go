@@ -9,13 +9,13 @@ import (
 
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
-	"gitea.dev/models/organization"
 	"gitea.dev/modules/label"
 	"gitea.dev/modules/log"
 	repo_module "gitea.dev/modules/repository"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
+	shared_issue "gitea.dev/routers/web/shared/issue"
 	shared_label "gitea.dev/routers/web/shared/label"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
@@ -71,31 +71,19 @@ func RetrieveLabelsForList(ctx *context.Context) {
 	ctx.Data["Labels"] = labels
 
 	if ctx.Repo.Owner.IsOrganization() {
-		orgLabels, err := issues_model.GetLabelsByOrgID(ctx, ctx.Repo.Owner.ID, ctx.FormString("sort"), db.ListOptions{})
+		orgLabels, err := issues_model.GetLabelsByAncestorOrgID(ctx, ctx.Repo.Owner.ID, ctx.FormString("sort"))
 		if err != nil {
-			ctx.ServerError("GetLabelsByOrgID", err)
+			ctx.ServerError("GetLabelsByAncestorOrgID", err)
 			return
 		}
 		for _, l := range orgLabels {
 			l.CalOpenOrgIssues(ctx, ctx.Repo.Repository.ID, l.ID)
 		}
-		ctx.Data["OrgLabels"] = orgLabels
-
-		org, err := organization.GetOrgByName(ctx, ctx.Repo.Owner.LowerName)
-		if err != nil {
-			ctx.ServerError("GetOrgByName", err)
+		if err := shared_issue.PopulateLabelSources(ctx, orgLabels); err != nil {
+			ctx.ServerError("PopulateLabelSources", err)
 			return
 		}
-		if ctx.Doer != nil {
-			ctx.Org.IsOwner, err = org.IsOwnedBy(ctx, ctx.Doer.ID)
-			if err != nil {
-				ctx.ServerError("org.IsOwnedBy", err)
-				return
-			}
-			ctx.Org.OrgLink = org.AsUser().OrganisationLink()
-			ctx.Data["IsOrganizationOwner"] = ctx.Org.IsOwner
-			ctx.Data["OrganizationLink"] = ctx.Org.OrgLink
-		}
+		ctx.Data["OrgLabels"] = orgLabels
 	}
 	ctx.Data["NumLabels"] = len(labels)
 	ctx.Data["SortType"] = ctx.FormString("sort")

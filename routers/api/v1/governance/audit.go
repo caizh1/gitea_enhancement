@@ -221,7 +221,15 @@ func GetExport(ctx *context.APIContext) {
 	//     "$ref": "#/responses/GovernanceAuditExport"
 	//   "404":
 	//     "$ref": "#/responses/notFound"
-	job, err := governance_service.GetAuditExport(ctx, ctx.Doer.ID, ctx.PathParam("id"))
+	var job *governance_model.AuditExport
+	err := governance_model.WithStableRead(ctx, func(tx stdcontext.Context) error {
+		var err error
+		job, err = governance_service.GetAuditExport(tx, ctx.Doer.ID, ctx.PathParam("id"))
+		if err != nil {
+			return err
+		}
+		return job.SetResponseMaxSequence(tx)
+	})
 	if err != nil {
 		respondError(ctx, err)
 		return

@@ -83,17 +83,20 @@ func (opts *ApplyDiffPatchOptions) Validate(ctx context.Context, repo *repo_mode
 			}
 		}
 	} else {
-		protectedBranch, err := git_model.GetFirstMatchProtectedBranchRule(ctx, repo.ID, opts.OldBranch)
+		effective, err := git_model.EvaluateEffectiveBranchProtection(ctx, repo.ID, opts.OldBranch)
 		if err != nil {
 			return err
 		}
+		protectedBranch := effective.Native
+		canUserPush, err := effective.CanUserPush(ctx, doer)
+		if err != nil {
+			return err
+		}
+		if !canUserPush {
+			return ErrUserCannotCommit{UserName: doer.LowerName}
+		}
 		if protectedBranch != nil {
 			protectedBranch.Repo = repo
-			if !protectedBranch.CanUserPush(ctx, doer) {
-				return ErrUserCannotCommit{
-					UserName: doer.LowerName,
-				}
-			}
 		}
 		if protectedBranch != nil && protectedBranch.RequireSignedCommits {
 			_, _, _, err := asymkey_service.SignCRUDAction(ctx, doer, gitRepo, opts.OldBranch)

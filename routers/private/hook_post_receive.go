@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"net/http"
 
-	git_model "gitea.dev/models/git"
+	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -26,6 +27,7 @@ import (
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	gitea_context "gitea.dev/services/context"
+	governance_service "gitea.dev/services/governance"
 	pull_service "gitea.dev/services/pull"
 	repo_service "gitea.dev/services/repository"
 )
@@ -61,13 +63,8 @@ func hookPostReceiveSyncDatabaseBranches(ctx *gitea_context.PrivateContext, opts
 		if !update.RefFullName.IsBranch() {
 			continue
 		}
-		if update.IsDelRef() {
-			if err := git_model.MarkBranchAsDeleted(ctx, repo.ID, update.RefFullName.BranchName(), update.PusherID); err != nil {
-				ctx.PrivateError(http.StatusInternalServerError, err, fmt.Sprintf("failed to mark branch %s as deleted", update.RefFullName))
-				return false
-			}
-		} else {
-			branchesToSync = append(branchesToSync, update)
+		branchesToSync = append(branchesToSync, update)
+		if !update.IsDelRef() {
 			// TODO: should we return the error and return the error when pushing? Currently it will log the error and not prevent the pushing
 			pull_service.UpdatePullsRefs(ctx, repo, update)
 		}
@@ -84,13 +81,11 @@ func hookPostReceiveSyncDatabaseBranches(ctx *gitea_context.PrivateContext, opts
 	}
 
 	branchNames := make([]string, 0, len(branchesToSync))
-	commitIDs := make([]string, 0, len(branchesToSync))
 	for _, update := range branchesToSync {
 		branchNames = append(branchNames, update.RefFullName.BranchName())
-		commitIDs = append(commitIDs, update.NewCommitID)
 	}
 
-	if err = repo_service.SyncBranchesToDB(ctx, repo.ID, opts.UserID, branchNames, commitIDs, gitRepo.GetCommit); err != nil {
+	if err = repo_service.SyncBranchesToDB(ctx, repo.ID, opts.UserID, branchNames, gitRepo); err != nil {
 		ctx.PrivateError(http.StatusInternalServerError, err, "failed to sync branch to DB")
 		return false
 	}
@@ -122,6 +117,10 @@ func HookPostReceive(ctx *gitea_context.PrivateContext) {
 
 	// handle pull request merging, a pull request action should push at least 1 commit
 	if opts.PushTrigger == repo_module.PushTriggerPRMergeToBase {
+		if opts.RepositoryID != repo.ID {
+			ctx.PrivateError(http.StatusInternalServerError, governance_model.ErrConflict, "merge repository does not match hook repository")
+			return
+		}
 		if !hookPostReceiveHandlePullRequestMerging(ctx, opts, updates) {
 			return
 		}
@@ -271,7 +270,34 @@ func hookPostReceiveHandlePullRequestMerging(ctx *gitea_context.PrivateContext, 
 
 	// FIXME: Maybe we need a `PullRequestStatusMerged` status for PRs that are merged, currently we use the previous status
 	// here to keep it as before, that maybe PullRequestStatusMergeable
-	_, err = pull_service.SetMerged(ctx, pr, updates[len(updates)-1].NewCommitID, timeutil.TimeStampNow(), pusher, pr.Status)
+	err = governance_model.WithWrite(ctx, nil, func(txctx context.Context) error {
+		if opts.MergeAuthorizationID != "" {
+			if opts.PushTrigger != repo_module.PushTriggerPRMergeToBase || opts.RepositoryID != pr.BaseRepoID {
+				return governance_model.ErrConflict
+			}
+			matches, err := db.GetEngine(txctx).ID(opts.MergeAuthorizationID).Where("pull_id = ?", pr.ID).Exist(new(governance_model.MergeAuthorization))
+			if err != nil {
+				return err
+			}
+			if !matches {
+				return governance_model.ErrConflict
+			}
+			changes := make([]governance_model.ReferenceChange, 0, len(updates))
+			for _, update := range updates {
+				changes = append(changes, governance_model.ReferenceChange{Ref: update.RefFullName.String(), Old: update.OldCommitID, New: update.NewCommitID})
+			}
+			// 仅精确匹配的内部合并回调可完成自身占用下的数据库补写。
+			txctx, err = governance_service.ReferenceMergeAuthorizationContext(txctx, &governance_model.ReferenceTransaction{
+				RepoID: pr.BaseRepoID, Actor: governance_model.Actor{ID: opts.UserID},
+				MergeAuthorizationID: opts.MergeAuthorizationID, Changes: changes,
+			})
+			if err != nil {
+				return err
+			}
+		}
+		_, err := pull_service.SetMerged(txctx, pr, updates[len(updates)-1].NewCommitID, timeutil.TimeStampNow(), pusher, pr.Status)
+		return err
+	})
 	if err != nil {
 		ctx.PrivateError(http.StatusInternalServerError, err, "failed to set pr to merged")
 		return false

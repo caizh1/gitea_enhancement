@@ -12,6 +12,8 @@ type Secret struct {
 	Name string `json:"name"`
 	// the secret's description
 	Description string `json:"description"`
+	// whether the secret is only available to trusted protected branches
+	Protected bool `json:"protected"`
 	// swagger:strfmt date-time
 	Created time.Time `json:"created_at"`
 }
@@ -28,4 +30,6 @@ type CreateOrUpdateSecretOption struct {
 	//
 	// required: false
 	Description string `json:"description"`
+	// Restricts the secret to trusted protected branches. Omitted keeps the existing setting when updating.
+	Protected *bool `json:"protected,omitempty"`
 }

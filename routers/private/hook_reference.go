@@ -80,7 +80,7 @@ func HookReferenceTransaction(ctx *gitea_context.PrivateContext) {
 			ctx.PrivateError(http.StatusForbidden, actorErr, "无法确认操作者")
 			return
 		}
-		if options.UserID <= 0 && options.DeployKeyID <= 0 && !options.IsInternal {
+		if options.UserID <= 0 && !(options.UserID == user_model.ActionsUserID && options.ActionsTaskID > 0) && options.DeployKeyID <= 0 && !options.IsInternal {
 			ctx.PrivateError(http.StatusForbidden, governance_model.ErrNotFound, "缺少受信任的 Gitea 操作者")
 			return
 		}
@@ -153,7 +153,7 @@ func HookReferenceTransaction(ctx *gitea_context.PrivateContext) {
 				return nil
 			})
 		} else {
-			err = governance_service.PrepareGitReferenceTransaction(ctx, operation)
+			err = governance_service.PrepareGitReferenceTransaction(ctx, operation, generateGitEnv(options))
 		}
 	case "committed", "aborted":
 		var operation governance_model.ReferenceTransaction
@@ -265,7 +265,7 @@ func recordGovernanceGitDenial(ctx *gitea_context.PrivateContext, options *priva
 // governanceGitActor 不把原生 Hook 为兼容权限传递的仓库所有者当作部署密钥本人。
 func governanceGitActor(ctx *gitea_context.PrivateContext, options *private.HookOptions) (governance_model.Actor, error) {
 	if options.IsInternal && options.ReferenceActor == "mirror" {
-		if !ctx.Repo.Repository.IsMirror {
+		if !ctx.Repo.Repository.IsMirror || options.UserID != 0 || options.DeployKeyID != 0 {
 			return governance_model.Actor{}, governance_model.ErrForbidden
 		}
 		return governance_model.Actor{Kind: "system", Name: "镜像后台同步", Transport: "internal_git"}, nil
@@ -295,6 +295,22 @@ func governanceGitActor(ctx *gitea_context.PrivateContext, options *private.Hook
 			return governance_model.Actor{}, err
 		}
 		return governance_service.RequestActor(user, options.PusherRemoteAddr, gitHookTransport(options.PusherTransport)), nil
+	}
+	if options.UserID == user_model.ActionsUserID {
+		if options.ActionsTaskID <= 0 {
+			return governance_model.Actor{}, governance_model.ErrForbidden
+		}
+		user := user_model.NewActionsUserWithTaskID(options.ActionsTaskID)
+		permission, err := access_model.GetActionsUserRepoPermission(ctx, ctx.Repo.Repository, user, options.ActionsTaskID)
+		if err != nil {
+			return governance_model.Actor{}, err
+		}
+		if !permission.CanWrite(unit.TypeCode) {
+			return governance_model.Actor{}, governance_model.ErrForbidden
+		}
+		actor := governance_service.RequestActor(user, options.PusherRemoteAddr, gitHookTransport(options.PusherTransport))
+		actor.CredentialID = options.ActionsTaskID
+		return actor, nil
 	}
 	return governance_model.Actor{Kind: "system", Name: "Gitea 内部 Git 操作", Transport: "internal_git"}, nil
 }

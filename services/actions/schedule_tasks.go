@@ -5,12 +5,14 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"time"
 
 	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	governance_model "gitea.dev/models/governance"
 	"gitea.dev/models/organization"
 	perm_model "gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -57,8 +59,18 @@ func startTasks(ctx context.Context) error {
 
 		// Loop through each spec and create a schedule task for it
 		for _, row := range specs {
+			if row.Schedule == nil || row.Repo == nil || row.Schedule.ScopeRevision != row.Repo.ActionsScopeRevision || row.Schedule.OwnerID != row.Repo.OwnerID {
+				continue
+			}
 			if row.Repo.IsArchived {
 				// Skip if the repo is archived
+				continue
+			}
+			current, err := actions_model.ScheduleBranchCurrent(ctx, row.Repo, row.Schedule.Ref, row.Schedule.CommitSHA)
+			if err != nil {
+				return fmt.Errorf("ScheduleBranchCurrent: %w", err)
+			}
+			if !current {
 				continue
 			}
 
@@ -75,6 +87,9 @@ func startTasks(ctx context.Context) error {
 			}
 
 			if err := CreateScheduleTask(ctx, row); err != nil {
+				if errors.Is(err, governance_model.ErrConflict) {
+					continue
+				}
 				log.Error("CreateScheduleTask: %v", err)
 				return err
 			}
